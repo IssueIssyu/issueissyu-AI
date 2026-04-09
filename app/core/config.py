@@ -1,21 +1,19 @@
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import Literal
 
-from pydantic import BaseModel
 from pydantic import Field
 from pydantic import computed_field
-from pydantic import field_validator
-from pydantic import model_validator
-from pydantic import AnyUrl
 from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class PostgresDsn(AnyUrl):
-    allowed_schemes = {"postgresql", "postgres+asyncpg"}
-    user_required = True
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
-
-class Settings(BaseModel):
     env: Literal["local", "dev", "prod"] = Field(default="local", alias="APP_ENV")
 
     # Database
@@ -59,7 +57,7 @@ class Settings(BaseModel):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # 환경변수 기반으로 로드
+    return Settings()  # .env + 환경변수 기반으로 로드
 
 
 settings = get_settings()
