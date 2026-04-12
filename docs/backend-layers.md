@@ -19,7 +19,7 @@
 - 세션 팩토리: `AsyncSessionLocal` (`async_sessionmaker`)
 - 의존성용 제너레이터: `get_async_db_session`  
   - 요청 동안 `yield session`  
-  - 정상 종료 시 `await session.commit()`  
+  - 정상 종료 시 자동 `commit` 없음 (요청 수명주기에서 커밋하지 않음)  
   - 예외 시 `await session.rollback()`  
 
 마이그레이션·일회성 스크립트 등에서 동기 접속이 필요하면 설정의 `sync_database_url`(`postgresql+psycopg://…`)로 별도 스크립트를 두는 방식이 일반적이다. (앱 런타임 경로와는 분리.)
@@ -126,9 +126,18 @@ async def list_users(svc: UserServiceDep):
 
 ## 트랜잭션·커밋
 
-- `get_async_db_session`이 요청 성공 시 한 번 `commit` 하므로, 대부분의 경우 리포에서는 **`flush`까지만** 호출해도 된다.
-- 핸들러/서비스 안에서 `await repo.commit()`을 추가로 호출하면 이중 커밋에 가까운 동작이 될 수 있으니, 팀 규칙에 맞춰 **의존성에서만 커밋**할지 **중간 커밋**이 필요한지 정하면 된다.
+- 의존성 teardown(`yield` 이후)에서 자동 `commit`하지 않는다.
+- 쓰기 유스케이스는 **Service 레이어에서 명시적으로 `commit`** 한다. (예: `await repo.commit()`)
+- 이 방식은 응답 반환 이후 `commit` 실패로 인한 데이터 불일치 위험을 줄인다.
 - 예외가 나면 의존성 쪽에서 `rollback`이 호출된다.
+
+## API 응답 포맷
+
+- 성공: `isSuccess: true`, `code`, `message`, `result`
+- 실패: `isSuccess: false`, `code`, `message`, `result`
+- `result`는 실패에서도 오버로딩 개념처럼 사용한다.
+  - 기본 실패는 `result: null`
+  - 상세 에러 데이터가 필요하면 `result`에 객체를 담아 반환한다.
 
 ## 다른 백엔드(Spring 등)와 DB 공유
 
