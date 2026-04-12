@@ -9,7 +9,7 @@
 | **Route (API)** | HTTP 입출력, 스키마 검증, 상태 코드. 비즈니스 규칙은 두지 않는다. |
 | **Service** | 유스케이스, 도메인 규칙, 여러 리포 조합. DB는 리포만 통한다. |
 | **Repository** | `AsyncSession`으로 CRUD·조회. `BaseRepo`를 상속해 모델만 고정한다. |
-| **Model** | 테이블 매핑. 선언 베이스는 `app.core.database.Base`를 쓴다. |
+| **Model** | 테이블 매핑. 선언 베이스는 `DeclarativeBase`를 상속한 `app.core.database.Base`를 쓴다. |
 
 데이터 흐름: **Router → Service → Repository → DB**
 
