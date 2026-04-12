@@ -36,14 +36,33 @@ class ErrorCode(Enum):
     FILE_TYPE_NOT_SUPPORTED = (status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "FILE_4151", "지원하지 않는 파일 형식입니다.")
     FILE_SIZE_TOO_LARGE = (status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "FILE_4131", "파일 크기가 너무 큽니다.")
 
-    # Infra / External
-    DATABASE_ERROR = (status.HTTP_500_INTERNAL_SERVER_ERROR, "DB_5001", "데이터베이스 오류가 발생했습니다.")
-    TRANSACTION_ERROR = (status.HTTP_500_INTERNAL_SERVER_ERROR, "DB_5002", "트랜잭션 처리 중 오류가 발생했습니다.")
-    S3_UPLOAD_ERROR = (status.HTTP_503_SERVICE_UNAVAILABLE, "S3_5031", "파일 저장에 실패했습니다.")
-    PDF_PROCESSING_ERROR = (status.HTTP_500_INTERNAL_SERVER_ERROR, "PDF_5001", "PDF 처리 중 오류가 발생했습니다.")
-    AI_PROCESSING_ERROR = (status.HTTP_500_INTERNAL_SERVER_ERROR, "AI_5001", "AI 분석 처리 중 오류가 발생했습니다.")
-    AI_REPORT_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "AI_4041", "AI REPORT를 찾을 수 없습니다.")
-    AI_REPORT_NOT_VALID_GRADE_TERM = (status.HTTP_400_BAD_REQUEST, "AI_4001", "부적절한 학년 학기 요청")
+    @property
+    def http_status(self) -> int:
+        return int(self.value[0])
+
+    @property
+    def code(self) -> str:
+        return str(self.value[1])
+
+    @property
+    def message(self) -> str:
+        return str(self.value[2])
+
+
+class SuccessCode(Enum):
+    """성공 코드 정의 (HTTP 상태, 문자열 코드, 기본 메시지)"""
+
+    # Common
+    OK = (status.HTTP_200_OK, "COMMON_200", "Success")
+    CREATED = (status.HTTP_201_CREATED, "COMMON_201", "Created")
+
+    # User
+    USER_LOGIN_SUCCESS = (status.HTTP_201_CREATED, "USER_2011", "회원가입& 로그인이 완료되었습니다.")
+    USER_LOGOUT_SUCCESS = (status.HTTP_200_OK, "USER_2001", "로그아웃 되었습니다.")
+    USER_REISSUE_SUCCESS = (status.HTTP_200_OK, "USER_2002", "토큰 재발급이 완료되었습니다.")
+    USER_DELETE_SUCCESS = (status.HTTP_200_OK, "USER_2003", "회원탈퇴가 완료되었습니다.")
+    USER_PROFILE_UPDATE_SUCCESS = (status.HTTP_200_OK, "USER_2006", "프로필 저장이 완료되었습니다.")
+    USER_INFO_GET_SUCCESS = (status.HTTP_200_OK, "USER_2007", "유저 정보 조회가 완료되었습니다.")
 
     @property
     def http_status(self) -> int:
@@ -56,3 +75,10 @@ class ErrorCode(Enum):
     @property
     def message(self) -> str:
         return str(self.value[2])
+
+    def get_reason(self) -> dict[str, int | str]:
+        return {
+            "httpStatus": self.http_status,
+            "code": self.code,
+            "message": self.message,
+        }
