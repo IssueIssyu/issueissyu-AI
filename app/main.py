@@ -14,7 +14,3 @@ register_success_envelope_middleware(app)
 def health() -> dict:
     return {"status": "ok"}
 
-
-@app.get("/test/error")
-def test_error() -> dict:
-    raise BusinessException(ErrorCode.USER_NOT_FOUND)
