@@ -24,11 +24,10 @@ jobs:
           --health-retries 10
 
     env:
-      DB_HOST: localhost
-      DB_PORT: "5432"
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_NAME: app
+      APP_ENV: local
+      LOCAL_DB_URL: postgresql://localhost:5432/app
+      LOCAL_DB_USERNAME: postgres
+      LOCAL_DB_PASSWORD: postgres
 
     steps:
       - uses: actions/checkout@v4

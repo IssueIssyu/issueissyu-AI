@@ -17,14 +17,12 @@ class Settings(BaseSettings):
     env: Literal["local", "dev", "prod"] = Field(default="local", alias="APP_ENV")
 
     # Database
-    db_scheme: Literal["postgresql", "postgres+asyncpg"] = Field(
-        default="postgresql", alias="DB_SCHEME"
-    )
-    db_host: str = Field(default="localhost", alias="DB_HOST")
-    db_port: int = Field(default=5432, alias="DB_PORT")
-    db_user: str = Field(default="postgres", alias="DB_USER")
-    db_password: SecretStr = Field(default=SecretStr("postgres"), alias="DB_PASSWORD")
-    db_name: str = Field(default="app", alias="DB_NAME")
+    local_db_url: str | None = Field(default=None, alias="LOCAL_DB_URL")
+    local_db_username: str | None = Field(default=None, alias="LOCAL_DB_USERNAME")
+    local_db_password: SecretStr | None = Field(default=None, alias="LOCAL_DB_PASSWORD")
+    aws_db_url: str | None = Field(default=None, alias="AWS_DB_URL")
+    aws_db_username: str | None = Field(default=None, alias="AWS_DB_USERNAME")
+    aws_db_password: SecretStr | None = Field(default=None, alias="AWS_DB_PASSWORD")
 
     # JWT
     jwt_secret_key: SecretStr = Field(default=SecretStr("dev-secret"), alias="JWT_SECRET_KEY")
@@ -36,23 +34,38 @@ class Settings(BaseSettings):
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")
 
-    @computed_field
-    @property
-    def sync_database_url(self) -> str:
+    def _selected_db_values(self) -> tuple[str | None, str | None, SecretStr | None]:
+        # local이면 LOCAL DB, dev/prod면 AWS DB 사용
+        if self.env == "local":
+            return self.local_db_url, self.local_db_username, self.local_db_password
+        return self.aws_db_url, self.aws_db_username, self.aws_db_password
+
+    def _build_database_url(self, *, async_mode: bool) -> str:
+        base_url, username, password_secret = self._selected_db_values()
+        password = password_secret.get_secret_value() if password_secret else ""
+        auth_url = (base_url or "").replace(
+            "postgresql://", f"postgresql://{username}:{password}@", 1
+        )
+
+        if async_mode:
+            return (
+                auth_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+                .replace("postgresql://", "postgresql+asyncpg://", 1)
+            )
         return (
-            f"postgresql+psycopg://{self.db_user}:"
-            f"{self.db_password.get_secret_value()}@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
+            auth_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+            .replace("postgresql://", "postgresql+psycopg://", 1)
         )
 
     @computed_field
     @property
+    def sync_database_url(self) -> str:
+        return self._build_database_url(async_mode=False)
+
+    @computed_field
+    @property
     def async_database_url(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.db_user}:"
-            f"{self.db_password.get_secret_value()}@"
-            f"{self.db_host}:{self.db_port}/{self.db_name}"
-        )
+        return self._build_database_url(async_mode=True)
 
 
 @lru_cache
