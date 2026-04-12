@@ -31,5 +31,5 @@ jobs:
           uvicorn app.main:app --host 127.0.0.1 --port 8000 &
           PID=$!
           trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
-          code="$(curl --retry 30 --retry-delay 0.2 --retry-connrefused -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)"
+          code="$(curl --retry 30 --retry-delay 1 --retry-connrefused -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)"
           test "$code" = "200"
