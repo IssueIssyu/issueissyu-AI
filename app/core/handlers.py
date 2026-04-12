@@ -1,14 +1,12 @@
 import json
-import os
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.core.codes import ErrorCode, SuccessCode
+from app.core.codes import ErrorCode
 from app.core.exceptions import CustomException, create_http_exception
 from app.core.responses import failure_response
 
@@ -69,56 +67,3 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)
-
-
-def _should_wrap_success_envelope() -> bool:
-    return os.getenv("WRAP_SUCCESS_RESPONSES", "false").lower() in ("1", "true", "yes")
-
-
-class SuccessEnvelopeMiddleware(BaseHTTPMiddleware):
-    """2xx JSON 응답을 ApiResponse 형태로 감쌉니다. 이미 isSuccess 키가 있으면 그대로 둡니다."""
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
-        if not _should_wrap_success_envelope():
-            return response
-        if response.status_code < 200 or response.status_code >= 300:
-            return response
-        ct = response.headers.get("content-type", "")
-        if "application/json" not in ct:
-            return response
-
-        body = getattr(response, "body", None)
-        if body is None:
-            chunks: list[bytes] = []
-            async for chunk in response.body_iterator:
-                chunks.append(chunk)
-            body = b"".join(chunks)
-        else:
-            body = bytes(body)
-
-        try:
-            parsed: Any = json.loads(body.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            return Response(content=body, status_code=response.status_code, headers=dict(response.headers))
-
-        if isinstance(parsed, dict) and parsed.get("isSuccess") is True:
-            return Response(content=body, status_code=response.status_code, headers=dict(response.headers))
-
-        success_code = SuccessCode.CREATED if response.status_code == status.HTTP_201_CREATED else SuccessCode.OK
-        wrapped = {
-            "isSuccess": True,
-            "code": success_code.code,
-            "message": success_code.message,
-            "result": parsed,
-        }
-        return JSONResponse(
-            content=wrapped,
-            status_code=response.status_code,
-            headers={k: v for k, v in response.headers.items() if k.lower() != "content-length"},
-        )
-
-
-def register_success_envelope_middleware(app: FastAPI) -> None:
-    if _should_wrap_success_envelope():
-        app.add_middleware(SuccessEnvelopeMiddleware)

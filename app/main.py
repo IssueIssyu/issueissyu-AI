@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from app import models  # noqa: F401
 from app.core.codes import SuccessCode
 from app.core.database import AsyncSessionLocal, Base, async_engine
-from app.core.handlers import register_exception_handlers, register_success_envelope_middleware
+from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
 from app.routes import user_router
 from app.utils.vector import ensure_pgvector_extension
@@ -35,7 +35,6 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 register_exception_handlers(app)
-register_success_envelope_middleware(app)
 app.include_router(user_router)
 
 
