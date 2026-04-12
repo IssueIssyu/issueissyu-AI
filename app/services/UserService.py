@@ -46,6 +46,7 @@ class UserService:
             like_alarm_active=False,
         )
         saved = await self.user_repo.save(user, flush_immediately=True)
+        await self.user_repo.commit()
         return UserDTO.model_validate(saved)
 
     async def get_all_users(self) -> list[UserDTO]:
