@@ -7,14 +7,15 @@ from app.core.responses import success_response
 
 router = APIRouter(prefix="/users", tags=["users"])
 
-
+#TODO 추후 구현이 이루어진 다음 무조건 삭제할것
 @router.get("")
 async def get_all_users(user_service: UserServiceDep):
     users = await user_service.get_all_users()
     return success_response(result=users, success_code=SuccessCode.USER_INFO_GET_SUCCESS)
 
-
+#TODO 추후 구현이 이루어진 다음 무조건 삭제할것
 @router.post("/test")
+#TODO 추후 구현이 이루어진 다음 무조건 삭제할것
 async def create_test_user(
     user_service: UserServiceDep,
     email: str = "test@issueissyu.ai",

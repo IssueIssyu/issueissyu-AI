@@ -13,7 +13,7 @@ from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
 
-
+#TODO 배포환경에서 무조건 두 옵션을 끄고 머지할것
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     async with async_engine.begin() as conn:
