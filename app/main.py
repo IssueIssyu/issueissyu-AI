@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI
+from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
 from app.core.codes import SuccessCode
@@ -39,5 +40,5 @@ app.include_router(user_router)
 
 
 @app.get("/health")
-def health() -> dict:
+def health() -> JSONResponse:
     return success_response(result={"status": "ok"}, success_code=SuccessCode.OK)
