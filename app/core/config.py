@@ -1,0 +1,76 @@
+from functools import lru_cache
+from typing import Literal
+
+from pydantic import Field
+from pydantic import computed_field
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    env: Literal["local", "dev", "prod"] = Field(default="local", alias="APP_ENV")
+
+    # Database
+    local_db_url: str | None = Field(default=None, alias="LOCAL_DB_URL")
+    local_db_username: str | None = Field(default=None, alias="LOCAL_DB_USERNAME")
+    local_db_password: SecretStr | None = Field(default=None, alias="LOCAL_DB_PASSWORD")
+    aws_db_url: str | None = Field(default=None, alias="AWS_DB_URL")
+    aws_db_username: str | None = Field(default=None, alias="AWS_DB_USERNAME")
+    aws_db_password: SecretStr | None = Field(default=None, alias="AWS_DB_PASSWORD")
+
+    # JWT
+    jwt_secret_key: SecretStr = Field(default=SecretStr("dev-secret"), alias="JWT_SECRET_KEY")
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_access_token_expires_minutes: int = Field(
+        default=60 * 24, alias="JWT_ACCESS_TOKEN_EXPIRES_MINUTES"
+    )
+
+    # 기타
+    debug: bool = Field(default=True, alias="DEBUG")
+
+    def _selected_db_values(self) -> tuple[str | None, str | None, SecretStr | None]:
+        # local이면 LOCAL DB, dev/prod면 AWS DB 사용
+        if self.env == "local":
+            return self.local_db_url, self.local_db_username, self.local_db_password
+        return self.aws_db_url, self.aws_db_username, self.aws_db_password
+
+    def _build_database_url(self, *, async_mode: bool) -> str:
+        base_url, username, password_secret = self._selected_db_values()
+        password = password_secret.get_secret_value() if password_secret else ""
+        auth_url = (base_url or "").replace(
+            "postgresql://", f"postgresql://{username}:{password}@", 1
+        )
+
+        if async_mode:
+            return (
+                auth_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
+                .replace("postgresql://", "postgresql+asyncpg://", 1)
+            )
+        return (
+            auth_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+            .replace("postgresql://", "postgresql+psycopg://", 1)
+        )
+
+    @computed_field
+    @property
+    def sync_database_url(self) -> str:
+        return self._build_database_url(async_mode=False)
+
+    @computed_field
+    @property
+    def async_database_url(self) -> str:
+        return self._build_database_url(async_mode=True)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # .env + 환경변수 기반으로 로드
+
+
+settings = get_settings()
