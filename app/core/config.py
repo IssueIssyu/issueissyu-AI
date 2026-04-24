@@ -31,6 +31,15 @@ class Settings(BaseSettings):
         default=60 * 24, alias="JWT_ACCESS_TOKEN_EXPIRES_MINUTES"
     )
 
+    #S3
+    aws_access_key:str = Field(default=None, alias="AWS_ACCESS_KEY")
+    aws_secret_key:str = Field(default=None, alias="AWS_SECRET_KEY")
+    aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
+    aws_bucket_name:str = Field(default=None, alias="AWS_BUCKET")
+
+
+
+
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")
 
