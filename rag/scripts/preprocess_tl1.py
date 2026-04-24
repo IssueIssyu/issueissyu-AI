@@ -1,33 +1,13 @@
 import json
-from pathlib import Path
 
+from preprocess_module import RAW_DIR, OUTPUT_DIR, clean_text, safe_get, iter_json_files, load_json
 
-RAW_ROOT = Path("../raw/tl1")
-OUTPUT_DIR = Path("../output")
+RAW_ROOT = RAW_DIR / "tl1"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_JSONL = OUTPUT_DIR / "tl1_rag_documents.jsonl"
 OUTPUT_PREVIEW = OUTPUT_DIR / "tl1_rag_preview.json"
 OUTPUT_REPORT = OUTPUT_DIR / "tl1_preprocessing_report.json"
-
-
-def safe_get(data, *keys, default=""):
-    current = data
-    for key in keys:
-        if not isinstance(current, dict) or key not in current:
-            return default
-        current = current[key]
-    return current
-
-
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-
-    lines = [line.strip() for line in text.split("\n")]
-    lines = [line for line in lines if line]
-
-    return "\n".join(lines).strip()
 
 
 def build_rag_text(category: str, subcategory: str, predication: str, department: str, text: str) -> str:
@@ -46,12 +26,6 @@ def build_rag_text(category: str, subcategory: str, predication: str, department
 
     return "\n".join(parts)
 
-
-def iter_json_files(root: Path):
-    for path in root.rglob("*.json"):
-        yield path
-
-
 def main():
     total_files = 0
     total_documents = 0
@@ -63,8 +37,11 @@ def main():
         for json_path in iter_json_files(RAW_ROOT):
             total_files += 1
 
-            with json_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
+            try:
+                data = load_json(json_path)
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+                print(f"[WARN] 파일 처리 실패: {json_path} / {e}")
+                continue
 
             documents = data.get("documents", [])
             total_documents += len(documents)

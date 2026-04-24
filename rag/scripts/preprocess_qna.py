@@ -1,27 +1,13 @@
 import json
-from pathlib import Path
 
+from preprocess_module import RAW_DIR, OUTPUT_DIR, clean_text, iter_json_files, load_json
 
-RAW_ROOT = Path("../raw/qna")
-OUTPUT_DIR = Path("../output")
+RAW_ROOT = RAW_DIR / "qna"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_JSONL = OUTPUT_DIR / "qna_rag_documents.jsonl"
 OUTPUT_PREVIEW = OUTPUT_DIR / "qna_rag_preview.json"
 OUTPUT_REPORT = OUTPUT_DIR / "qna_preprocessing_report.json"
-
-
-def clean_text(text: str) -> str:
-    if not text:
-        return ""
-
-    text = text.replace("_x000D_", "\n")
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    lines = [line.strip() for line in text.split("\n")]
-    lines = [line for line in lines if line]
-
-    return "\n".join(lines).strip()
 
 
 def build_rag_text(source: str, consulting_category: str, consulting_date: str, consulting_content: str) -> str:
@@ -37,16 +23,6 @@ def build_rag_text(source: str, consulting_category: str, consulting_date: str, 
     parts.append(f"[상담 내용]\n{consulting_content}")
 
     return "\n".join(parts)
-
-
-def iter_json_files(root: Path):
-    for path in root.rglob("*.json"):
-        yield path
-
-
-def load_json(path: Path):
-    with path.open("r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 def normalize_records(data):
@@ -69,7 +45,11 @@ def main():
         for json_path in iter_json_files(RAW_ROOT):
             total_files += 1
 
-            data = load_json(json_path)
+            try:
+                data = load_json(json_path)
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
+                print(f"[WARN] 파일 처리 실패: {json_path} / {e}")
+                continue
             records = normalize_records(data)
             total_records += len(records)
 

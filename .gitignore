@@ -7,3 +7,4 @@ __pycache__/
 rag/raw
 rag/output
 .venv/
+.idea/
