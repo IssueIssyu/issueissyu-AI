@@ -34,7 +34,7 @@ class Settings(BaseSettings):
 
     # S3
     aws_access_key: str | None = Field(default=None, alias="AWS_ACCESS_KEY")
-    aws_secret_key:SecretStr | None = Field(default=None, alias="AWS_SECRET_KEY")
+    aws_secret_key: SecretStr | None = Field(default=None, alias="AWS_SECRET_KEY")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
 
