@@ -37,7 +37,7 @@ async def create_test_user(
     )
     return success_response(result=user, success_code=SuccessCode.CREATED)
 
-@router.get("/test/error")
+@router.get("/error")
 async def raise_test_user_error():
     """에러 응답 포맷 테스트용 엔드포인트."""
     raise_business_exception(ErrorCode.USER_NOT_FOUND)
