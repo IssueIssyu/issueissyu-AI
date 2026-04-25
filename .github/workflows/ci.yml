@@ -43,11 +43,11 @@ jobs:
 
       - name: Create .env file from secret
         run: |
-          if [ -z "${{ secrets.ENV_FILE }}" ]; then
+          if [ -z "${{ secrets.CI_ENV }}" ]; then
             echo "ENV_FILE secret is empty"
             exit 1
           fi
-          printf '%s' "${{ secrets.ENV_FILE }}" > .env
+          printf '%s' "${{ secrets.CI_ENV }}" > .env
           if ! grep -q '^REDIS_LOCAL_HOST=' .env && grep -q '^LOCAL_REDIS_HOST=' .env; then
             echo "REDIS_LOCAL_HOST=$(awk -F= '/^LOCAL_REDIS_HOST=/{print $2; exit}' .env)" >> .env
           fi
