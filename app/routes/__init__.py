@@ -4,7 +4,7 @@ from app.core.config import settings
 
 ROUTER_REGISTRY = (
     {"router": user_router, "disabled_envs": set()},
-    {"router": test_router, "disabled_envs": {"dev"}},
+    {"router": test_router, "disabled_envs": {"dev", "prod"}},
 )
 
 

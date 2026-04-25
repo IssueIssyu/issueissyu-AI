@@ -14,11 +14,13 @@ from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
 
-#TODO 배포환경에서 무조건 두 옵션을 끄고 머지할것
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(app: FastAPI):
+
+    """
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    """
 
     async with AsyncSessionLocal() as session:
         try:
@@ -30,7 +32,13 @@ async def lifespan(_app: FastAPI):
                 "pgvector extension setup skipped; continuing without vector extension: %s",
                 exc,
             )
-    yield
+
+    try:
+        yield
+    finally:
+        async_redis_client = getattr(app.state, "async_redis_client", None)
+        if async_redis_client is not None:
+            await async_redis_client.aclose()
 
 
 app = FastAPI(lifespan=lifespan)

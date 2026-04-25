@@ -1,7 +1,6 @@
 from typing import Annotated
 
 from fastapi import Depends, Request
-from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,13 +39,11 @@ def get_s3_util(request: Request) -> S3Util:
 S3UtilDep = Annotated[S3Util, Depends(get_s3_util)]
 
 
-def get_sync_redis_client() -> Redis:
-    return get_redis_client(async_mode=False)
+def get_async_redis_client(request: Request) -> AsyncRedis:
+    redis_client = getattr(request.app.state, "async_redis_client", None)
+    if redis_client is None:
+        redis_client = get_redis_client(async_mode=True)
+        request.app.state.async_redis_client = redis_client
+    return redis_client
 
-
-def get_async_redis_client() -> AsyncRedis:
-    return get_redis_client(async_mode=True)
-
-
-SyncRedisDep = Annotated[Redis, Depends(get_sync_redis_client)]
 AsyncRedisDep = Annotated[AsyncRedis, Depends(get_async_redis_client)]

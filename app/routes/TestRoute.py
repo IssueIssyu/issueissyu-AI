@@ -1,10 +1,9 @@
 from fastapi import APIRouter, File, UploadFile
 
 
-from app.core.deps import S3UtilDep
+from app.core.deps import S3UtilDep, UserServiceDep
 from app.core.codes import ErrorCode, SuccessCode
 from app.core.exceptions import raise_business_exception
-from app.core.deps import UserServiceDep
 from app.core.responses import success_response
 router = APIRouter(prefix="/test", tags=["test"])
 
@@ -16,6 +15,8 @@ async def upload_test_image_to_s3(
 ):
     uploaded = await s3_util.upload_file(file, prefix="test-images")
     return success_response(result=uploaded, success_code=SuccessCode.CREATED)
+
+
 @router.get("/user")
 async def get_all_users(user_service: UserServiceDep):
     users = await user_service.get_all_users()
