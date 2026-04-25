@@ -10,6 +10,8 @@ from app.core.database import AsyncSessionLocal, Base, async_engine
 from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
 from app.routes import enabled_routers
+from app.utils.RedisUtil import get_redis_client
+from app.utils.S3Util import S3Util
 from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,9 @@ async def lifespan(app: FastAPI):
                 "pgvector extension setup skipped; continuing without vector extension: %s",
                 exc,
             )
+
+    app.state.s3_util = S3Util()
+    app.state.async_redis_client = get_redis_client(async_mode=True)
 
     try:
         yield

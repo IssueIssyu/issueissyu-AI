@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_async_db_session
 from app.repositories.UserRepo import UserRepo
 from app.services.UserService import UserService
-from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
 
 
@@ -31,8 +30,7 @@ UserServiceDep = Annotated[UserService, Depends(get_user_service)]
 def get_s3_util(request: Request) -> S3Util:
     s3_util = getattr(request.app.state, "s3_util", None)
     if s3_util is None:
-        s3_util = S3Util()
-        request.app.state.s3_util = s3_util
+        raise RuntimeError("S3Util is not initialized. Check application lifespan setup.")
     return s3_util
 
 
@@ -42,8 +40,7 @@ S3UtilDep = Annotated[S3Util, Depends(get_s3_util)]
 def get_async_redis_client(request: Request) -> AsyncRedis:
     redis_client = getattr(request.app.state, "async_redis_client", None)
     if redis_client is None:
-        redis_client = get_redis_client(async_mode=True)
-        request.app.state.async_redis_client = redis_client
+        raise RuntimeError("Async Redis client is not initialized. Check application lifespan setup.")
     return redis_client
 
 AsyncRedisDep = Annotated[AsyncRedis, Depends(get_async_redis_client)]
