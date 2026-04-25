@@ -19,6 +19,8 @@ pydantic-settings==2.10.1
 pydantic_core==2.41.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
+python-multipart==0.0.26
+redis==7.4.0
 s3transfer==0.16.1
 six==1.17.0
 SQLAlchemy==2.0.49

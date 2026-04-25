@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import Field
 from pydantic import computed_field
+from pydantic import field_validator
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,11 +32,27 @@ class Settings(BaseSettings):
         default=60 * 24, alias="JWT_ACCESS_TOKEN_EXPIRES_MINUTES"
     )
 
-    #S3
-    aws_access_key:str = Field(default=None, alias="AWS_ACCESS_KEY")
-    aws_secret_key:str = Field(default=None, alias="AWS_SECRET_KEY")
+    # S3
+    aws_access_key: str | None = Field(default=None, alias="AWS_ACCESS_KEY")
+    aws_secret_key: str | None = Field(default=None, alias="AWS_SECRET_KEY")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
-    aws_bucket_name:str = Field(default=None, alias="AWS_BUCKET")
+    aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
+
+    redis_local_host: str | None = Field(default=None, alias="REDIS_LOCAL_HOST")
+    redis_local_port: int | None = Field(default=6379, alias="REDIS_LOCAL_PORT")
+
+    redis_aws_host: str | None = Field(default=None, alias="VALKEY_HOST")
+    redis_aws_port: int | None = Field(default=6379, alias="VALKEY_PORT")
+    redis_aws_db: int | None = Field(default=0, alias="VALKEY_DB")
+    redis_aws_password: SecretStr | None = Field(default=None, alias="VALKEY_PASSWORD")
+
+    @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
+    @classmethod
+    def _empty_string_to_none_for_int_fields(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
 
 
 

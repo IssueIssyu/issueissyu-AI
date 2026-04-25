@@ -9,7 +9,7 @@ from app.core.codes import SuccessCode
 from app.core.database import AsyncSessionLocal, Base, async_engine
 from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
-from app.routes import user_router
+from app.routes import enabled_routers
 from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,8 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 register_exception_handlers(app)
-app.include_router(user_router)
+for router in enabled_routers:
+    app.include_router(router)
 
 
 @app.get("/health")
