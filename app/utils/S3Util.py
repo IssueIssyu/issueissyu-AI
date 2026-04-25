@@ -49,7 +49,7 @@ class S3Util:
         session_kwargs: dict[str, str] = {"region_name": self.region_name}
         if settings.aws_access_key and settings.aws_secret_key:
             session_kwargs["aws_access_key_id"] = settings.aws_access_key
-            session_kwargs["aws_secret_access_key"] = settings.aws_secret_key
+            session_kwargs["aws_secret_access_key"] = settings.aws_secret_key.get_secret_value()
 
         self.client = boto3.client("s3", **session_kwargs)
 
