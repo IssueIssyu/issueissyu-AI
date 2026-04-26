@@ -1,10 +1,13 @@
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_db_session
+from app.login.http_auth import get_current_user_id, get_optional_user_id
+from app.models.User import User
 from app.repositories.UserRepo import UserRepo
 from app.services.UserService import UserService
 from app.utils.S3Util import S3Util
@@ -43,4 +46,24 @@ def get_async_redis_client(request: Request) -> AsyncRedis:
         raise RuntimeError("Async Redis client is not initialized. Check application lifespan setup.")
     return redis_client
 
+
 AsyncRedisDep = Annotated[AsyncRedis, Depends(get_async_redis_client)]
+
+CurrentUserIdDep = Annotated[UUID, Depends(get_current_user_id)]
+OptionalUserIdDep = Annotated[UUID | None, Depends(get_optional_user_id)]
+
+
+async def get_current_user(
+    uid: CurrentUserIdDep,
+    user_repo: UserRepoDep,
+) -> User:
+    u = await user_repo.get_by_uid(uid)
+    if u is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    return u
+
+
+CurrentUserDep = Annotated[User, Depends(get_current_user)]
