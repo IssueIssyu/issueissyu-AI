@@ -22,6 +22,15 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     env:
       APP_ENV: local
@@ -31,6 +40,21 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create .env file from secret
+        run: |
+          if [ -z "${{ secrets.CI_ENV }}" ]; then
+            echo "ENV_FILE secret is empty"
+            exit 1
+          fi
+          printf '%s' "${{ secrets.CI_ENV }}" > .env
+          if ! grep -q '^REDIS_LOCAL_HOST=' .env && grep -q '^LOCAL_REDIS_HOST=' .env; then
+            echo "REDIS_LOCAL_HOST=$(awk -F= '/^LOCAL_REDIS_HOST=/{print $2; exit}' .env)" >> .env
+          fi
+          if ! grep -q '^REDIS_LOCAL_PORT=' .env && grep -q '^LOCAL_REDIS_PORT=' .env; then
+            echo "REDIS_LOCAL_PORT=$(awk -F= '/^LOCAL_REDIS_PORT=/{print $2; exit}' .env)" >> .env
+          fi
+          chmod 600 .env
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,6 +70,71 @@ jobs:
 
       - name: Syntax check (compileall)
         run: python -m compileall -q app
+
+      - name: Infra smoke test (PostgreSQL/Redis/S3)
+        run: |
+          python - <<'PY'
+          import asyncio
+          import os
+          import uuid
+
+          import asyncpg
+          import boto3
+          from dotenv import dotenv_values
+          from redis import Redis
+
+          env = dotenv_values(".env")
+
+          async def check_postgres() -> None:
+              conn = await asyncpg.connect(
+                  user=os.getenv("LOCAL_DB_USERNAME", "postgres"),
+                  password=os.getenv("LOCAL_DB_PASSWORD", "postgres"),
+                  database="app",
+                  host="127.0.0.1",
+                  port=5432,
+              )
+              try:
+                  result = await conn.fetchval("SELECT 1;")
+                  assert result == 1
+              finally:
+                  await conn.close()
+
+          def get_env_value(*keys: str, required: bool = False) -> str | None:
+              for key in keys:
+                  value = env.get(key) or os.getenv(key)
+                  if value:
+                      return value
+              if required:
+                  joined_keys = ", ".join(keys)
+                  raise RuntimeError(f"Missing required env key: {joined_keys}")
+              return None
+
+          asyncio.run(check_postgres())
+
+          redis_host = get_env_value("REDIS_LOCAL_HOST", "LOCAL_REDIS_HOST") or "localhost"
+          redis_port = int(get_env_value("REDIS_LOCAL_PORT", "LOCAL_REDIS_PORT") or "6379")
+          redis_client = Redis(host=redis_host, port=redis_port, db=0, decode_responses=True)
+          assert redis_client.ping() is True
+
+          aws_access_key = get_env_value("AWS_ACCESS_KEY", required=True)
+          aws_secret_key = get_env_value("AWS_SECRET_KEY", required=True)
+          aws_region = get_env_value("AWS_REGION", required=True)
+          aws_bucket = get_env_value("AWS_BUCKET", required=True)
+
+          s3 = boto3.client(
+              "s3",
+              aws_access_key_id=aws_access_key,
+              aws_secret_access_key=aws_secret_key,
+              region_name=aws_region,
+          )
+          s3.head_bucket(Bucket=aws_bucket)
+          key = f"ci-smoke/{uuid.uuid4().hex}.txt"
+          body = b"ci-smoke-test"
+          s3.put_object(Bucket=aws_bucket, Key=key, Body=body, ContentType="text/plain")
+          obj = s3.get_object(Bucket=aws_bucket, Key=key)
+          assert obj["Body"].read() == body
+          s3.delete_object(Bucket=aws_bucket, Key=key)
+          PY
 
       - name: Uvicorn 실행 후 /health 200 확인 (port 8000)
         run: |
