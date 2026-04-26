@@ -3,3 +3,8 @@
 
 __pycache__/
 *.pyc
+
+rag/raw
+rag/output
+.venv/
+.idea/
