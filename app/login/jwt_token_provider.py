@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from functools import lru_cache
 from typing import Any
 
@@ -32,9 +31,7 @@ class JwtTokenProvider:
             msg = "JWT exp claim is missing"
             raise jwt.InvalidTokenError(msg)
 
-        if isinstance(exp, datetime):
-            return
-        elif isinstance(exp, (int, float)):
+        if isinstance(exp, (int, float)):
             exp_ts = float(exp)
             if exp_ts > 1_000_000_000_000:
                 msg = "JWT exp claim must be seconds, not milliseconds"
