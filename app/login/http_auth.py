@@ -90,8 +90,6 @@ def get_current_user_id(
             )
         uid_str = jwt_provider.parse_uid_from_claims(claims)
         return uid_str.strip()
-    except HTTPException:
-        raise
     except (ValueError, jwt.PyJWTError) as e:
         logger.debug("JWT filter error: %s", e)
         raise HTTPException(
