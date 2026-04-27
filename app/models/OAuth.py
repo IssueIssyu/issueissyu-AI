@@ -17,7 +17,7 @@ class OAuth(BaseEntity):
         Identity(),
         primary_key=True,
     )
-    user_id: Mapped[str] = mapped_column(
+    uid: Mapped[str] = mapped_column(
         "uid",
         String(36),
         ForeignKey("user.uid"),
@@ -25,7 +25,7 @@ class OAuth(BaseEntity):
     )
     user: Mapped[User] = relationship(
         "User",
-        foreign_keys=[user_id],
+        foreign_keys=[uid],
         back_populates="oauths",
         lazy="selectin",
     )
