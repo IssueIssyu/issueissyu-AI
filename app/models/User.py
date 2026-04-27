@@ -12,6 +12,7 @@ from app.models.PgPointType import PGPointType
 
 if TYPE_CHECKING:
     from app.models.OAuth import OAuth
+    from app.models.UserLocation import UserLocation
 
 class User(BaseEntity):
     __tablename__ = "user"
@@ -26,3 +27,8 @@ class User(BaseEntity):
     store_alarm_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     like_alarm_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     oauths: Mapped[list[OAuth]] = relationship("OAuth", back_populates="user", lazy="selectin")
+    user_locations: Mapped[list[UserLocation]] = relationship(
+        "UserLocation",
+        back_populates="user",
+        lazy="selectin",
+    )

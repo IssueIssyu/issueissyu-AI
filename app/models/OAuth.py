@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from uuid import UUID
-
 from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, String
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
-from app.models.SocialType import SocialType
 from app.models.User import User
+from app.models.enum.SocialType import SocialType
 
 
 class OAuth(BaseEntity):
@@ -20,9 +17,9 @@ class OAuth(BaseEntity):
         Identity(),
         primary_key=True,
     )
-    user_id: Mapped[UUID] = mapped_column(
+    user_id: Mapped[str] = mapped_column(
         "uid",
-        PGUUID(as_uuid=True),
+        String(36),
         ForeignKey("user.uid"),
         nullable=False,
     )
