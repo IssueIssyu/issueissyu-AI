@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict
 class UserDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    uid: UUID
+    uid: str
     phone: str | None = None
     nickname: str | None = None
     email: str | None = None
