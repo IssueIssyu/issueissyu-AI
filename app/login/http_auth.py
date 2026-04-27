@@ -60,12 +60,11 @@ def get_optional_user_id(
     """
     if not token:
         return None
-    if not jwt_provider.validate_token(token):
-        return None
-    if jwt_provider.TOKEN_TYPE_ACCESS != jwt_provider.parse_token_type(token):
-        return None
     try:
-        uid_str = jwt_provider.parse_uid(token)
+        claims = jwt_provider.parse_claims(token)
+        if jwt_provider.TOKEN_TYPE_ACCESS != jwt_provider.parse_token_type_from_claims(claims):
+            return None
+        uid_str = jwt_provider.parse_uid_from_claims(claims)
         return uid_str.strip()
     except (ValueError, jwt.PyJWTError) as e:
         logger.debug("optional JWT: %s", e)
@@ -83,17 +82,13 @@ def get_current_user_id(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Not authenticated",
             )
-        if not jwt_provider.validate_token(token):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired token",
-            )
-        if jwt_provider.TOKEN_TYPE_ACCESS != jwt_provider.parse_token_type(token):
+        claims = jwt_provider.parse_claims(token)
+        if jwt_provider.TOKEN_TYPE_ACCESS != jwt_provider.parse_token_type_from_claims(claims):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Access token required",
             )
-        uid_str = jwt_provider.parse_uid(token)
+        uid_str = jwt_provider.parse_uid_from_claims(claims)
         return uid_str.strip()
     except HTTPException:
         raise
