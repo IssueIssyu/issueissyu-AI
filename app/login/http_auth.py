@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 from typing import Annotated
-from uuid import UUID
 
 import jwt
 from fastapi import Depends, HTTPException, Request, status
@@ -55,7 +54,7 @@ def resolve_bearer_or_cookie_token(request: Request) -> str | None:
 def get_optional_user_id(
     token: Annotated[str | None, Depends(get_access_token_raw)],
     jwt_provider: JwtDep,
-) -> UUID | None:
+) -> str | None:
     """
     토큰 없음·검증 실패·REFRESH 토큰인 경우 `None` (uid 없이 요청만 계속).
     """
@@ -67,7 +66,7 @@ def get_optional_user_id(
         return None
     try:
         uid_str = jwt_provider.parse_uid(token)
-        return UUID(uid_str)
+        return uid_str.strip()
     except (ValueError, jwt.PyJWTError) as e:
         logger.debug("optional JWT: %s", e)
         return None
@@ -76,7 +75,7 @@ def get_optional_user_id(
 def get_current_user_id(
     token: Annotated[str | None, Depends(get_access_token_raw)],
     jwt_provider: JwtDep,
-) -> UUID:
+) -> str:
     """ACCESS 토큰으로 uid 추출. 실패 시 401. (인증만)"""
     try:
         if not token:
@@ -95,7 +94,7 @@ def get_current_user_id(
                 detail="Access token required",
             )
         uid_str = jwt_provider.parse_uid(token)
-        return UUID(uid_str)
+        return uid_str.strip()
     except HTTPException:
         raise
     except (ValueError, jwt.PyJWTError) as e:

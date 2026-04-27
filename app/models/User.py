@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from sqlalchemy import Boolean, String
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
@@ -17,7 +16,7 @@ if TYPE_CHECKING:
 class User(BaseEntity):
     __tablename__ = "user"
 
-    uid: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4,)
+    uid: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: uuid4().hex)
     phone: Mapped[str | None] = mapped_column(String(13), nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(15), nullable=True)
     user_point: Mapped[tuple[float, float] | None] = mapped_column(PGPointType(), nullable=True)

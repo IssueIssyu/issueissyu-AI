@@ -31,7 +31,8 @@ class Settings(BaseSettings):
         default=SecretStr("dev-secret"),
         validation_alias=AliasChoices("JWT_SECRET", "JWT_SECRET_KEY"),
     )
-    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_algorithm: str = Field(default="HS512", alias="JWT_ALGORITHM")
+    jwt_timezone: str = Field(default="Asia/Seoul", alias="JWT_TIMEZONE")
 
     # S3
     aws_access_key: str | None = Field(default=None, alias="AWS_ACCESS_KEY")
@@ -53,10 +54,6 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
-
-
-
-
 
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")

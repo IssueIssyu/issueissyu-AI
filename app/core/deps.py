@@ -1,5 +1,4 @@
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis as AsyncRedis
@@ -49,8 +48,8 @@ def get_async_redis_client(request: Request) -> AsyncRedis:
 
 AsyncRedisDep = Annotated[AsyncRedis, Depends(get_async_redis_client)]
 
-CurrentUserIdDep = Annotated[UUID, Depends(get_current_user_id)]
-OptionalUserIdDep = Annotated[UUID | None, Depends(get_optional_user_id)]
+CurrentUserIdDep = Annotated[str, Depends(get_current_user_id)]
+OptionalUserIdDep = Annotated[str | None, Depends(get_optional_user_id)]
 
 
 async def get_current_user(

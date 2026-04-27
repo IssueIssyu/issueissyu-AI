@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import jwt
 
@@ -17,6 +19,7 @@ class JwtTokenProvider:
     def __init__(self) -> None:
         self._secret = settings.jwt_secret.get_secret_value()
         self._algorithm = settings.jwt_algorithm
+        self._timezone = ZoneInfo(settings.jwt_timezone)
 
     def validate_token(self, token: str) -> bool:
         try:
@@ -25,8 +28,34 @@ class JwtTokenProvider:
             return False
         return True
 
+    def _validate_exp_claim(self, claims: dict[str, Any]) -> None:
+        exp = claims.get("exp")
+        if exp is None:
+            return
+
+        if isinstance(exp, datetime):
+            exp_dt = exp if exp.tzinfo is not None else exp.replace(tzinfo=self._timezone)
+            exp_ts = exp_dt.timestamp()
+        elif isinstance(exp, (int, float)):
+            exp_ts = float(exp)
+            if exp_ts > 1_000_000_000_000:
+                exp_ts /= 1000.0
+        else:
+            msg = "JWT exp claim has invalid type"
+            raise jwt.InvalidTokenError(msg)
+
+        if datetime.now(self._timezone).timestamp() >= exp_ts:
+            raise jwt.ExpiredSignatureError("Token has expired")
+
     def parse_claims(self, token: str) -> dict[str, Any]:
-        return jwt.decode(token, self._secret, algorithms=[self._algorithm])
+        claims = jwt.decode(
+            token,
+            self._secret,
+            algorithms=[self._algorithm],
+            options={"verify_exp": False},
+        )
+        self._validate_exp_claim(claims)
+        return claims
 
     def parse_uid(self, token: str) -> str:
         claims = self.parse_claims(token)
