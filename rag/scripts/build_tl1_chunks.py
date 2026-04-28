@@ -1,34 +1,8 @@
 import argparse
-import json
 from pathlib import Path
 
+from chunk_module import load_jsonl, make_chunk_id_base, write_jsonl
 from preprocess_module import OUTPUT_DIR
-
-
-def load_jsonl(path: Path):
-    rows = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-    return rows
-
-
-def write_jsonl(path: Path, rows):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-
-
-def build_chunk_base_id(row, fallback_idx: int):
-    #QnA랑 동일한 ID구조, 파일 간 충돌 방지
-    doc_id = str(row.get("doc_id", fallback_idx))
-    source_file = str(row.get("source_file", ""))
-    source_stem = Path(source_file).stem if source_file else f"row{fallback_idx}"
-    return f"{doc_id}::{source_stem}"
 
 
 def build_tl1_no_split(input_jsonl: Path, output_jsonl: Path):
@@ -40,7 +14,7 @@ def build_tl1_no_split(input_jsonl: Path, output_jsonl: Path):
         if not text:
             continue
 
-        base_id = build_chunk_base_id(row, idx)
+        base_id = make_chunk_id_base(row, idx)
         chunk_row = {
             **row,
             "chunk_id": f"{base_id}::0",

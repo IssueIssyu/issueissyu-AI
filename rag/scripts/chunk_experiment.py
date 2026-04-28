@@ -3,86 +3,8 @@ import json
 import statistics
 from pathlib import Path
 
+from chunk_module import chunk_by_paragraph, chunk_fixed, load_jsonl
 from preprocess_module import OUTPUT_DIR
-
-
-def load_jsonl(path: Path):
-    rows = []
-    with path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            rows.append(json.loads(line))
-    return rows
-
-
-def split_fixed(text: str, chunk_size: int, overlap: int):
-    text = (text or "").strip()
-    if not text:
-        return []
-
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be > 0")
-    if overlap < 0:
-        raise ValueError("overlap must be >= 0")
-    if overlap >= chunk_size:
-        raise ValueError("overlap must be smaller than chunk_size")
-
-    chunks = []
-    step = chunk_size - overlap
-    start = 0
-    while start < len(text):
-        end = min(start + chunk_size, len(text))
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        if end >= len(text):
-            break
-        start += step
-    return chunks
-
-
-def split_by_paragraph(text: str, chunk_size: int, overlap: int):
-    text = (text or "").strip()
-    if not text:
-        return []
-
-    paragraphs = [p.strip() for p in text.split("\n") if p.strip()]
-    if not paragraphs:
-        return []
-
-    chunks = []
-    current = ""
-
-    for para in paragraphs:
-        if not current:
-            current = para
-            continue
-
-        merged = f"{current}\n{para}"
-        if len(merged) <= chunk_size:
-            current = merged
-        else:
-            chunks.append(current)
-            if overlap > 0 and len(current) > overlap:
-                carry = current[-overlap:].strip()
-                current = f"{carry}\n{para}" if carry else para
-            else:
-                current = para
-
-    if current:
-        chunks.append(current)
-
-    # 너무 큰 문단 있을 경우
-    refined = []
-    for c in chunks:
-        if len(c) <= chunk_size:
-            refined.append(c)
-            continue
-        refined.extend(split_fixed(c, chunk_size=chunk_size, overlap=overlap))
-    return refined
-
 
 def tokenize_estimate(text: str):
     # 경험적 추정 (글자 수를 2로 나누면 대략적인 토큰 수)
@@ -131,9 +53,9 @@ def build_chunks(rows, strategy: str, chunk_size: int, overlap: int):
     for row in rows:
         text = row.get("rag_text") or row.get("text") or ""
         if strategy == "fixed":
-            chunks = split_fixed(text, chunk_size=chunk_size, overlap=overlap)
+            chunks = chunk_fixed(text, chunk_size=chunk_size, overlap=overlap)
         elif strategy == "paragraph":
-            chunks = split_by_paragraph(text, chunk_size=chunk_size, overlap=overlap)
+            chunks = chunk_by_paragraph(text, chunk_size=chunk_size, overlap=overlap)
         else:
             raise ValueError(f"unsupported strategy: {strategy}")
         all_chunks.extend(chunks)
