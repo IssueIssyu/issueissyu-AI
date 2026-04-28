@@ -51,7 +51,7 @@ def main():
         chunk_id_counter[chunk_id] += 1
         chunk_strategy_counter[str(row.get("chunk_strategy", ""))] += 1
         if "::" in chunk_id:
-            # chunk_id format: {doc_id}::{source_stem}::{chunk_index}
+            #chunk_id 형식 = {doc_id}::{source}::{chunk_index}
             doc_id = chunk_id.rsplit("::", 1)[0]
         else:
             doc_id = str(row.get("doc_id", ""))
