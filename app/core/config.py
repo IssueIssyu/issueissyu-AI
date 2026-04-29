@@ -1,6 +1,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import AliasChoices
 from pydantic import Field
 from pydantic import computed_field
 from pydantic import field_validator
@@ -25,12 +26,13 @@ class Settings(BaseSettings):
     aws_db_username: str | None = Field(default=None, alias="AWS_DB_USERNAME")
     aws_db_password: SecretStr | None = Field(default=None, alias="AWS_DB_PASSWORD")
 
-    # JWT
-    jwt_secret_key: SecretStr = Field(default=SecretStr("dev-secret"), alias="JWT_SECRET_KEY")
-    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
-    jwt_access_token_expires_minutes: int = Field(
-        default=60 * 24, alias="JWT_ACCESS_TOKEN_EXPIRES_MINUTES"
+    # JWT 검증(디코딩)만 — 발급은 다른 서비스 (.env: JWT_SECRET, JWT_ALGORITHM)
+    jwt_secret: SecretStr = Field(
+        default=SecretStr("dev-secret"),
+        validation_alias=AliasChoices("JWT_SECRET", "JWT_SECRET_KEY"),
     )
+    jwt_algorithm: str = Field(default="HS512", alias="JWT_ALGORITHM")
+    jwt_timezone: str = Field(default="Asia/Seoul", alias="JWT_TIMEZONE")
 
     # S3
     aws_access_key: str | None = Field(default=None, alias="AWS_ACCESS_KEY")
@@ -52,10 +54,6 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
-
-
-
-
 
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from uuid import UUID
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +11,7 @@ class UserRepo(BaseRepo[User]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session, User)
 
-    async def get_by_uid(self, uid: UUID) -> User | None:
+    async def get_by_uid(self, uid: str) -> User | None:
         result = await self.session.execute(
             select(User).where(User.uid == uid)
         )
