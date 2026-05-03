@@ -1,0 +1,66 @@
+# PR이 main에 merge 되었을 때만 배포 + 수동 실행(workflow_dispatch).
+# 배포 zip에는 저장소 루트의 .ebextensions 만 포함됩니다(.ebextensions_dev 미사용).
+name: Issueissyu Dev CI/CD
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create .env file from secret
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          printf '%s' "$ENV_FILE" > .env
+          chmod 600 .env
+
+      - name: Get current time
+        uses: josStorer/get-current-time@v2
+        id: current-time
+        with:
+          format: YYYY-MM-DDTHH:mm:ss
+          utcOffset: "+09:00"
+
+      - name: Generate deployment package
+        run: |
+          mkdir -p deploy
+          rsync -a \
+            --exclude='.git' \
+            --exclude='deploy' \
+            --exclude='__pycache__' \
+            --exclude='.venv' \
+            --exclude='venv' \
+            --exclude='.idea' \
+            --exclude='.cursor' \
+            --exclude='.github' \
+            --exclude='*.pyc' \
+            ./ deploy/
+          (cd deploy && zip -r deploy.zip .)
+
+      - name: Deploy to Elastic Beanstalk
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          aws_access_key: ${{ secrets.AWS_ACTION_ACCESS_KEY_ID }}
+          aws_secret_key: ${{ secrets.AWS_ACTION_SECRET_ACCESS_KEY }}
+          application_name: ${{ vars.EB_APPLICATION_NAME }}
+          environment_name: ${{ vars.EB_ENVIRONMENT_NAME }}
+          region: ${{ vars.AWS_REGION }}
+          version_label: github-action-${{ steps.current-time.outputs.formattedTime }}
+          version_description: ${{ github.ref_name }}@${{ github.sha }}
+          deployment_package: deploy/deploy.zip
+          wait_for_deployment: false

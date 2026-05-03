@@ -1,3 +1,4 @@
+from app.models.DbConnectionCheck import DbConnectionCheck
 from app.models.OAuth import OAuth
 from app.models.EventPin import EventPin
 from app.models.Location import Location
@@ -18,6 +19,7 @@ from app.models.enum.ToneType import ToneType
 from app.models.UserLocation import UserLocation
 
 __all__ = [
+    "DbConnectionCheck",
     "REDIS_HASH_NAME",
     "EventPin",
     "Location",
