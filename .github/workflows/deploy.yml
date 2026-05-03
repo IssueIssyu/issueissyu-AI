@@ -57,9 +57,9 @@ jobs:
         with:
           aws_access_key: ${{ secrets.AWS_ACTION_ACCESS_KEY_ID }}
           aws_secret_key: ${{ secrets.AWS_ACTION_SECRET_ACCESS_KEY }}
-          application_name: ${{ vars.EB_APPLICATION_NAME }}
-          environment_name: ${{ vars.EB_ENVIRONMENT_NAME }}
-          region: ${{ vars.AWS_REGION }}
+          application_name: 'issueissyu-ai-dev'
+          environment_name: 'issueissyu-ai-dev-env'
+          region: 'ap-northeast-2'
           version_label: github-action-${{ steps.current-time.outputs.formattedTime }}
           version_description: ${{ github.ref_name }}@${{ github.sha }}
           deployment_package: deploy/deploy.zip
