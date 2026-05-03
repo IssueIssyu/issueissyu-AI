@@ -1,4 +1,4 @@
-# PR이 main에 merge 되었을 때만 배포 + 수동 실행(workflow_dispatch).
+# PR이 main 또는 test/CICD 에 merge 되었을 때 배포 + 수동 실행(workflow_dispatch).
 # 배포 zip에는 저장소 루트의 .ebextensions 만 포함됩니다(.ebextensions_dev 미사용).
 name: Issueissyu Dev CI/CD
 
@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main')
+      (github.event.pull_request.merged == true && (github.event.pull_request.base.ref == 'main' || github.event.pull_request.base.ref == 'test/CICD'))
 
     steps:
       - name: Checkout
@@ -24,9 +24,9 @@ jobs:
 
       - name: Create .env file from secret
         env:
-          ENV_FILE: ${{ secrets.ENV_FILE }}
+          ENV_FILE: ${{ secrets.DEV_ENV }}
         run: |
-          printf '%s' "$ENV_FILE" > .env
+          printf '%s' "$DEV_ENV" > .env
           chmod 600 .env
 
       - name: Get current time
