@@ -24,7 +24,7 @@ jobs:
 
       - name: Create .env file from secret
         env:
-          ENV_FILE: ${{ secrets.DEV_ENV }}
+          DEV_ENV: ${{ secrets.DEV_ENV }}
         run: |
           printf '%s' "$DEV_ENV" > .env
           chmod 600 .env
