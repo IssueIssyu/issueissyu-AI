@@ -97,6 +97,12 @@ def sha1(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
+def gemini_model_id(model: str) -> str:
+    #API,embedding_id용 모델 id (models/ 접두어 제거).
+    m = model.strip()
+    return m[len("models/") :] if m.startswith("models/") else m
+
+
 def split_title_body(text: str) -> tuple[str, str]:
     raw = text.strip()
     if not raw:
@@ -235,8 +241,7 @@ def embed_texts(
 
     from google.genai import types
 
-    m = model.strip()
-    model_id = m[len("models/") :] if m.startswith("models/") else m
+    model_id = gemini_model_id(model)
     config_fields: Dict[str, object] = {}
     if output_dimensionality is not None:
         config_fields["output_dimensionality"] = output_dimensionality
@@ -318,6 +323,16 @@ def build_embedding_rows(
 
     out_rows: List[Dict] = []
     batch_size = max(1, batch_size)
+    if gemini_model_id(model) == "gemini-embedding-2" and not mock:
+        if batch_size != 1:
+            print(
+                "gemini-embedding-2는 embed_content 다중 텍스트 시 "
+                f"응답 임베딩이 1건만 와 batch_size를 {batch_size} → 1로 조정합니다.",
+                flush=True,
+            )
+        batch_size = 1
+
+    model_for_id = gemini_model_id(model)
 
     for start in range(0, len(work), batch_size):
         batch = work[start : start + batch_size]
@@ -337,7 +352,7 @@ def build_embedding_rows(
             chunk_id = item["chunk_id"]
             out_rows.append(
                 {
-                    "embedding_id": f"{chunk_id}::{sha1(document_text)[:10]}",
+                    "embedding_id": f"{model_for_id}::{chunk_id}::{sha1(document_text)[:10]}",
                     "chunk_id": chunk_id,
                     "model": model,
                     "created_at": now_utc(),
@@ -403,7 +418,7 @@ def main():
         "--batch-size",
         type=int,
         default=DEFAULT_EMBED_BATCH_SIZE,
-        help="embed_content 한 요청당 텍스트 개수 (권장: 100)",
+        help="embed_content 한 요청당 텍스트 개수. gemini-embedding-2는 API 제한으로 실호출 시 1로 강제",
     )
     parser.add_argument(
         "--normalize-config",
