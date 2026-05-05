@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     redis_aws_db: int | None = Field(default=0, alias="VALKEY_DB")
     redis_aws_password: SecretStr | None = Field(default=None, alias="VALKEY_PASSWORD")
 
+    # Gemini
+    gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_vlm_model: str = Field(
+        default="gemini-3.1-pro-preview",
+        alias="GEMINI_VLM_MODEL",
+    )
+
     @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
     @classmethod
     def _empty_string_to_none_for_int_fields(cls, value: object) -> object:
