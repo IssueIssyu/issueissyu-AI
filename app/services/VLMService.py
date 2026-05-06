@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from json import JSONDecodeError
 
 from google import genai
@@ -56,6 +56,7 @@ VLM_RESPONSE_SCHEMA = {
 class VLMService:
     api_key: str
     model_name: str = "gemini-3.1-pro-preview"
+    client: genai.Client = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)

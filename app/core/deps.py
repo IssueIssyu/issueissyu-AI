@@ -11,6 +11,7 @@ from app.models.User import User
 from app.repositories.UserRepo import UserRepo
 from app.services.UserService import UserService
 from app.services.VLMService import VLMService
+from app.services.VectorStoreService import VectorStoreService
 from app.utils.S3Util import S3Util
 
 
@@ -42,6 +43,16 @@ def get_vlm_service() -> VLMService:
 
 
 VLMServiceDep = Annotated[VLMService, Depends(get_vlm_service)]
+
+
+def get_vector_store_service(request: Request) -> VectorStoreService:
+    vector_store_service = getattr(request.app.state, "vector_store_service", None)
+    if vector_store_service is None:
+        raise RuntimeError("VectorStoreService is not initialized. Check application lifespan setup.")
+    return vector_store_service
+
+
+VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
 
 
 def get_s3_util(request: Request) -> S3Util:

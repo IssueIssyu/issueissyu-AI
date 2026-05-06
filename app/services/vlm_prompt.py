@@ -36,7 +36,7 @@ def build_vlm_prompt(
 
 LlamaIndex 검색용 키워드 및 검색 쿼리 생성
 
-[Strict 생성 제약]
+[Strict 생성 제약 - 추가]
 
 너는 "생성 AI"가 아니라 "정보 추출기"이다.
 
@@ -233,7 +233,7 @@ E007_PRIVACY_RISK
 출력은 반드시 JSON만 작성한다.
 JSON 외 설명문, 마크다운, 주석은 출력하지 않는다.
 
-[위치 생성 금지 보강]
+[위치 생성 금지 보강 - 추가]
 
 location이 입력되지 않은 경우:
 location_context는 반드시 null로 출력한다
@@ -260,7 +260,7 @@ retrieval_query 규칙:
 추측 표현 금지
 구어체 금지
 
-[출력 강제 규칙]
+[출력 강제 규칙 - 추가]
 
 다음과 같은 경우 절대 생성하지 말고 비워라:
 확신 없는 domain -> "공통"

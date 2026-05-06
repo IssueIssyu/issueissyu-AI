@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional
@@ -15,6 +16,15 @@ if TYPE_CHECKING:
     from google import genai
 
 from dotenv import load_dotenv
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _SCRIPT_DIR.parent.parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.append(str(_REPO_ROOT))
+
+from app.utils.chunk_node_metadata import build_chunk_metadata, chunk_data_type
 
 from chunk_module import load_jsonl, write_jsonl
 from preprocess_module import OUTPUT_DIR
@@ -148,18 +158,6 @@ def normalize_chunk(
     return "\n".join(cleaned_lines).strip()
 
 
-def chunk_data_type(row: Dict) -> str:
-    # 청크 row의 data_type만 사용
-    value = row.get("data_type")
-    if not value:
-        raise ValueError(
-            "chunk row에 data_type이 없음"
-        )
-    if value not in ("qna", "tl1"):
-        raise ValueError(f"data_type은 'qna' 또는 'tl1'이어야 함 (받음: {value!r})")
-    return value
-
-
 def build_qna_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
@@ -194,22 +192,6 @@ def build_embedding_text(
     if row_type == "qna":
         return build_qna_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
     return build_tl1_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
-
-
-def build_chunk_metadata(row: Dict) -> Dict:
-    keep_keys = [
-        "doc_id",
-        "source_file",
-        "source_path",
-        "chunk_id",
-        "chunk_index",
-        "chunk_strategy",
-        "chunk_size",
-        "chunk_overlap",
-    ]
-    metadata = {k: row.get(k) for k in keep_keys if k in row}
-    metadata["type"] = chunk_data_type(row)
-    return metadata
 
 
 def _mock_embedding_vector(text: str, output_dimensionality: Optional[int]) -> List[float]:
