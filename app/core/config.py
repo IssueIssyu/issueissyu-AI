@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     redis_aws_db: int | None = Field(default=0, alias="VALKEY_DB")
     redis_aws_password: SecretStr | None = Field(default=None, alias="VALKEY_PASSWORD")
 
-    # Gemini
+    # Gemini/Vector DB
     gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
     gemini_vlm_model: str = Field(
         default="gemini-3.1-pro-preview",
@@ -58,6 +58,7 @@ class Settings(BaseSettings):
         default="gemini-embedding-2",
         alias="GEMINI_EMBEDDING_MODEL",
     )
+<<<<<<< HEAD
 
     vector_table_name: str = Field(default="complaint_chunks", alias="VECTOR_TABLE_NAME")
     vector_embed_dim: int = Field(default=1536, alias="VECTOR_EMBED_DIM")
@@ -65,6 +66,15 @@ class Settings(BaseSettings):
     vector_text_search_config: str = Field(
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
+=======
+    vector_embed_dim: int = Field(
+        default=1536,
+        alias="VECTOR_EMBED_DIM",
+    )
+    vector_table_name: str = Field(
+        default="complaint_chunks",
+        alias="VECTOR_TABLE_NAME",
+>>>>>>> f95de71 (refactor: 환경설정 config에 정리 및 프롬프트 수정)
     )
 
     @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
