@@ -65,6 +65,11 @@ class Settings(BaseSettings):
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
     )
+    # True면 lifespan에서 Gemini embed API로 차원 검증
+    vector_dim_check: bool = Field(
+        default=False,
+        alias="VECTOR_DIM_CHECK",
+    )
 
     @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
     @classmethod

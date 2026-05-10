@@ -161,13 +161,18 @@ def normalize_chunk(
 def build_qna_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    *,
+    normalized_chunk_body: Optional[str] = None,
 ) -> str:
     # TL1과 달리 QnA row의 text/rag_text에는 보통 제목 줄이 있어 split_title_body가 유효함.
     chunk_source = str(row.get("chunk_text") or "").strip()
     full_title, _ = split_title_body(
         str(row.get("rag_text") or row.get("text") or "").strip()
     )
-    body = normalize_chunk(chunk_source, skip_line_prefixes=skip_line_prefixes)
+    if normalized_chunk_body is not None:
+        body = normalized_chunk_body
+    else:
+        body = normalize_chunk(chunk_source, skip_line_prefixes=skip_line_prefixes)
     if full_title and full_title != "제목 없음":
         return f"[제목] {full_title}\n[본문] {body}"
     return body
@@ -187,10 +192,18 @@ def build_tl1_embedding_text(
 def build_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    *,
+    normalized_chunk_body: Optional[str] = None,
 ) -> str:
     row_type = chunk_data_type(row)
     if row_type == "qna":
-        return build_qna_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
+        return build_qna_embedding_text(
+            row,
+            skip_line_prefixes=skip_line_prefixes,
+            normalized_chunk_body=normalized_chunk_body,
+        )
+    if normalized_chunk_body is not None:
+        return normalized_chunk_body
     return build_tl1_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
 
 
@@ -293,7 +306,11 @@ def build_embedding_rows(
         if not body:
             continue
 
-        document_text = build_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
+        document_text = build_embedding_text(
+            row,
+            skip_line_prefixes=skip_line_prefixes,
+            normalized_chunk_body=body,
+        )
         chunk_id = str(row.get("chunk_id") or f"row::{idx}")
         work.append(
             {
