@@ -1,5 +1,52 @@
 from __future__ import annotations
 
+import json
+
+# 프롬프트·response_json_schema에서 동일 분류를 쓰기 위한 단일 정의
+VLM_CATEGORY_TYPES: tuple[str, ...] = (
+    "불법주정차",
+    "불법쓰레기투기",
+    "시설물 민원",
+    "기타/판단불가",
+)
+
+VLM_ADMIN_DOMAINS: tuple[str, ...] = (
+    "건축허가",
+    "경제",
+    "공통",
+    "교통",
+    "농업_축산",
+    "문화_체육_관광",
+    "보건소",
+    "복지",
+    "산림",
+    "상하수도",
+    "세무",
+    "안전건설",
+    "위생",
+    "자동차",
+    "정보통신",
+    "토지",
+    "행정",
+    "환경미화",
+)
+
+VLM_ERROR_CODES: tuple[str, ...] = (
+    "E001_IMAGE_ANALYSIS_FAILED",
+    "E002_OBJECT_NOT_IDENTIFIED",
+    "E003_IRRELEVANT_IMAGE",
+    "E004_CATEGORY_UNCLEAR",
+    "E005_LOW_IMAGE_QUALITY",
+    "E006_UNVERIFIABLE_CLAIM",
+    "E007_PRIVACY_RISK",
+)
+
+VLM_PRIVACY_NOTES: tuple[str, ...] = (
+    "개인정보 포함 가능",
+    "개인정보 식별 어려움",
+    "해당 없음",
+)
+
 
 def _render_optional(value: str | None) -> str:
     if value is None:
@@ -15,14 +62,18 @@ def build_vlm_prompt(
 ) -> str:
     location_text = _render_optional(location)
     safe_user_text = user_text.strip()
-    location_json_value = "null" if location_text == "null" else f"\"{location_text}\""
+    location_json_value = (
+        "null"
+        if location_text == "null"
+        else json.dumps(location_text, ensure_ascii=False)
+    )
 
     return f"""
         [AI 민원 이미지 분석 및 RAG 검색 보조 프롬프트]
         
         [역할]
         너는 지자체 민원 처리 시스템의 '민원 이미지 분석 및 RAG 검색 보조 AI'다.
-        사용자가 입력한 민원 내용, 위치 정보, 선택 말투, 업로드 이미지를 함께 분석하여 아래 작업을 수행한다.
+        사용자가 입력한 민원 내용, 위치 정보, 업로드 이미지를 함께 분석하여 아래 작업을 수행한다.
         
         민원 유형 분류(type)
         행정 도메인 분류(domain, RAG/tl1 기준)
