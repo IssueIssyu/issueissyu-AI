@@ -77,22 +77,30 @@ async def lifespan(app: FastAPI):
                 hybrid_search=settings.vector_hybrid_search,
                 text_search_config=settings.vector_text_search_config,
             )
-            dimension_checks = await app.state.vector_store_service.avalidate_embedding_dimensions()
-            for check in dimension_checks:
-                if check["matched"]:
-                    logger.warning(
-                        "Vector embedding dimension OK: model=%s expected=%s actual=%s",
-                        check["model_name"],
-                        check["expected_dim"],
-                        check["actual_dim"],
-                    )
-                else:
-                    logger.error(
-                        "Vector embedding dimension mismatch: model=%s expected=%s actual=%s",
-                        check["model_name"],
-                        check["expected_dim"],
-                        check["actual_dim"],
-                    )
+            if settings.vector_dim_check:
+                dimension_checks = (
+                    await app.state.vector_store_service.avalidate_embedding_dimensions()
+                )
+                for check in dimension_checks:
+                    if check["matched"]:
+                        logger.info(
+                            "Vector embedding dimension OK: model=%s expected=%s actual=%s",
+                            check["model_name"],
+                            check["expected_dim"],
+                            check["actual_dim"],
+                        )
+                    else:
+                        logger.error(
+                            "Vector embedding dimension mismatch: model=%s expected=%s actual=%s",
+                            check["model_name"],
+                            check["expected_dim"],
+                            check["actual_dim"],
+                        )
+            else:
+                logger.debug(
+                    "Skipping vector embedding dimension probe at startup "
+                    "(set VECTOR_DIM_CHECK=true to enable).",
+                )
         except Exception as exc:
             logger.warning("VectorStoreService initialization failed: %s", exc)
 
