@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Literal, overload
+import ssl
+from typing import Any, Literal, overload
 
 from redis import Redis
 from redis.asyncio import Redis as AsyncRedis
@@ -8,13 +9,13 @@ from redis.asyncio import Redis as AsyncRedis
 from app.core.config import settings
 
 
-def _resolve_redis_config() -> tuple[str, int, int, str | None]:
+def _resolve_redis_config() -> tuple[str, int, int, str | None, bool]:
     if settings.env == "local":
         host = settings.redis_local_host or "localhost"
         port = settings.redis_local_port or 6379
         db = 0
         password = None
-        return host, port, db, password
+        return host, port, db, password, False
 
     host = settings.redis_aws_host or "localhost"
     port = settings.redis_aws_port or 6379
@@ -24,7 +25,7 @@ def _resolve_redis_config() -> tuple[str, int, int, str | None]:
         if settings.redis_aws_password
         else None
     )
-    return host, port, db, password
+    return host, port, db, password, settings.redis_aws_tls
 
 
 @overload
@@ -36,14 +37,19 @@ def get_redis_client(async_mode: Literal[True]) -> AsyncRedis: ...
 
 
 def get_redis_client(async_mode: bool = False) -> Redis | AsyncRedis:
-    host, port, db, password = _resolve_redis_config()
-    kwargs = {
+    host, port, db, password, use_tls = _resolve_redis_config()
+    kwargs: dict[str, Any] = {
         "host": host,
         "port": port,
         "db": db,
         "password": password,
         "decode_responses": True,
     }
+    if use_tls:
+        # AWS Valkey/ElastiCache 등 TLS 항목은 시스템/번들 CA로 서버 인증(ssl.CERT_REQUIRED).
+        kwargs["ssl"] = True
+        kwargs["ssl_cert_reqs"] = ssl.CERT_REQUIRED
+
     if async_mode:
         return AsyncRedis(**kwargs)
     return Redis(**kwargs)

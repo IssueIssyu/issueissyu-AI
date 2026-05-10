@@ -10,10 +10,12 @@ fastapi==0.135.3
 GeoAlchemy2==0.18.0
 greenlet==3.2.4
 h11==0.16.0
+httpx==0.28.1
 idna==3.11
 jmespath==1.1.0
 numpy==2.4.4
 packaging==26.2
+pillow==12.2.0
 pgvector==0.4.2
 psycopg==3.3.3
 psycopg-binary==3.3.3

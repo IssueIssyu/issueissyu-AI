@@ -1,4 +1,5 @@
 from app.routes.DbCheckRoute import router as db_check_router
+from app.routes.ImageGeoRoute import router as image_geo_router
 from app.routes.UserRoute import router as user_router
 from app.routes.TestRoute import router as test_router
 from app.core.config import settings
@@ -6,6 +7,7 @@ from app.core.config import settings
 ROUTER_REGISTRY = (
     {"router": user_router, "disabled_envs": set()},
     {"router": db_check_router, "disabled_envs": set()},
+    {"router": image_geo_router, "disabled_envs": set()},
     {"router": test_router, "disabled_envs": {"dev", "prod"}},
 )
 
