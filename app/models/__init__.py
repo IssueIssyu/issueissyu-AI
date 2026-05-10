@@ -10,6 +10,7 @@ from app.models.RefreshToken import (
 )
 from app.models.Pin import Pin
 from app.models.PinImage import PinImage
+from app.models.PinLocation import PinLocation
 from app.models.User import User
 from app.models.enum.PinType import PinType
 from app.models.enum.RegionCode import RegionCode
@@ -24,6 +25,7 @@ __all__ = [
     "OAuth",
     "Pin",
     "PinImage",
+    "PinLocation",
     "PinType",
     "RegionCode",
     "RefreshToken",

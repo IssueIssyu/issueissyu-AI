@@ -12,6 +12,7 @@ from app.models.enum.ToneType import ToneType
 if TYPE_CHECKING:
     from app.models.EventPin import EventPin
     from app.models.PinImage import PinImage
+    from app.models.PinLocation import PinLocation
     from app.models.User import User
 
 
@@ -58,6 +59,12 @@ class Pin(BaseEntity):
     )
     event_pin: Mapped[EventPin | None] = relationship(
         "EventPin",
+        back_populates="pin",
+        uselist=False,
+        lazy="selectin",
+    )
+    pin_location: Mapped[PinLocation | None] = relationship(
+        "PinLocation",
         back_populates="pin",
         uselist=False,
         lazy="selectin",

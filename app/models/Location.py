@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.PinLocation import PinLocation
     from app.models.User import User
 
 
@@ -31,5 +32,11 @@ class Location(Base):
         "User",
         back_populates="location",
         foreign_keys="User.location_id",
+        lazy="selectin",
+    )
+    pin_locations: Mapped[list[PinLocation]] = relationship(
+        "PinLocation",
+        back_populates="location",
+        foreign_keys="PinLocation.location_id",
         lazy="selectin",
     )
