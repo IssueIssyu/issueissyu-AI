@@ -4,7 +4,7 @@ import logging
 from io import BytesIO
 from typing import Any
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import GPSTAGS, IFD
 
 from app.schemas.Wgs84PointDTO import Wgs84PointDTO
@@ -36,7 +36,17 @@ class ImageExifGeoService:
                 if not exif:
                     return None
                 gps_raw = exif.get_ifd(_GPS_IFD)
+        except UnidentifiedImageError:
+            logger.debug("EXIF GPS: Pillow가 포맷을 식별하지 못함", exc_info=True)
+            return None
+        except OSError:
+            logger.debug("EXIF GPS: 이미지 열기/읽기 I/O 오류", exc_info=True)
+            return None
+        except (ValueError, TypeError):
+            logger.debug("EXIF GPS: EXIF/IFD 접근 중 값 또는 타입 오류", exc_info=True)
+            return None
         except Exception:
+            logger.debug("EXIF GPS: 처리 중 예기치 않은 오류", exc_info=True)
             return None
         if not gps_raw:
             return None
@@ -75,7 +85,7 @@ class ImageExifGeoService:
         except ValueError:
             return None
 
-        logger.info(
+        logger.debug(
             "EXIF GPS 추출 완료 crs=%s latitude=%s longitude=%s (ref lat=%s lon=%s)",
             dto.crs,
             dto.latitude,

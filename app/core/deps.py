@@ -1,5 +1,6 @@
 from typing import Annotated
 
+import httpx
 from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,10 +44,15 @@ ImageMultipartGeoServiceDep = Annotated[
 ]
 
 
-def get_location_resolve_client() -> LocationResolveClient:
+def get_location_resolve_client(request: Request) -> LocationResolveClient:
+    http_client = getattr(request.app.state, "shared_httpx_client", None)
+    if http_client is None or not isinstance(http_client, httpx.AsyncClient):
+        raise RuntimeError(
+            "shared_httpx_client is not initialized. Check FastAPI lifespan in app.main.",
+        )
     return LocationResolveClient(
+        http_client=http_client,
         base_url=settings.location_core_base_url,
-        timeout_seconds=settings.location_resolve_timeout_seconds,
     )
 
 

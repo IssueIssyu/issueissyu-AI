@@ -18,11 +18,11 @@ class LocationResolveClient:
     def __init__(
         self,
         *,
+        http_client: httpx.AsyncClient,
         base_url: str | None,
-        timeout_seconds: float,
     ) -> None:
+        self._http = http_client
         self._base_url = (base_url or "").strip().rstrip("/") or ""
-        self._timeout = timeout_seconds
 
     async def resolve_wgs84(self, latitude: float, longitude: float) -> LocationResolveResultDTO | None:
         if not self._base_url:
@@ -32,10 +32,9 @@ class LocationResolveClient:
         params = {"lat": latitude, "lng": longitude}
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
-                response = await client.get(url, params=params)
-                response.raise_for_status()
-                payload: dict[str, Any] = response.json()
+            response = await self._http.get(url, params=params)
+            response.raise_for_status()
+            payload: dict[str, Any] = response.json()
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "location resolve HTTP error: %s %s",

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from io import BytesIO
 
 from fastapi import UploadFile
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
+
+logger = logging.getLogger(__name__)
 
 from app.core.codes import ErrorCode
 from app.core.exceptions import raise_file_exception
@@ -41,7 +44,20 @@ class ImageMultipartGeoService:
         try:
             with Image.open(BytesIO(data)) as img:
                 img.load()
+        except UnidentifiedImageError:
+            logger.debug("멀티파트 이미지 디코드: 포맷 미식별", exc_info=True)
+            raise_file_exception(
+                ErrorCode.FILE_TYPE_NOT_SUPPORTED,
+                detail="이미지로 디코딩할 수 없습니다.",
+            )
+        except OSError:
+            logger.debug("멀티파트 이미지 디코드: I/O 오류", exc_info=True)
+            raise_file_exception(
+                ErrorCode.FILE_TYPE_NOT_SUPPORTED,
+                detail="이미지로 디코딩할 수 없습니다.",
+            )
         except Exception:
+            logger.debug("멀티파트 이미지 디코드: 예기치 않은 오류", exc_info=True)
             raise_file_exception(
                 ErrorCode.FILE_TYPE_NOT_SUPPORTED,
                 detail="이미지로 디코딩할 수 없습니다.",
