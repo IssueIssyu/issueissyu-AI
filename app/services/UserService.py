@@ -22,31 +22,3 @@ class UserService:
         if user is None:
             raise_business_exception(ErrorCode.USER_NOT_FOUND)
         return user
-
-    async def create_test_user(
-        self,
-        *,
-        email: str = "test@issueissyu.ai",
-        nickname: str = "tester",
-        phone: str | None = None,
-    ) -> UserDTO:
-        existing = await self.user_repo.get_by_email(email)
-        if existing is not None:
-            return UserDTO.model_validate(existing)
-
-        user = User(
-            email=email,
-            nickname=nickname,
-            phone=phone,
-            event_alarm_active=False,
-            hot_alarm_active=False,
-            store_alarm_active=False,
-            like_alarm_active=False,
-        )
-        saved = await self.user_repo.save(user, flush_immediately=True)
-        await self.user_repo.commit()
-        return UserDTO.model_validate(saved)
-
-    async def get_all_users(self) -> list[UserDTO]:
-        users = await self.user_repo.get_all_users()
-        return [UserDTO.model_validate(user) for user in users]

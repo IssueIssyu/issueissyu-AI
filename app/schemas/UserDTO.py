@@ -10,9 +10,11 @@ class UserDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     uid: str
+    user_name: str
     phone: str | None = None
     nickname: str | None = None
     email: str | None = None
+    location_id: int | None = None
     event_alarm_active: bool
     hot_alarm_active: bool
     store_alarm_active: bool
