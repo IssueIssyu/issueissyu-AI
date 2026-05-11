@@ -1,7 +1,7 @@
 """
 청크 JSONL 행 -> 벡터 DB / MetadataFilters용 메타데이터.
 메타데이터 만드는 공통 함수 파일이다.
-여기만 고치면 두 경로가 같이 바뀐다. (JSONL 실험 스크립트(embed_chunks_gemini)와 LlamaIndex insert_nodes 경로)
+여기만 고치면 청크 적재 경로(LlamaIndex insert_nodes 등)의 메타데이터가 함께 바뀐다.
 """
 
 from __future__ import annotations
@@ -11,6 +11,8 @@ from typing import Any, Mapping
 
 from llama_index.core.schema import TextNode
 
+# TL1(preprocess_tl1): category/subcategory/predication/department — 텍스트의 [민원 …] 라벨줄은
+# chunk_text_normalize 에서 제거하고, 필터용 값은 여기 메타로만 둔다.
 _OPTIONAL_FILTER_METADATA_KEYS = (
     "domain",
     "region",
