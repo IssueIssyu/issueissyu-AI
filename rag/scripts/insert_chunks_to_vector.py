@@ -171,15 +171,27 @@ async def main() -> None:
                 raw_text=args.no_chunk_normalize,
             )
             node_id = node.node_id
-            if not node_id or node_id in seen_ids:
+            if not node_id:
+                print(f"[skip] missing node_id idx={idx} chunk_id={row.get('chunk_id')}")
                 skipped += 1
                 continue
+
+            if node_id in seen_ids:
+                print(f"[skip] duplicated node_id idx={idx} node_id={node_id}")
+                skipped += 1
+                continue
+
             seen_ids.add(node_id)
             nodes.append(node)
-        except Exception:
+
+        except Exception as e:
+            print(
+                f"[skip] exception idx={idx} "
+                f"chunk_id={row.get('chunk_id')} "
+                f"error={type(e).__name__}: {e}"
+            )
             skipped += 1
             continue
-
         if len(nodes) >= args.batch_size:
             table_name = await insert_batch_with_retry(svc, nodes, domain)
             total += len(nodes)
