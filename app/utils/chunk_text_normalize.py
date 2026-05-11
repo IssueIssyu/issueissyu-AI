@@ -17,6 +17,7 @@ DEFAULT_NORMALIZE_SKIP_PREFIXES: tuple[str, ...] = (
     "[민원 유형]",
     "[담당 부서]",
     "[민원 내용]",
+    "제목 :",
 )
 
 # 이 줄에서 잘리면 해당 줄과 이후 전부 제거
@@ -80,9 +81,8 @@ def normalize_chunk(
     QnA 본문: Q:/A: 라벨 불릿 접두 제거, 질의/답변 섹션 제목 줄 삭제,
     고정 인사말(전체 행 일치)만 삭제.
 
-    footer_line_prefixes: None이면 DEFAULT_FOOTER_LINE_PREFIXES에 더해, 행 전체가
-    끝인 경우만 추가로 절단(끝나 같은 본문과 구분). ()이면 푸터 절단 전부 끔
-    그 외 비어 있지 않은 튜플이면 그 접두어들에 대한 startswith만 절단 기준으로
+    footer_line_prefixes: None이면 DEFAULT_FOOTER_LINE_PREFIXES를 사용하고,
+    추가로 행 전체가 정확히 "끝"인 경우도 푸터로 간주해 절단한다. ()이면 푸터 절단을 전부 끔
     """
     raw = chunk_text.strip()
     if not raw:
@@ -121,8 +121,6 @@ def normalize_chunk(
             if stripped.startswith(footers):
                 break
         if prefixes and stripped.startswith(prefixes):
-            continue
-        if stripped.startswith("제목 :"):
             continue
 
         after_qa = _QA_LINE_PREFIX_RE.sub("", stripped, count=1)
