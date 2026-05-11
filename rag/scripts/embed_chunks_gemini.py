@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -25,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.append(str(_REPO_ROOT))
 
 from app.utils.chunk_node_metadata import build_chunk_metadata, chunk_data_type
+from app.utils.chunk_text_normalize import load_skip_line_prefixes, normalize_chunk
 
 from chunk_module import load_jsonl, write_jsonl
 from preprocess_module import OUTPUT_DIR
@@ -36,37 +36,12 @@ DEFAULT_MODEL = "gemini-embedding-2"
 DEFAULT_OUTPUT_DIMENSIONALITY = 1536
 # embed_content에 문자열 리스트를 넘기면 한 번의 요청으로 배치 임베딩 (RTT 감소)
 DEFAULT_EMBED_BATCH_SIZE = 100
-
 DEFAULT_EMBED_RETRY_ATTEMPTS = 8
 DEFAULT_EMBED_RETRY_WAIT_MIN_S = 2
 DEFAULT_EMBED_RETRY_WAIT_MAX_S = 120
 
-# normalize_chunk: 줄 시작이 이 접두어 중 하나면 제외 (None이면 이 기본값 사용)
-DEFAULT_NORMALIZE_SKIP_PREFIXES: tuple[str, ...] = (
-    "[출처 기관]",
-    "[상담 분류]",
-    "[상담 일자]",
-    "[상담 내용]",
-)
 
-
-def load_skip_line_prefixes(path: Path) -> tuple[str, ...]:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise ValueError(f"normalize 설정은 JSON 객체여야 함: {path}")
-    raw = data.get("skip_line_prefixes")
-    if raw is None:
-        raw = data.get("skip_prefixes")
-    if raw is None:
-        raise ValueError(
-            f"normalize 설정에 skip_line_prefixes 또는 skip_prefixes 배열이 필요함: {path}"
-        )
-    if not isinstance(raw, list):
-        raise ValueError(f"skip_line_prefixes는 문자열 배열이어야 함: {path}")
-    return tuple(str(x) for x in raw)
-
-
-def is_retryable_error(exc: BaseException) -> bool:
+def _embedding_error_is_transient(exc: BaseException) -> bool:
     from google.genai import errors as genai_errors
 
     if isinstance(exc, genai_errors.ServerError):
@@ -94,7 +69,7 @@ EMBED_API_RETRY = Retrying(
         min=DEFAULT_EMBED_RETRY_WAIT_MIN_S,
         max=DEFAULT_EMBED_RETRY_WAIT_MAX_S,
     ),
-    retry=retry_if_exception(is_retryable_error),
+    retry=retry_if_exception(_embedding_error_is_transient),
     reraise=True,
 )
 
@@ -106,9 +81,8 @@ def now_utc() -> str:
 def sha1(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
-
 def gemini_model_id(model: str) -> str:
-    #API,embedding_id용 모델 id (models/ 접두어 제거).
+    #embedding_id용 모델 id (models/ 접두어 제거)
     m = model.strip()
     return m[len("models/") :] if m.startswith("models/") else m
 
@@ -129,45 +103,26 @@ def split_title_body(text: str) -> tuple[str, str]:
     return "제목 없음", raw
 
 
-def normalize_chunk(
-    chunk_text: str,
-    skip_line_prefixes: Optional[tuple[str, ...]] = None,
-) -> str:
-    raw = chunk_text.strip()
-    if not raw:
-        return ""
-
-    lines = raw.splitlines()
-    cleaned_lines = []
-    prefixes = (
-        DEFAULT_NORMALIZE_SKIP_PREFIXES
-        if skip_line_prefixes is None
-        else skip_line_prefixes
-    )
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if prefixes and stripped.startswith(prefixes):
-            continue
-        if stripped.startswith("제목 :"):
-            continue
-        cleaned_lines.append(stripped)
-
-    return "\n".join(cleaned_lines).strip()
-
-
 def build_qna_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    footer_line_prefixes: Optional[tuple[str, ...]] = None,
+    *,
+    normalized_chunk_body: Optional[str] = None,
 ) -> str:
     # TL1과 달리 QnA row의 text/rag_text에는 보통 제목 줄이 있어 split_title_body가 유효함.
     chunk_source = str(row.get("chunk_text") or "").strip()
     full_title, _ = split_title_body(
         str(row.get("rag_text") or row.get("text") or "").strip()
     )
-    body = normalize_chunk(chunk_source, skip_line_prefixes=skip_line_prefixes)
+    if normalized_chunk_body is not None:
+        body = normalized_chunk_body
+    else:
+        body = normalize_chunk(
+            chunk_source,
+            skip_line_prefixes=skip_line_prefixes,
+            footer_line_prefixes=footer_line_prefixes,
+        )
     if full_title and full_title != "제목 없음":
         return f"[제목] {full_title}\n[본문] {body}"
     return body
@@ -176,22 +131,40 @@ def build_qna_embedding_text(
 def build_tl1_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    footer_line_prefixes: Optional[tuple[str, ...]] = None,
 ) -> str:
-    # TL1: text/rag_text에 "제목 :" 형식이 없어 QnA처럼 제목 슬롯을 두면 [제목] 제목 없음만 붙음, 본문만 임베딩.
     chunk_source = str(
         row.get("chunk_text") or row.get("rag_text") or row.get("text") or ""
     ).strip()
-    return normalize_chunk(chunk_source, skip_line_prefixes=skip_line_prefixes)
+    return normalize_chunk(
+        chunk_source,
+        skip_line_prefixes=skip_line_prefixes,
+        footer_line_prefixes=footer_line_prefixes,
+    )
 
 
 def build_embedding_text(
     row: Dict,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    footer_line_prefixes: Optional[tuple[str, ...]] = None,
+    *,
+    normalized_chunk_body: Optional[str] = None,
 ) -> str:
     row_type = chunk_data_type(row)
     if row_type == "qna":
-        return build_qna_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
-    return build_tl1_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
+        return build_qna_embedding_text(
+            row,
+            skip_line_prefixes=skip_line_prefixes,
+            footer_line_prefixes=footer_line_prefixes,
+            normalized_chunk_body=normalized_chunk_body,
+        )
+    if normalized_chunk_body is not None:
+        return normalized_chunk_body
+    return build_tl1_embedding_text(
+        row,
+        skip_line_prefixes=skip_line_prefixes,
+        footer_line_prefixes=footer_line_prefixes,
+    )
 
 
 def _mock_embedding_vector(text: str, output_dimensionality: Optional[int]) -> List[float]:
@@ -275,6 +248,7 @@ def build_embedding_rows(
     client: Optional[genai.Client] = None,
     batch_size: int = DEFAULT_EMBED_BATCH_SIZE,
     skip_line_prefixes: Optional[tuple[str, ...]] = None,
+    footer_line_prefixes: Optional[tuple[str, ...]] = None,
 ) -> List[Dict]:
     work: List[Dict] = []
 
@@ -289,11 +263,20 @@ def build_embedding_rows(
             ).strip()
         else:
             raw_for_normalize = str(row.get("chunk_text") or "").strip()
-        body = normalize_chunk(raw_for_normalize, skip_line_prefixes=skip_line_prefixes)
+        body = normalize_chunk(
+            raw_for_normalize,
+            skip_line_prefixes=skip_line_prefixes,
+            footer_line_prefixes=footer_line_prefixes,
+        )
         if not body:
             continue
 
-        document_text = build_embedding_text(row, skip_line_prefixes=skip_line_prefixes)
+        document_text = build_embedding_text(
+            row,
+            skip_line_prefixes=skip_line_prefixes,
+            footer_line_prefixes=footer_line_prefixes,
+            normalized_chunk_body=body,
+        )
         chunk_id = str(row.get("chunk_id") or f"row::{idx}")
         work.append(
             {
@@ -308,8 +291,9 @@ def build_embedding_rows(
     if gemini_model_id(model) == "gemini-embedding-2" and not mock:
         if batch_size != 1:
             print(
-                "gemini-embedding-2는 embed_content 다중 텍스트 시 "
-                f"응답 임베딩이 1건만 와 batch_size를 {batch_size} → 1로 조정합니다.",
+                "gemini-embedding-2는 embed_content에서 다중 텍스트 입력 시 "
+                "임베딩을 1건만 반환하므로 batch_size를 "
+                f"{batch_size} → 1로 조정합니다.",
                 flush=True,
             )
         batch_size = 1
@@ -384,7 +368,7 @@ def main():
         type=int,
         default=None,
         metavar="N",
-        help="임베딩할 최대 청크 수 (미지정 시 전체). 테스트 시에만 지정 권장",
+        help="임베딩할 최대 청크 수. 샘플/테스트 시에만 지정 권장",
     )
     parser.add_argument(
         "--mock",
@@ -414,7 +398,12 @@ def main():
         action="append",
         default=None,
         metavar="PREFIX",
-        help="normalize_chunk에서 제거할 줄 접두어. 지정 시 기본 접두어 대신 이 목록만 사용",
+        help="normalize_chunk에서 제거할 줄 접두어 (여러 번 지정 가능). 지정 시 기본 접두어 대신 이 목록만 사용",
+    )
+    parser.add_argument(
+        "--no-footer-strip",
+        action="store_true",
+        help="끝./[본 회신… 푸터 절단 비활성화",
     )
     args = parser.parse_args()
     if args.log_every < 0:
@@ -432,6 +421,8 @@ def main():
         skip_line_prefixes = load_skip_line_prefixes(args.normalize_config)
     elif args.skip_line_prefix is not None:
         skip_line_prefixes = tuple(args.skip_line_prefix)
+
+    footer_line_prefixes: Optional[tuple[str, ...]] = () if args.no_footer_strip else None
 
     client = None
     if not args.mock:
@@ -460,6 +451,7 @@ def main():
         client=client,
         batch_size=args.batch_size,
         skip_line_prefixes=skip_line_prefixes,
+        footer_line_prefixes=footer_line_prefixes,
     )
     write_jsonl(output_path, out_rows)
     print(f"[done] embedded={len(out_rows)} output={output_path}")

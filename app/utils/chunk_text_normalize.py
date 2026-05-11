@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 # 줄 시작이 이 접두어이면 제외 (None이면 이 기본값 사용)
-# TL1: [민원 …] 줄은 임베딩 텍스트에서만 제거. 분류·부서 값은 JSONL 행의
-# category, subcategory, predication, department → build_chunk_metadata 로 유지.
+# TL1: [민원 …] 줄은 임베딩 텍스트에서만 제거. 부서 값은 JSONL 행의 category, subcategory.. → build_chunk_metadata 로
 DEFAULT_NORMALIZE_SKIP_PREFIXES: tuple[str, ...] = (
     "[출처 기관]",
     "[상담 분류]",
@@ -26,7 +25,7 @@ DEFAULT_FOOTER_LINE_PREFIXES: tuple[str, ...] = (
     "[본 회신내용",
 )
 
-# 행 전체를 버리는 QnA 답변 서식용 섹션 제목 (□ 질의 요지 등)
+# 행 전체를 버리는 QnA 답변 서식용 섹션 제목 (질의 요지 등)
 DEFAULT_QNA_SECTION_HEADER_LINES: frozenset[str] = frozenset(
     {
         "□ 질의 요지",
@@ -44,20 +43,12 @@ DEFAULT_QNA_GREETING_EXACT_LINES: frozenset[str] = frozenset(
 )
 
 _QA_LINE_PREFIX_RE = re.compile(r"^[QqAa]\s*:\s*")
+_STRIP_LEADING_BULLETS_RE = re.compile(r"^[□ㅇ\s]+")
 
 
 def _strip_leading_bullet_marks(line: str) -> str:
-    """줄 선두의 □ 또는 ㅇ 표기만 제거(연속 시 반복). 본문은 유지."""
-    s = line
-    while s:
-        if s.startswith("□"):
-            s = s[1:].lstrip()
-            continue
-        if s.startswith("ㅇ"):
-            s = s[1:].lstrip()
-            continue
-        break
-    return s
+    #줄 선두의 문자 및 인접 공백만 제거. 본문은 유지
+    return _STRIP_LEADING_BULLETS_RE.sub("", line)
 
 
 def load_skip_line_prefixes(path: Path) -> tuple[str, ...]:
@@ -84,12 +75,14 @@ def normalize_chunk(
     qna_section_headers: Optional[frozenset[str]] = None,
     qna_greeting_exact_lines: Optional[frozenset[str]] = None,
 ) -> str:
-    """QnA/TL1 청크 공통: 메타 줄 제거 + 푸터(끝./회신 유의) 이후 절단
+    """QnA/TL1 청크 공통: 메타 줄 제거 + 푸터 이후 절단
 
-    QnA 본문: Q:/A: 라벨·□/ㅇ 불릿 접두 제거, 질의/답변 섹션 제목 줄 삭제,
+    QnA 본문: Q:/A: 라벨 불릿 접두 제거, 질의/답변 섹션 제목 줄 삭제,
     고정 인사말(전체 행 일치)만 삭제.
 
-    footer_line_prefixes가 ()이면 푸터 절단만 끈다. None이면 기본 푸터 규칙 사용
+    footer_line_prefixes: None이면 DEFAULT_FOOTER_LINE_PREFIXES에 더해, 행 전체가
+    끝인 경우만 추가로 절단(끝나 같은 본문과 구분). ()이면 푸터 절단 전부 끔
+    그 외 비어 있지 않은 튜플이면 그 접두어들에 대한 startswith만 절단 기준으로
     """
     raw = chunk_text.strip()
     if not raw:
@@ -100,7 +93,8 @@ def normalize_chunk(
         if skip_line_prefixes is None
         else skip_line_prefixes
     )
-    if footer_line_prefixes is None:
+    default_footer = footer_line_prefixes is None
+    if default_footer:
         footers = DEFAULT_FOOTER_LINE_PREFIXES
     else:
         footers = footer_line_prefixes
@@ -122,9 +116,7 @@ def normalize_chunk(
         if not stripped:
             continue
         if footers:
-            if stripped == "끝":
-                break
-            if stripped.startswith("끝."):
+            if default_footer and stripped == "끝":
                 break
             if stripped.startswith(footers):
                 break
@@ -132,15 +124,13 @@ def normalize_chunk(
             continue
         if stripped.startswith("제목 :"):
             continue
-        if stripped in section_drop:
-            continue
 
         after_qa = _QA_LINE_PREFIX_RE.sub("", stripped, count=1)
-        if after_qa in greeting_drop:
+        if stripped in section_drop or after_qa in section_drop:
             continue
 
         after_bullets = _strip_leading_bullet_marks(after_qa)
-        if not after_bullets:
+        if not after_bullets or after_bullets in greeting_drop:
             continue
 
         cleaned_lines.append(after_bullets)
