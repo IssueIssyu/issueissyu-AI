@@ -16,6 +16,8 @@ from app.utils.chunk_text_normalize import load_skip_line_prefixes, normalize_ch
 from rag.scripts.chunk_module import iter_jsonl
 
 DEFAULT_BATCH_SIZE = 50
+# 동시에 진행 중인 insert 배치 수 상한 (메모리·API 한도 완화)
+DEFAULT_MAX_PENDING_BATCHES_FACTOR = 4
 
 
 def build_service() -> VectorStoreService:
@@ -42,6 +44,7 @@ def build_service() -> VectorStoreService:
         domain_configs=domain_configs,
         hybrid_search=settings.vector_hybrid_search,
         text_search_config=settings.vector_text_search_config,
+        embedding_batch_size_override=settings.gemini_embedding_batch_size,
     )
 
 
@@ -95,6 +98,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--start-offset", type=int, default=0)
     parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help="동시 insert 배치 수(각각 별도 VectorStoreService). 2~6 권장. API 한도/DB 부하에 맞춰 조절.",
+    )
+    parser.add_argument(
+        "--max-pending-batches",
+        type=int,
+        default=None,
+        metavar="N",
+        help="큐에 쌓아 둘 배치 상한(기본: concurrency * 4). 메모리·백프레셔 조절.",
+    )
+    parser.add_argument(
         "--normalize-config",
         type=Path,
         default=None,
@@ -134,6 +150,8 @@ async def main() -> None:
         raise ValueError("--batch-size는 1 이상이어야 함")
     if args.start_offset < 0:
         raise ValueError("--start-offset은 0 이상이어야 함")
+    if args.concurrency < 1:
+        raise ValueError("--concurrency는 1 이상이어야 함")
     if args.normalize_config is not None and args.skip_line_prefix is not None:
         raise ValueError("--normalize-config와 --skip-line-prefix는 함께 쓸 수 없음")
 
@@ -152,13 +170,100 @@ async def main() -> None:
 
     footer_line_prefixes: tuple[str, ...] | None = () if args.no_footer_strip else None
 
-    svc = build_service()
-    nodes: list[TextNode] = []
     total = 0
     skipped = 0
     processed = 0
     table_name = ""
     seen_ids: set[str] | None = None if args.no_dedupe_node else set()
+
+    max_pending = args.max_pending_batches
+    if max_pending is None:
+        max_pending = max(
+            args.concurrency * DEFAULT_MAX_PENDING_BATCHES_FACTOR,
+            args.concurrency + 1,
+        )
+
+    if args.concurrency <= 1:
+        svc = build_service()
+        nodes: list[TextNode] = []
+
+        for idx, row in enumerate(iter_jsonl(args.input)):
+            if idx < args.start_offset:
+                continue
+            if args.limit is not None and processed >= args.limit:
+                break
+            processed += 1
+
+            try:
+                node = row_to_node(
+                    row,
+                    skip_line_prefixes=skip_line_prefixes,
+                    footer_line_prefixes=footer_line_prefixes,
+                    raw_text=args.no_chunk_normalize,
+                )
+                node_id = node.node_id
+                if not node_id:
+                    print(f"[skip] missing node_id idx={idx} chunk_id={row.get('chunk_id')}")
+                    skipped += 1
+                    continue
+
+                if seen_ids is not None:
+                    if node_id in seen_ids:
+                        print(f"[skip] duplicated node_id idx={idx} node_id={node_id}")
+                        skipped += 1
+                        continue
+                    seen_ids.add(node_id)
+                nodes.append(node)
+
+            except Exception as e:
+                print(
+                    f"[skip] exception idx={idx} "
+                    f"chunk_id={row.get('chunk_id')} "
+                    f"error={type(e).__name__}: {e}"
+                )
+                skipped += 1
+                continue
+            if len(nodes) >= args.batch_size:
+                table_name = await insert_batch_with_retry(svc, nodes, domain)
+                total += len(nodes)
+                print(f"[progress] inserted={total} skipped={skipped} last_batch={len(nodes)}")
+                nodes = []
+
+        if nodes:
+            table_name = await insert_batch_with_retry(svc, nodes, domain)
+            total += len(nodes)
+
+        print(f"[done] table={table_name} inserted_total={total} skipped={skipped} processed={processed}")
+        return
+
+    # 병렬: 서비스 풀(클라이언트 분리) + 제한된 in-flight Task
+    svc_pool: asyncio.Queue[VectorStoreService] = asyncio.Queue()
+    for _ in range(args.concurrency):
+        await svc_pool.put(build_service())
+
+    async def insert_with_pool(batch: list[TextNode]) -> tuple[str, int]:
+        svc = await svc_pool.get()
+        try:
+            tname = await insert_batch_with_retry(svc, batch, domain)
+            return tname, len(batch)
+        finally:
+            await svc_pool.put(svc)
+
+    tasks: list[asyncio.Task[tuple[str, int]]] = []
+    nodes_buf: list[TextNode] = []
+
+    async def drain_some_tasks() -> None:
+        nonlocal tasks, table_name, total
+        if not tasks:
+            return
+        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for d in done:
+            tname, n = d.result()
+            total += n
+            if tname:
+                table_name = tname
+            print(f"[progress] inserted={total} skipped={skipped} last_batch={n}")
+        tasks = list(pending)
 
     for idx, row in enumerate(iter_jsonl(args.input)):
         if idx < args.start_offset:
@@ -186,7 +291,7 @@ async def main() -> None:
                     skipped += 1
                     continue
                 seen_ids.add(node_id)
-            nodes.append(node)
+            nodes_buf.append(node)
 
         except Exception as e:
             print(
@@ -196,17 +301,34 @@ async def main() -> None:
             )
             skipped += 1
             continue
-        if len(nodes) >= args.batch_size:
-            table_name = await insert_batch_with_retry(svc, nodes, domain)
-            total += len(nodes)
-            print(f"[progress] inserted={total} skipped={skipped} last_batch={len(nodes)}")
-            nodes = []
 
-    if nodes:
-        table_name = await insert_batch_with_retry(svc, nodes, domain)
-        total += len(nodes)
+        if len(nodes_buf) >= args.batch_size:
+            batch = nodes_buf
+            nodes_buf = []
+            while len(tasks) >= max_pending:
+                await drain_some_tasks()
+            tasks.append(asyncio.create_task(insert_with_pool(batch)))
 
-    print(f"[done] table={table_name} inserted_total={total} skipped={skipped} processed={processed}")
+    if nodes_buf:
+        while len(tasks) >= max_pending:
+            await drain_some_tasks()
+        tasks.append(asyncio.create_task(insert_with_pool(nodes_buf)))
+
+    if tasks:
+        results = await asyncio.gather(*tasks)
+        for tname, n in results:
+            total += n
+            if tname:
+                table_name = tname
+            print(f"[progress] inserted={total} skipped={skipped} last_batch={n}")
+
+    if not table_name:
+        table_name = build_service().get_table_name(domain=domain.value)
+
+    print(
+        f"[done] table={table_name} inserted_total={total} skipped={skipped} "
+        f"processed={processed} concurrency={args.concurrency}"
+    )
 
 
 if __name__ == "__main__":
