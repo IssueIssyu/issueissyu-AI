@@ -14,6 +14,7 @@ from app.models.User import User
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
+from app.services.IssuePinLLMService import IssuePinLLMService
 from app.services.IssueService import IssueService
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
@@ -90,6 +91,19 @@ def get_vlm_service() -> VLMService:
 
 
 VLMServiceDep = Annotated[VLMService, Depends(get_vlm_service)]
+
+
+def get_issue_pin_llm_service() -> IssuePinLLMService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return IssuePinLLMService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_pin_text_model,
+    )
+
+
+IssuePinLLMServiceDep = Annotated[IssuePinLLMService, Depends(get_issue_pin_llm_service)]
 
 
 def get_vector_store_service(request: Request) -> VectorStoreService:
