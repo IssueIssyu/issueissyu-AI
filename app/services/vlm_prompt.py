@@ -47,6 +47,14 @@ VLM_PRIVACY_NOTES: tuple[str, ...] = (
     "해당 없음",
 )
 
+VLM_LOCATION_VERIFICATION_STATUSES: tuple[str, ...] = (
+    "matched",
+    "same_area",
+    "different_area",
+    "not_checked",
+    "unknown",
+)
+
 
 def _render_optional(value: str | None) -> str:
     if value is None:
@@ -55,17 +63,36 @@ def _render_optional(value: str | None) -> str:
     return stripped if stripped else "null"
 
 
+def _location_context_json_fragment_for_prompt(
+    user_location_text: str,
+    photo_address_text: str,
+    photo_location_text: str,
+) -> str:
+    """프롬프트 내 location_context 예시용 JSON 조각. 사용자 위치 우선, 없으면 사진 주소·좌표 순."""
+    if user_location_text != "null":
+        return json.dumps(user_location_text, ensure_ascii=False)
+    if photo_address_text != "null":
+        return json.dumps(photo_address_text, ensure_ascii=False)
+    if photo_location_text != "null":
+        return json.dumps(photo_location_text, ensure_ascii=False)
+    return "null"
+
+
 def build_vlm_prompt(
     *,
     user_text: str,
-    location: str | None,
+    user_location: str | None,
+    photo_location: str | None,
+    photo_address: str | None,
 ) -> str:
-    location_text = _render_optional(location)
+    user_location_text = _render_optional(user_location)
+    photo_location_text = _render_optional(photo_location)
+    photo_address_text = _render_optional(photo_address)
     safe_user_text = user_text.strip()
-    location_json_value = (
-        "null"
-        if location_text == "null"
-        else json.dumps(location_text, ensure_ascii=False)
+    location_json_value = _location_context_json_fragment_for_prompt(
+        user_location_text,
+        photo_address_text,
+        photo_location_text,
     )
 
     return f"""
@@ -91,7 +118,9 @@ def build_vlm_prompt(
         
         [입력]
         사용자 민원 내용: {safe_user_text}
-        사용자 위치 정보: {location_text}
+        사용자 위치 정보: {user_location_text}
+        사진 메타데이터 위치 정보: {photo_location_text}
+        사진 메타데이터 주소 정보: {photo_address_text}
         업로드 이미지: {{image}}
         
         [카테고리 구조]
@@ -234,14 +263,56 @@ def build_vlm_prompt(
         출력은 반드시 JSON만 작성한다.
         JSON 외 설명문, 마크다운, 주석은 출력하지 않는다.
         
+        [위치 정보 검증 규칙]
+
+        위치 정보는 다음 두 종류로 구분한다.
+
+        1. 사용자 위치 정보
+        - 사용자가 직접 입력하거나 앱에서 전달한 현재 위치/선택 위치이다.
+
+        2. 사진 메타데이터 위치 정보
+        - EXIF GPS 또는 EXIF 기반 주소 변환 결과이다.
+        - 사진 메타데이터 위치 정보가 null이면 위치 일치 여부를 판단하지 않는다.
+
+        사진 메타데이터 위치 정보가 null이거나 주소가 없는 경우:
+        - location_context는 사용자 위치 정보가 있으면 사용자 위치 정보만 사용한다.
+        - location_verification.status는 "not_checked"로 출력한다.
+        - location_verification.message는 "메타데이터에 주소가 없습니다"로 출력한다.
+        - 위치 불일치를 이유로 validity를 false로 판단하지 않는다.
+        - retrieval_query에는 사용자 위치 정보가 있으면 사용자 위치만 포함한다.
+        - 사진 위치를 추측해서 생성하지 않는다.
+
+        사진 메타데이터 위치 정보와 사용자 위치 정보가 모두 있는 경우:
+        - 두 위치가 정확히 같은 주소인지 우선 확인한다.
+        - 정확히 같지 않더라도 같은 시/군/구 또는 같은 동/읍/면 수준이면 "same_area"로 판단한다.
+        - 같은 동네 수준으로 보기 어렵다면 "different_area"로 판단한다.
+        - 단, 위치가 다르다는 이유만으로 민원 자체를 자동 invalid 처리하지 않는다.
+        - risk_note에 "사용자 위치와 사진 메타데이터 위치가 다를 수 있음"이라고 작성한다.
+
+        위치 판단 결과는 반드시 location_verification에 작성한다.
+
+        location_verification.status 값:
+        - "matched": 사용자 위치와 사진 메타데이터 위치가 동일하거나 사실상 같은 위치
+        - "same_area": 정확히 같지는 않지만 같은 동네/행정구역 수준
+        - "different_area": 서로 다른 지역으로 보임
+        - "not_checked": 사진 메타데이터 위치 또는 주소가 없어 판단하지 않음
+        - "unknown": 정보가 부족해 판단 불가
+
+        location_verification.message 작성 규칙:
+        - matched: "사용자 위치와 사진 메타데이터 위치가 일치합니다"
+        - same_area: "사용자 위치와 사진 메타데이터 위치가 같은 동네 수준으로 보입니다"
+        - different_area: "사용자 위치와 사진 메타데이터 위치가 다를 수 있습니다"
+        - not_checked: "메타데이터에 주소가 없습니다"
+        - unknown: "위치 일치 여부를 판단하기 어렵습니다"
+
         [위치 생성 금지 보강]
-        location이 입력되지 않은 경우:
+        사용자 위치 정보와 사진 메타데이터 위치가 모두 없는 경우:
         location_context는 반드시 null로 출력한다
-        retrieval_query에서 위치 정보를 제거한다
+        retrieval_query에서 위치를 추측해 넣지 않는다
         절대 금지:
         위치를 추측하여 생성
         예시 위치를 임의로 사용
-        
+
         [검색 최적화 규칙]
         retrieval_keywords 규칙:
         최소 5개, 최대 8개
@@ -258,7 +329,19 @@ def build_vlm_prompt(
         감정 표현 금지
         추측 표현 금지
         구어체 금지
-        
+
+        [신뢰도 점수 규칙]
+        confidence_score는 이미지 내용, 사용자 텍스트, 위치 정보, 사진 메타데이터의 일관성을 종합해 0.0~1.0 사이로 출력한다.
+
+        사진 메타데이터 주소가 없는 경우:
+        - 위치 검증은 수행하지 않는다.
+        - confidence_score를 위치 정보 부족만으로 과도하게 낮추지 않는다.
+        - risk_note 또는 location_verification.message에 "메타데이터에 주소가 없습니다"를 포함한다.
+
+        사진 메타데이터와 사용자 위치가 다른 지역으로 보이는 경우:
+        - confidence_score를 낮출 수 있다.
+        - 단, 사진 내용이 민원으로 명확하면 validity를 자동 false로 만들지 않는다.
+
         [출력 강제 규칙]
         다음과 같은 경우 절대 생성하지 말고 비워라:
         확신 없는 domain -> "공통"
@@ -292,6 +375,13 @@ def build_vlm_prompt(
           "retrieval_keywords": ["검색 키워드"],
           "retrieval_query": "검색용 문장",
           "recommended_action": "처리 요청 방향",
-          "confidence_score": 0.0
+          "confidence_score": 0.0,
+          "location_verification": {{
+            "status": "matched | same_area | different_area | not_checked | unknown",
+            "message": "위치 검증 결과 메시지",
+            "user_location": "사용자 위치 정보 또는 null",
+            "photo_location": "사진 메타데이터 위치 정보 또는 null",
+            "photo_address": "사진 메타데이터 주소 정보 또는 null"
+          }}
         }}
     """.strip()
