@@ -11,6 +11,7 @@ from google import genai
 from google.genai import types
 from starlette.datastructures import UploadFile
 
+from app.schemas.IssueDTO import ImageWithLocation
 from app.services.vlm_prompt import (
     VLM_ADMIN_DOMAINS,
     VLM_CATEGORY_TYPES,
@@ -227,18 +228,22 @@ class VLMService:
         self,
         *,
         user_text: str,
-        images: Sequence[tuple[UploadFile, str | Sequence[str] | None]],
+        images: list[ImageWithLocation],
         user_location: str | None = None,
         location: str | None = None,
     ) -> dict:
         if not images:
-            raise RuntimeError("이미지는 (업로드 파일, 사진 메타 주소) 튜플 리스트로 1개 이상 전달해야 합니다.")
+            raise RuntimeError(
+                "이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.",
+            )
 
         image_parts: list[types.Part] = []
         per_address_strings: list[str] = []
         slot_lines: list[str] = []
 
-        for idx, (upload, addr) in enumerate(images, start=1):
+        for idx, row in enumerate(images, start=1):
+            upload = row.image
+            addr = row.address
             image_bytes = await upload.read()
             if not image_bytes:
                 raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")

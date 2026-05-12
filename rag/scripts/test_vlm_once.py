@@ -29,6 +29,7 @@ async def _run(
     photo_address: str | None,
 ) -> None:
     from app.core.config import settings
+    from app.schemas.IssueDTO import ImageWithLocation
     from app.services.VLMService import VLMService
 
     secret = settings.gemini_api_key
@@ -52,7 +53,7 @@ async def _run(
     )
     result = await vlm.analyze_image(
         user_text=user_text,
-        images=[(upload, photo_address)],
+        images=[ImageWithLocation(image=upload, address=photo_address)],
         user_location=user_location,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
