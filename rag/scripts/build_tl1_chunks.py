@@ -23,6 +23,7 @@ def build_tl1_no_split(input_jsonl: Path, output_jsonl: Path):
             "chunk_strategy": "none",
             "chunk_size": len(text),
             "chunk_overlap": 0,
+            "data_type": "tl1",
         }
         out_rows.append(chunk_row)
 
