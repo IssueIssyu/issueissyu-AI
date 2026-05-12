@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
 
+import httpx
 from fastapi import FastAPI
 from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
 from app.core.codes import SuccessCode
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal, Base, async_engine
 from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
@@ -107,10 +109,16 @@ async def lifespan(app: FastAPI):
 
     app.state.s3_util = S3Util()
     app.state.async_redis_client = get_redis_client(async_mode=True)
+    app.state.shared_httpx_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(settings.location_resolve_timeout_seconds),
+    )
 
     try:
         yield
     finally:
+        hx = getattr(app.state, "shared_httpx_client", None)
+        if hx is not None:
+            await hx.aclose()
         async_redis_client = getattr(app.state, "async_redis_client", None)
         if async_redis_client is not None:
             await async_redis_client.aclose()
