@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from fastapi import UploadFile
 
-from app.models.enum.ToneType import ToneType
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
-from app.schemas.IssueDTO import IssueAnalysisResult
-from app.schemas.ImageExifGeoExtractResponseDTO import ImageExifGeoExtractResponseDTO
+from app.schemas.IssueDTO import CreateIssuePinRequest, ImageWithLocation, IssueAnalysisResult
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.VLMService import VLMService
 from app.services.VectorStoreService import VectorStoreService
@@ -37,20 +35,18 @@ class IssueService:
         *,
         uid: str,
         images: list[UploadFile],
-        title: str,
-        content: str,
-        tone: ToneType,
-        latitude: float,
-        longitude: float,
+        request: CreateIssuePinRequest,
     ) -> IssueAnalysisResult:
-        ...
+        vlm_result = await self._vlm_service.analyze_image()
+        vector_result= await self._vector_store_service.aretrieve()
 
     async def _extract_locations_from_images(
         self,
         images: list[UploadFile],
-    ) -> list[ImageExifGeoExtractResponseDTO]:
-        results: list[ImageExifGeoExtractResponseDTO] = []
+    ) -> list[ImageWithLocation]:
+        results: list[ImageWithLocation] = []
         for image in images[:MAX_IMAGES]:
             resolved = await self._image_exif_location_resolve_service.extract_and_resolve(image)
-            results.append(resolved)
+            await image.seek(0)
+            results.append(ImageWithLocation(image=image, address=resolved.address))
         return results

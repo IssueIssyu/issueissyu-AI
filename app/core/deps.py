@@ -5,7 +5,6 @@ from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.database import get_async_db_session
 from app.core.config import settings
 from app.login.http_auth import get_current_user_id, get_optional_user_id
@@ -13,10 +12,7 @@ from app.models.User import User
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
-from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
-from app.services.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.IssueService import IssueService
-from app.services.LocationResolveClient import LocationResolveClient
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.LocationResolveClient import LocationResolveClient
