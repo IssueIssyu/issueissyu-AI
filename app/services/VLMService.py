@@ -12,6 +12,7 @@ from app.services.vlm_prompt import (
     VLM_ADMIN_DOMAINS,
     VLM_CATEGORY_TYPES,
     VLM_ERROR_CODES,
+    VLM_LOCATION_VERIFICATION_STATUSES,
     VLM_PRIVACY_NOTES,
     build_vlm_prompt,
 )
@@ -114,6 +115,7 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query",
         "recommended_action",
         "confidence_score",
+        "location_verification",
     ],
     "properties": {
         "category": {
@@ -139,6 +141,26 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query": {"type": "string"},
         "recommended_action": {"type": ["string", "null"]},
         "confidence_score": {"type": "number"},
+        "location_verification": {
+            "type": "object",
+            "required": [
+                "status",
+                "message",
+                "user_location",
+                "photo_location",
+                "photo_address",
+            ],
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": list(VLM_LOCATION_VERIFICATION_STATUSES),
+                },
+                "message": {"type": "string"},
+                "user_location": {"type": ["string", "null"]},
+                "photo_location": {"type": ["string", "null"]},
+                "photo_address": {"type": ["string", "null"]},
+            },
+        },
     },
 }
 
@@ -158,11 +180,21 @@ class VLMService:
         user_text: str,
         image_bytes: bytes,
         image_mime_type: str,
+        user_location: str | None = None,
+        photo_location: str | None = None,
+        photo_address: str | None = None,
         location: str | None = None,
     ) -> dict:
+        eff_user_location = user_location
+        if (eff_user_location is None or not str(eff_user_location).strip()) and (
+            location is not None and str(location).strip()
+        ):
+            eff_user_location = location
         prompt = build_vlm_prompt(
             user_text=user_text,
-            location=location,
+            user_location=eff_user_location,
+            photo_location=photo_location,
+            photo_address=photo_address,
         )
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type)
         config = types.GenerateContentConfig(
@@ -185,12 +217,27 @@ class VLMService:
         except JSONDecodeError as exc:
             raise RuntimeError(f"Gemini JSON 파싱 실패: {exc}") from exc
 
-        return self._normalize(parsed=parsed, location=location)
+        return self._normalize(
+            parsed=parsed,
+            user_location=eff_user_location,
+            photo_location=photo_location,
+            photo_address=photo_address,
+        )
 
     @staticmethod
-    def _normalize(*, parsed: dict, location: str | None) -> dict:
-        # location 미입력 시: location_context 삭제, 쿼리/키워드에서 지명, 행정구역 조각 제거
-        if location is None or not location.strip():
+    def _normalize(
+        *,
+        parsed: dict,
+        user_location: str | None,
+        photo_location: str | None,
+        photo_address: str | None,
+    ) -> dict:
+        ul = user_location.strip() if isinstance(user_location, str) and user_location.strip() else None
+        pl = photo_location.strip() if isinstance(photo_location, str) and photo_location.strip() else None
+        pa = photo_address.strip() if isinstance(photo_address, str) and photo_address.strip() else None
+
+        # 사용자·사진 메타 위치·주소가 모두 없을 때: location_context 삭제, 쿼리/키워드에서 지명·행정구역 조각 제거
+        if ul is None and pl is None and pa is None:
             lc_raw = parsed.get("location_context")
             model_lc = lc_raw.strip() if isinstance(lc_raw, str) else ""
             rq = parsed.get("retrieval_query")
@@ -206,6 +253,23 @@ class VLMService:
                     model_location_context=model_lc or None,
                 )
             parsed["location_context"] = None
+
+        lv = parsed.get("location_verification")
+        if not isinstance(lv, dict):
+            lv = {}
+        st = lv.get("status")
+        if not isinstance(st, str) or st not in VLM_LOCATION_VERIFICATION_STATUSES:
+            lv["status"] = "unknown"
+        if not isinstance(lv.get("message"), str):
+            lv["message"] = "위치 일치 여부를 판단하기 어렵습니다"
+        for k in ("user_location", "photo_location", "photo_address"):
+            v = lv.get(k)
+            if v is not None and not isinstance(v, str):
+                lv[k] = str(v)
+        lv["user_location"] = ul
+        lv["photo_location"] = pl
+        lv["photo_address"] = pa
+        parsed["location_verification"] = lv
 
         validity = normalize_validity(parsed.get("validity"))
         parsed["validity"] = validity

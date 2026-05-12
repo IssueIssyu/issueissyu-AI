@@ -30,6 +30,9 @@ class ErrorCode(Enum):
     TOKEN_NO_AUTH = (status.HTTP_403_FORBIDDEN, "JWT_4033", "권한 정보가 없는 token입니다.")
     TOKEN_EXPIRED = (status.HTTP_401_UNAUTHORIZED, "JWT_4011", "token 유효기간이 만료되었습니다.")
 
+    # VLM (Gemini)
+    VLM_NOT_CONFIGURED = (status.HTTP_503_SERVICE_UNAVAILABLE, "VLM_5031", "VLM(Gemini) API 키가 설정되지 않았습니다.")
+
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
     FILE_UPLOAD_ERROR = (status.HTTP_400_BAD_REQUEST, "FILE_4001", "파일 업로드 중 오류가 발생했습니다.")
