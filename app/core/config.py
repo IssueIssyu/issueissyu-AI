@@ -69,7 +69,7 @@ class Settings(BaseSettings):
         alias="GEMINI_VLM_MODEL",
     )
     gemini_pin_text_model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_MODEL",
     )
     gemini_embedding_model: str = Field(

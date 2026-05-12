@@ -41,8 +41,6 @@ class VectorStoreService:
             raise ValueError("Vector DB database name is required.")
         if not url.host:
             raise ValueError("Vector DB host is required.")
-        if not url.username:
-            raise ValueError("Vector DB user is required.")
         if url.port is None:
             raise ValueError("Vector DB port is required.")
 

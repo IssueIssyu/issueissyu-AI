@@ -21,9 +21,20 @@ class ImageWithLocation(BaseModel):
     address: str | None = None
 
 
+class ReliabilityBasis(BaseModel):
+    confidence_score: float
+    validity: bool
+    location_verification_status: str | None = None
+    location_verification_message: str | None = None
+    error_code: str | None = None
+    risk_note: str | None = None
+    scene_summary: str | None = None
+
+
 class IssueAnalysisResult(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     title: str
     content: str
     reliability: float
+    reliability_basis: ReliabilityBasis

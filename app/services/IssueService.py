@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import UploadFile
@@ -10,7 +11,12 @@ from app.core.exceptions import raise_business_exception
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
-from app.schemas.IssueDTO import CreateIssuePinRequest, ImageWithLocation, IssueAnalysisResult
+from app.schemas.IssueDTO import (
+    CreateIssuePinRequest,
+    ImageWithLocation,
+    IssueAnalysisResult,
+    ReliabilityBasis,
+)
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.issue_pin_prompt import build_issue_pin_prompt_from_pipeline_bundle
 from app.services.IssuePinLLMService import IssuePinLLMService
@@ -19,6 +25,7 @@ from app.services.VLMService import VLMService
 from app.services.VectorStoreService import VectorStoreService
 
 MAX_IMAGES = 5
+logger = logging.getLogger(__name__)
 
 
 class IssueService:
@@ -84,6 +91,13 @@ class IssueService:
         return rows
 
     @staticmethod
+    def _optional_text(value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        text = value.strip()
+        return text or None
+
+    @staticmethod
     def _reliability_from_vlm(vlm_result: dict[str, Any]) -> float:
         raw = vlm_result.get("confidence_score")
         try:
@@ -92,14 +106,35 @@ class IssueService:
             return 0.0
         return max(0.0, min(1.0, score))
 
-    async def create_issue_pin(
+    @staticmethod
+    def _reliability_basis_from_vlm(vlm_result: dict[str, Any]) -> ReliabilityBasis:
+        location_status: str | None = None
+        location_message: str | None = None
+        location_verification = vlm_result.get("location_verification")
+        if isinstance(location_verification, dict):
+            location_status = IssueService._optional_text(location_verification.get("status"))
+            location_message = IssueService._optional_text(location_verification.get("message"))
+
+        raw_validity = vlm_result.get("validity")
+        validity = raw_validity if isinstance(raw_validity, bool) else False
+
+        return ReliabilityBasis(
+            confidence_score=IssueService._reliability_from_vlm(vlm_result),
+            validity=validity,
+            location_verification_status=location_status,
+            location_verification_message=location_message,
+            error_code=IssueService._optional_text(vlm_result.get("error_code")),
+            risk_note=IssueService._optional_text(vlm_result.get("risk_note")),
+            scene_summary=IssueService._optional_text(vlm_result.get("scene_summary")),
+        )
+
+    async def issue_pin_ai_make(
         self,
         *,
         uid: str,
         images: list[UploadFile],
         request: CreateIssuePinRequest,
     ) -> IssueAnalysisResult:
-        _ = uid
 
         if not images:
             raise_business_exception(ErrorCode.VALIDATION_ERROR, detail="이미지는 1장 이상 필요합니다.")
@@ -125,6 +160,7 @@ class IssueService:
             similarity_top_k=10,
             filters=filters,
         )
+        logger.info("Issue RAG hits exists: %s", bool(rag_hits))
         rag_payload = self._rag_hits_to_dicts(rag_hits)
 
         bundle: dict[str, Any] = {
@@ -148,6 +184,7 @@ class IssueService:
             title=request.title,
             content=pin_body,
             reliability=self._reliability_from_vlm(vlm_result),
+            reliability_basis=self._reliability_basis_from_vlm(vlm_result),
         )
 
     async def _extract_locations_from_images(
