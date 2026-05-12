@@ -8,6 +8,7 @@ import httpx
 from llama_index.core.schema import TextNode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+# python -m rag.scripts.insert_chunks_to_vector 형태 실행 기준
 from app.core.config import settings
 from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import DomainVectorConfig, VectorDomain

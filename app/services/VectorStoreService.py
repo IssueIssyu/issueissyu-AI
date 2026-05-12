@@ -72,7 +72,7 @@ class VectorStoreService:
 
     def _resolve_table_name(self, *, domain: str | None, table_name: str | None) -> str:
         if table_name:
-            return table_name
+            return self._normalize_domain(table_name)
         if domain is None or not domain.strip():
             return self._default_table_name
         domain_config = self._resolve_domain_config(domain)
@@ -158,12 +158,13 @@ class VectorStoreService:
         for domain, cfg in self._domain_configs.items():
             checks.append((domain.value, cfg.embedding_model, cfg.embed_dim))
 
-        unique_checks: dict[tuple[str, int], tuple[str, int]] = {}
+        by_model_dim: dict[tuple[str, int], list[str]] = {}
         for scope, model_name, expected_dim in checks:
-            unique_checks[(model_name, expected_dim)] = (scope, expected_dim)
+            key = (model_name, expected_dim)
+            by_model_dim.setdefault(key, []).append(scope)
 
         results: list[dict[str, Any]] = []
-        for model_name, expected_dim in unique_checks:
+        for (model_name, expected_dim), scopes in by_model_dim.items():
             actual_dim = await run_in_threadpool(
                 self._embedding_length,
                 model_name=model_name,
@@ -175,6 +176,7 @@ class VectorStoreService:
                     "expected_dim": expected_dim,
                     "actual_dim": actual_dim,
                     "matched": actual_dim == expected_dim,
+                    "scopes": scopes,
                 }
             )
         return results
@@ -231,4 +233,4 @@ class VectorStoreService:
             filters=filters,
             vector_store_query_mode=vector_store_query_mode,
         )
-        return await run_in_threadpool(retriever.retrieve, query)
+        return await retriever.aretrieve(query)
