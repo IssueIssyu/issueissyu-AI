@@ -42,8 +42,8 @@ class Pin(BaseEntity):
         "tone_type",
         Enum(ToneType, native_enum=False, length=32),
         nullable=False,
-        default=ToneType.NEUTRAL,
-        server_default=text("'NEUTRAL'"),
+        default=ToneType.NONE,
+        server_default=text("'없음'"),
     )
     like_count: Mapped[int] = mapped_column(
         "like_count",
