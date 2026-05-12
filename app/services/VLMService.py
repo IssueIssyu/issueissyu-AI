@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 
@@ -109,6 +110,28 @@ def normalize_validity(value: object) -> bool:
     return False
 
 
+def coerce_photo_address(value: object) -> str | None:
+    """str·list·tuple 등을 단일 주소 문자열로 정규화. 여러 항목은 ', '로 연결."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        parts: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            t = str(item).strip()
+            if t:
+                parts.append(t)
+        if not parts:
+            return None
+        return ", ".join(parts)
+    s = str(value).strip()
+    return s or None
+
+
 VLM_RESPONSE_SCHEMA = {
     "type": "object",
     "required": [
@@ -190,7 +213,7 @@ class VLMService:
         user_text: str,
         upload: UploadFile,
         user_location: str | None = None,
-        photo_address: list | None = None,
+        photo_address: str | Sequence[str] | None = None,
         location: str | None = None,
     ) -> dict:
         image_bytes = await upload.read()
@@ -209,10 +232,11 @@ class VLMService:
             location is not None and str(location).strip()
         ):
             eff_user_location = location
+        photo_address_str = coerce_photo_address(photo_address)
         prompt = build_vlm_prompt(
             user_text=user_text,
             user_location=eff_user_location,
-            photo_address=photo_address,
+            photo_address=photo_address_str,
         )
         image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime)
         config = types.GenerateContentConfig(
@@ -238,7 +262,7 @@ class VLMService:
         return self._normalize(
             parsed=parsed,
             user_location=eff_user_location,
-            photo_address=photo_address,
+            photo_address=photo_address_str,
         )
 
     @staticmethod
