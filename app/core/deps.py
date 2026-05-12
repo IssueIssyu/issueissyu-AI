@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_async_db_session
+from app.core.config import settings
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
 from app.repositories.UserRepo import UserRepo
@@ -14,6 +15,8 @@ from app.services.ImageExifLocationResolveService import ImageExifLocationResolv
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.LocationResolveClient import LocationResolveClient
 from app.services.UserService import UserService
+from app.services.VLMService import VLMService
+from app.services.VectorStoreService import VectorStoreService
 from app.utils.S3Util import S3Util
 
 
@@ -32,6 +35,29 @@ def get_user_service(user_repo: UserRepoDep) -> UserService:
 
 
 UserServiceDep = Annotated[UserService, Depends(get_user_service)]
+
+
+def get_vlm_service() -> VLMService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise RuntimeError("GEMINI_API_KEY is not configured.")
+    return VLMService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_vlm_model,
+    )
+
+
+VLMServiceDep = Annotated[VLMService, Depends(get_vlm_service)]
+
+
+def get_vector_store_service(request: Request) -> VectorStoreService:
+    vector_store_service = getattr(request.app.state, "vector_store_service", None)
+    if vector_store_service is None:
+        raise RuntimeError("VectorStoreService is not initialized. Check application lifespan setup.")
+    return vector_store_service
+
+
+VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
 
 
 def get_image_multipart_geo_service() -> ImageMultipartGeoService:

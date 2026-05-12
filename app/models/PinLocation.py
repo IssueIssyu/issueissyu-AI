@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from geoalchemy2 import Geometry
+from geoalchemy2.elements import WKBElement
 from sqlalchemy import BigInteger, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -31,7 +32,7 @@ class PinLocation(Base):
         ForeignKey("location.location_id"),
         nullable=True,
     )
-    pin_point: Mapped[Any] = mapped_column(
+    pin_point: Mapped[WKBElement] = mapped_column(
         Geometry(geometry_type="POINT", srid=4326),
         nullable=False,
     )

@@ -48,6 +48,7 @@ def build_qna_paragraph_chunks(input_jsonl: Path, output_jsonl: Path, chunk_size
                 "chunk_strategy": "paragraph",
                 "chunk_size": chunk_size,
                 "chunk_overlap": overlap,
+                "data_type": "qna",
             }
             out_rows.append(chunk_row)
 

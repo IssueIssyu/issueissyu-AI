@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String, Text
+from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
@@ -43,8 +43,15 @@ class Pin(BaseEntity):
         Enum(ToneType, native_enum=False, length=32),
         nullable=False,
         default=ToneType.NEUTRAL,
+        server_default=text("'NEUTRAL'"),
     )
-    like_count: Mapped[int] = mapped_column("like_count", Integer, default=0, nullable=False)
+    like_count: Mapped[int] = mapped_column(
+        "like_count",
+        Integer,
+        default=0,
+        nullable=False,
+        server_default=text("0"),
+    )
 
     user: Mapped[User] = relationship(
         "User",

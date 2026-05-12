@@ -62,6 +62,45 @@ class Settings(BaseSettings):
         alias="LOCATION_RESOLVE_TIMEOUT_SECONDS",
     )
 
+    # Gemini/Vector DB
+    gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_vlm_model: str = Field(
+        default="gemini-3.1-pro-preview",
+        alias="GEMINI_VLM_MODEL",
+    )
+    gemini_embedding_model: str = Field(
+        default="gemini-embedding-2",
+        alias="GEMINI_EMBEDDING_MODEL",
+    )
+    # None이면 모델별 기본값(embedding-2 → 1, 그 외 → 10). 지정 시 LlamaIndex embed_batch_size로 전달.
+    gemini_embedding_batch_size: int | None = Field(
+        default=None,
+        alias="GEMINI_EMBEDDING_BATCH_SIZE",
+    )
+    vector_table_name: str = Field(default="complaint_chunks", alias="VECTOR_TABLE_NAME")
+    vector_embed_dim: int = Field(default=1536, alias="VECTOR_EMBED_DIM")
+    vector_dim_check: bool = Field(
+        default=False,
+        alias="VECTOR_DIM_CHECK",
+    )
+    vector_hybrid_search: bool = Field(default=True, alias="VECTOR_HYBRID_SEARCH")
+    vector_text_search_config: str = Field(
+        default="simple",
+        alias="VECTOR_TEXT_SEARCH_CONFIG",
+    )
+    # True면 lifespan에서 Gemini embed API로 차원 검증
+    vector_dim_check: bool = Field(
+        default=False,
+        alias="VECTOR_DIM_CHECK",
+    )
+
+    @field_validator("gemini_embedding_batch_size", mode="before")
+    @classmethod
+    def _empty_string_gemini_embed_batch(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
     @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
     @classmethod
     def _empty_string_to_none_for_int_fields(cls, value: object) -> object:
