@@ -47,6 +47,20 @@ class Settings(BaseSettings):
     redis_aws_port: int | None = Field(default=6379, alias="VALKEY_PORT")
     redis_aws_db: int | None = Field(default=0, alias="VALKEY_DB")
     redis_aws_password: SecretStr | None = Field(default=None, alias="VALKEY_PASSWORD")
+    # ElastiCache/Valkey TLS(인-트랜짓 암호화). `true`/`1`/`yes` 등은 pydantic이 bool로 파싱.
+    redis_aws_tls: bool = Field(default=False, alias="VALKEY_TLS")
+
+    # 코어(8080 등) 역지오코딩 겸 행정·location_id 매핑 — `/api/location/resolve?lat=&lng=`
+    # 배포 시 .env 에 프로덕션 베이스 URL만 교체하면 됨(예: https://api.example.com).
+    location_core_base_url: str | None = Field(
+        default="http://localhost:8080",
+        alias="LOCATION_CORE_BASE_URL",
+    )
+    location_resolve_timeout_seconds: float = Field(
+        default=10.0,
+        gt=0,
+        alias="LOCATION_RESOLVE_TIMEOUT_SECONDS",
+    )
 
     # Gemini/Vector DB
     gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
@@ -91,6 +105,13 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_string_to_none_for_int_fields(cls, value: object) -> object:
         if value == "":
+            return None
+        return value
+
+    @field_validator("location_core_base_url", mode="before")
+    @classmethod
+    def _empty_location_core_url_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and value.strip() == "":
             return None
         return value
 

@@ -40,6 +40,7 @@ griffelib==2.0.2
 grpcio==1.80.0
 grpcio-status==1.71.2
 h11==0.16.0
+httpx==0.28.1
 httpcore==1.0.9
 httplib2==0.31.2
 httpx==0.28.1
@@ -68,6 +69,7 @@ numpy==2.4.4
 openai==2.34.0
 packaging==26.2
 packaging==26.2
+pillow==12.2.0
 pgvector==0.4.2
 pillow==12.2.0
 platformdirs==4.9.6
