@@ -80,6 +80,7 @@ def build_vlm_prompt(
     user_text: str,
     user_location: str | None,
     photo_address: str | None,
+    per_image_slot_text: str,
 ) -> str:
     user_location_text = _render_optional(user_location)
     photo_address_text = _render_optional(photo_address)
@@ -94,7 +95,7 @@ def build_vlm_prompt(
         
         [역할]
         너는 지자체 민원 처리 시스템의 '민원 이미지 분석 및 RAG 검색 보조 AI'다.
-        사용자가 입력한 민원 내용, 위치 정보, 업로드 이미지를 함께 분석하여 아래 작업을 수행한다.
+        사용자가 입력한 민원 내용, 위치 정보, 업로드 이미지(1장 이상)를 함께 분석하여 아래 작업을 수행한다.
         
         민원 유형 분류(type)
         행정 도메인 분류(domain, RAG/tl1 기준)
@@ -113,8 +114,9 @@ def build_vlm_prompt(
         [입력]
         사용자 민원 내용: {safe_user_text}
         사용자 위치 정보: {user_location_text}
-        사진 메타데이터 주소 정보 (역지오코딩 등): {photo_address_text}
-        업로드 이미지: {{image}}
+        업로드 이미지와 각 이미지에 대응하는 사진 메타 주소(아래 순서가 이 메시지 직전에 첨부된 바이너리 이미지 순서와 같다):
+{per_image_slot_text}
+        사진 메타데이터 주소 정보 전체(역지오코딩 등, 검색·검증 참고용): {photo_address_text}
         
         [카테고리 구조]
         category는 반드시 type과 domain으로 나누어 출력한다.

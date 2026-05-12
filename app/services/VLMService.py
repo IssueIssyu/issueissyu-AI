@@ -132,6 +132,22 @@ def coerce_photo_address(value: object) -> str | None:
     return s or None
 
 
+def resolve_upload_image_mime(upload: UploadFile) -> str:
+    """UploadFile에서 image/* MIME을 결정. 비이미지·미확인이면 RuntimeError."""
+    mime = (upload.content_type or "").split(";")[0].strip().lower()
+    if not mime:
+        guessed, _ = mimetypes.guess_type(upload.filename or "")
+        mime = (guessed or "").split(";")[0].strip().lower()
+    if not mime:
+        raise RuntimeError(
+            "업로드 파일의 MIME 타입을 확인할 수 없습니다. "
+            "Content-Type을 지정하거나 이미지 확장자가 있는 파일명을 사용하세요.",
+        )
+    if not mime.startswith("image/"):
+        raise RuntimeError(f"이미지 파일만 업로드할 수 있습니다. (받은 MIME: {mime})")
+    return mime
+
+
 VLM_RESPONSE_SCHEMA = {
     "type": "object",
     "required": [
@@ -211,39 +227,45 @@ class VLMService:
         self,
         *,
         user_text: str,
-        upload: UploadFile,
+        images: Sequence[tuple[UploadFile, str | Sequence[str] | None]],
         user_location: str | None = None,
-        photo_address: str | Sequence[str] | None = None,
         location: str | None = None,
     ) -> dict:
-        image_bytes = await upload.read()
-        if not image_bytes:
-            raise RuntimeError("업로드 이미지가 비어 있습니다.")
+        if not images:
+            raise RuntimeError("이미지는 (업로드 파일, 사진 메타 주소) 튜플 리스트로 1개 이상 전달해야 합니다.")
 
-        mime = (upload.content_type or "").split(";")[0].strip().lower()
-        if not mime:
-            guessed, _ = mimetypes.guess_type(upload.filename or "")
-            mime = (guessed or "").split(";")[0].strip().lower()
-        if not mime:
-            raise RuntimeError(
-                "업로드 파일의 MIME 타입을 확인할 수 없습니다. "
-                "Content-Type을 지정하거나 이미지 확장자가 있는 파일명을 사용하세요.",
+        image_parts: list[types.Part] = []
+        per_address_strings: list[str] = []
+        slot_lines: list[str] = []
+
+        for idx, (upload, addr) in enumerate(images, start=1):
+            image_bytes = await upload.read()
+            if not image_bytes:
+                raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")
+            mime = resolve_upload_image_mime(upload)
+            image_parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime))
+            one_addr = coerce_photo_address(addr)
+            if one_addr:
+                per_address_strings.append(one_addr)
+            name = upload.filename or f"image_{idx}"
+            slot_lines.append(
+                f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}"
             )
-        if not mime.startswith("image/"):
-            raise RuntimeError(f"이미지 파일만 업로드할 수 있습니다. (받은 MIME: {mime})")
+
+        photo_address_str = ", ".join(per_address_strings) if per_address_strings else None
+        per_image_slot_text = "\n".join(slot_lines)
 
         eff_user_location = user_location
         if (eff_user_location is None or not str(eff_user_location).strip()) and (
             location is not None and str(location).strip()
         ):
             eff_user_location = location
-        photo_address_str = coerce_photo_address(photo_address)
         prompt = build_vlm_prompt(
             user_text=user_text,
             user_location=eff_user_location,
             photo_address=photo_address_str,
+            per_image_slot_text=per_image_slot_text,
         )
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime)
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=VLM_RESPONSE_SCHEMA,
@@ -251,7 +273,7 @@ class VLMService:
 
         response = await self.client.aio.models.generate_content(
             model=self.model_name,
-            contents=[image_part, prompt],
+            contents=[*image_parts, prompt],
             config=config,
         )
 

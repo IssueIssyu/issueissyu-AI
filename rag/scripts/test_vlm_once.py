@@ -52,9 +52,8 @@ async def _run(
     )
     result = await vlm.analyze_image(
         user_text=user_text,
-        upload=upload,
+        images=[(upload, photo_address)],
         user_location=user_location,
-        photo_address=photo_address,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
