@@ -17,4 +17,4 @@ __all__ = [
     "VectorStoreService",
     "VectorDomain",
     "DomainVectorConfig",
-
+]
