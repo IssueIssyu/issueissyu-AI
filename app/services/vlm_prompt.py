@@ -66,15 +66,12 @@ def _render_optional(value: str | None) -> str:
 def _location_context_json_fragment_for_prompt(
     user_location_text: str,
     photo_address_text: str,
-    photo_location_text: str,
 ) -> str:
-    """프롬프트 내 location_context 예시용 JSON 조각. 사용자 위치 우선, 없으면 사진 주소·좌표 순."""
+    """프롬프트 내 location_context 예시용 JSON 조각. 사용자 위치 우선, 없으면 사진 메타 주소."""
     if user_location_text != "null":
         return json.dumps(user_location_text, ensure_ascii=False)
     if photo_address_text != "null":
         return json.dumps(photo_address_text, ensure_ascii=False)
-    if photo_location_text != "null":
-        return json.dumps(photo_location_text, ensure_ascii=False)
     return "null"
 
 
@@ -82,17 +79,14 @@ def build_vlm_prompt(
     *,
     user_text: str,
     user_location: str | None,
-    photo_location: str | None,
     photo_address: str | None,
 ) -> str:
     user_location_text = _render_optional(user_location)
-    photo_location_text = _render_optional(photo_location)
     photo_address_text = _render_optional(photo_address)
     safe_user_text = user_text.strip()
     location_json_value = _location_context_json_fragment_for_prompt(
         user_location_text,
         photo_address_text,
-        photo_location_text,
     )
 
     return f"""
@@ -119,8 +113,7 @@ def build_vlm_prompt(
         [입력]
         사용자 민원 내용: {safe_user_text}
         사용자 위치 정보: {user_location_text}
-        사진 메타데이터 위치 정보: {photo_location_text}
-        사진 메타데이터 주소 정보: {photo_address_text}
+        사진 메타데이터 주소 정보 (역지오코딩 등): {photo_address_text}
         업로드 이미지: {{image}}
         
         [카테고리 구조]
@@ -270,32 +263,33 @@ def build_vlm_prompt(
         1. 사용자 위치 정보
         - 사용자가 직접 입력하거나 앱에서 전달한 현재 위치/선택 위치이다.
 
-        2. 사진 메타데이터 위치 정보
-        - EXIF GPS 또는 EXIF 기반 주소 변환 결과이다.
-        - 사진 메타데이터 위치 정보가 null이면 위치 일치 여부를 판단하지 않는다.
+        2. 사진 메타데이터 주소 정보
+        - EXIF 기반 역지오코딩 등으로 얻은 주소 문자열이다.
+        - 이 값이 null이면(입력 없음) 사용자 위치와의 일치 비교는 수행하지 않는다.
 
-        사진 메타데이터 위치 정보가 null이거나 주소가 없는 경우:
+        사진 메타데이터 주소가 없는 경우:
         - location_context는 사용자 위치 정보가 있으면 사용자 위치 정보만 사용한다.
         - location_verification.status는 "not_checked"로 출력한다.
         - location_verification.message는 "메타데이터에 주소가 없습니다"로 출력한다.
         - 위치 불일치를 이유로 validity를 false로 판단하지 않는다.
         - retrieval_query에는 사용자 위치 정보가 있으면 사용자 위치만 포함한다.
-        - 사진 위치를 추측해서 생성하지 않는다.
+        - 사진 위치·주소를 추측해서 생성하지 않는다.
 
-        사진 메타데이터 위치 정보와 사용자 위치 정보가 모두 있는 경우:
-        - 두 위치가 정확히 같은 주소인지 우선 확인한다.
+        사진 메타데이터 주소와 사용자 위치 정보가 모두 있는 경우:
+        - 두 값이 정확히 같은 주소인지 우선 확인한다.
         - 정확히 같지 않더라도 같은 시/군/구 또는 같은 동/읍/면 수준이면 "same_area"로 판단한다.
         - 같은 동네 수준으로 보기 어렵다면 "different_area"로 판단한다.
         - 단, 위치가 다르다는 이유만으로 민원 자체를 자동 invalid 처리하지 않는다.
-        - risk_note에 "사용자 위치와 사진 메타데이터 위치가 다를 수 있음"이라고 작성한다.
+        - risk_note에 "사용자 위치와 사진 메타데이터 주소가 다를 수 있음"이라고 작성한다.
 
         위치 판단 결과는 반드시 location_verification에 작성한다.
+        location_verification.photo_location은 입력이 없으므로 항상 null로 출력한다.
 
         location_verification.status 값:
-        - "matched": 사용자 위치와 사진 메타데이터 위치가 동일하거나 사실상 같은 위치
+        - "matched": 사용자 위치와 사진 메타데이터 주소가 동일하거나 사실상 같은 위치
         - "same_area": 정확히 같지는 않지만 같은 동네/행정구역 수준
         - "different_area": 서로 다른 지역으로 보임
-        - "not_checked": 사진 메타데이터 위치 또는 주소가 없어 판단하지 않음
+        - "not_checked": 사진 메타데이터 주소가 없어 판단하지 않음
         - "unknown": 정보가 부족해 판단 불가
 
         location_verification.message 작성 규칙:
@@ -306,7 +300,7 @@ def build_vlm_prompt(
         - unknown: "위치 일치 여부를 판단하기 어렵습니다"
 
         [위치 생성 금지 보강]
-        사용자 위치 정보와 사진 메타데이터 위치가 모두 없는 경우:
+        사용자 위치 정보와 사진 메타데이터 주소가 모두 없는 경우:
         location_context는 반드시 null로 출력한다
         retrieval_query에서 위치를 추측해 넣지 않는다
         절대 금지:
@@ -380,7 +374,7 @@ def build_vlm_prompt(
             "status": "matched | same_area | different_area | not_checked | unknown",
             "message": "위치 검증 결과 메시지",
             "user_location": "사용자 위치 정보 또는 null",
-            "photo_location": "사진 메타데이터 위치 정보 또는 null",
+            "photo_location": null,
             "photo_address": "사진 메타데이터 주소 정보 또는 null"
           }}
         }}
