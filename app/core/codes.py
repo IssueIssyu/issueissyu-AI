@@ -30,6 +30,10 @@ class ErrorCode(Enum):
     TOKEN_NO_AUTH = (status.HTTP_403_FORBIDDEN, "JWT_4033", "권한 정보가 없는 token입니다.")
     TOKEN_EXPIRED = (status.HTTP_401_UNAUTHORIZED, "JWT_4011", "token 유효기간이 만료되었습니다.")
 
+    # Issue
+    ISSUE_LOW_RELIABILITY = (status.HTTP_422_UNPROCESSABLE_ENTITY, "ISSUE_4221", "신뢰도가 낮아 이슈 핀을 생성할 수 없습니다.")
+    ISSUE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "ISSUE_4041", "존재하지 않는 이슈 핀입니다.")
+
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
     FILE_UPLOAD_ERROR = (status.HTTP_400_BAD_REQUEST, "FILE_4001", "파일 업로드 중 오류가 발생했습니다.")

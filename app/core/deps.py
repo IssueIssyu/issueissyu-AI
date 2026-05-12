@@ -10,9 +10,12 @@ from app.core.database import get_async_db_session
 from app.core.config import settings
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
+from app.repositories.IssuePinRepo import IssuePinRepo
+from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
+from app.services.IssueService import IssueService
 from app.services.LocationResolveClient import LocationResolveClient
 from app.services.UserService import UserService
 from app.services.VLMService import VLMService
@@ -96,6 +99,41 @@ def get_vector_store_service(request: Request) -> VectorStoreService:
 
 
 VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
+
+
+def get_pin_repo(session: DbSessionDep) -> PinRepo:
+    return PinRepo(session)
+
+
+PinRepoDep = Annotated[PinRepo, Depends(get_pin_repo)]
+
+
+def get_issue_pin_repo(session: DbSessionDep) -> IssuePinRepo:
+    return IssuePinRepo(session)
+
+
+IssuePinRepoDep = Annotated[IssuePinRepo, Depends(get_issue_pin_repo)]
+
+
+def get_issue_service(
+    vector_store_service: VectorStoreServiceDep,
+    vlm_service: VLMServiceDep,
+    image_exif_location_resolve_service: ImageExifLocationResolveServiceDep,
+    pin_repo: PinRepoDep,
+    issue_pin_repo: IssuePinRepoDep,
+    user_repo: UserRepoDep,
+) -> IssueService:
+    return IssueService(
+        vector_store_service=vector_store_service,
+        vlm_service=vlm_service,
+        image_exif_location_resolve_service=image_exif_location_resolve_service,
+        pin_repo=pin_repo,
+        issue_pin_repo=issue_pin_repo,
+        user_repo=user_repo,
+    )
+
+
+IssueServiceDep = Annotated[IssueService, Depends(get_issue_service)]
 
 
 def get_s3_util(request: Request) -> S3Util:
