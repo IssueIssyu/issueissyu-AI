@@ -4,6 +4,9 @@ from dataclasses import dataclass, field
 
 from google import genai
 
+from app.core.codes import ErrorCode
+from app.core.exceptions import BusinessException, raise_business_exception
+
 
 @dataclass(slots=True)
 class IssuePinLLMService:
@@ -20,13 +23,21 @@ class IssuePinLLMService:
         """`issue_pin_prompt`로 만든 전체 프롬프트 한 덩어리를 넣고, 핀 본문만 받는다."""
         text = (prompt or "").strip()
         if not text:
-            raise RuntimeError("핀 생성 프롬프트가 비어 있습니다.")
+            raise_business_exception(ErrorCode.ISSUE_PIN_PROMPT_EMPTY)
 
         response = await self.client.aio.models.generate_content(
             model=self.model_name,
             contents=text,
         )
-        out = (response.text or "").strip()
+        try:
+            raw = response.text
+        except (ValueError, AttributeError) as exc:
+            raise BusinessException(
+                ErrorCode.ISSUE_PIN_LLM_BLOCKED,
+                str(exc) if str(exc) else None,
+            ) from exc
+
+        out = (raw or "").strip()
         if not out:
-            raise RuntimeError("핀 생성 LLM 응답이 비어 있습니다.")
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
         return out
