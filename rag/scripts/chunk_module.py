@@ -1,18 +1,22 @@
 import hashlib
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 
-def load_jsonl(path: Path):
-    rows = []
+def iter_jsonl(path: Path) -> Iterator[Any]:
     with path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            rows.append(json.loads(line))
-    return rows
+            yield json.loads(line)
+
+
+def load_jsonl(path: Path) -> list[Any]:
+    return list(iter_jsonl(path))
 
 
 def write_jsonl(path: Path, rows):

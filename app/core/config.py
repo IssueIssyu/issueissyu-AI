@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     )
     vector_table_name: str = Field(default="complaint_chunks", alias="VECTOR_TABLE_NAME")
     vector_embed_dim: int = Field(default=1536, alias="VECTOR_EMBED_DIM")
+    vector_dim_check: bool = Field(
+        default=False,
+        alias="VECTOR_DIM_CHECK",
+    )
     vector_hybrid_search: bool = Field(default=True, alias="VECTOR_HYBRID_SEARCH")
     vector_text_search_config: str = Field(
         default="simple",

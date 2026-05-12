@@ -14,7 +14,7 @@ from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.utils.chunk_node_metadata import build_chunk_metadata
 from app.utils.chunk_text_normalize import load_skip_line_prefixes, normalize_chunk
-from rag.scripts.chunk_module import load_jsonl
+from rag.scripts.chunk_module import iter_jsonl
 
 DEFAULT_BATCH_SIZE = 50
 
@@ -119,6 +119,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="푸터 제거만 끄기",
     )
+    parser.add_argument(
+        "--no-dedupe-node",
+        action="store_true",
+        help="입력이 이미 유일하거나 DB/상위 파이프라인에서 중복을 처리할 때 사용",
+    )
     return parser.parse_args()
 
 
@@ -149,15 +154,14 @@ async def main() -> None:
     footer_line_prefixes: tuple[str, ...] | None = () if args.no_footer_strip else None
 
     svc = build_service()
-    rows = load_jsonl(args.input)
     nodes: list[TextNode] = []
     total = 0
     skipped = 0
     processed = 0
     table_name = ""
-    seen_ids: set[str] = set()
+    seen_ids: set[str] | None = None if args.no_dedupe_node else set()
 
-    for idx, row in enumerate(rows):
+    for idx, row in enumerate(iter_jsonl(args.input)):
         if idx < args.start_offset:
             continue
         if args.limit is not None and processed >= args.limit:
@@ -172,15 +176,27 @@ async def main() -> None:
                 raw_text=args.no_chunk_normalize,
             )
             node_id = node.node_id
-            if not node_id or node_id in seen_ids:
+            if not node_id:
+                print(f"[skip] missing node_id idx={idx} chunk_id={row.get('chunk_id')}")
                 skipped += 1
                 continue
-            seen_ids.add(node_id)
+
+            if seen_ids is not None:
+                if node_id in seen_ids:
+                    print(f"[skip] duplicated node_id idx={idx} node_id={node_id}")
+                    skipped += 1
+                    continue
+                seen_ids.add(node_id)
             nodes.append(node)
-        except Exception:
+
+        except Exception as e:
+            print(
+                f"[skip] exception idx={idx} "
+                f"chunk_id={row.get('chunk_id')} "
+                f"error={type(e).__name__}: {e}"
+            )
             skipped += 1
             continue
-
         if len(nodes) >= args.batch_size:
             table_name = await insert_batch_with_retry(svc, nodes, domain)
             total += len(nodes)
