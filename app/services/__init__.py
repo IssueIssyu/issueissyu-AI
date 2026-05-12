@@ -8,13 +8,13 @@ from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 
 __all__ = [
+    "ImageExifGeoService",
+    "ImageExifLocationResolveService",
+    "ImageMultipartGeoService",
+    "LocationResolveClient",
     "UserService",
     "VLMService",
     "VectorStoreService",
     "VectorDomain",
     "DomainVectorConfig",
-    "ImageExifGeoService",
-    "ImageExifLocationResolveService",
-    "ImageMultipartGeoService",
-    "LocationResolveClient",
 ]

@@ -17,6 +17,9 @@ from app.services.ImageExifLocationResolveService import ImageExifLocationResolv
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.IssueService import IssueService
 from app.services.LocationResolveClient import LocationResolveClient
+from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
+from app.services.ImageMultipartGeoService import ImageMultipartGeoService
+from app.services.LocationResolveClient import LocationResolveClient
 from app.services.UserService import UserService
 from app.services.VLMService import VLMService
 from app.services.VectorStoreService import VectorStoreService
@@ -99,6 +102,44 @@ def get_vector_store_service(request: Request) -> VectorStoreService:
 
 
 VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
+
+
+def get_image_multipart_geo_service() -> ImageMultipartGeoService:
+    return ImageMultipartGeoService()
+
+
+ImageMultipartGeoServiceDep = Annotated[
+    ImageMultipartGeoService,
+    Depends(get_image_multipart_geo_service),
+]
+
+
+def get_location_resolve_client(request: Request) -> LocationResolveClient:
+    http_client = getattr(request.app.state, "shared_httpx_client", None)
+    if http_client is None or not isinstance(http_client, httpx.AsyncClient):
+        raise RuntimeError(
+            "shared_httpx_client is not initialized. Check FastAPI lifespan in app.main.",
+        )
+    return LocationResolveClient(
+        http_client=http_client,
+        base_url=settings.location_core_base_url,
+    )
+
+
+LocationResolveClientDep = Annotated[LocationResolveClient, Depends(get_location_resolve_client)]
+
+
+def get_image_exif_location_resolve_service(
+    multipart_geo: ImageMultipartGeoServiceDep,
+    location_resolve: LocationResolveClientDep,
+) -> ImageExifLocationResolveService:
+    return ImageExifLocationResolveService(multipart_geo, location_resolve)
+
+
+ImageExifLocationResolveServiceDep = Annotated[
+    ImageExifLocationResolveService,
+    Depends(get_image_exif_location_resolve_service),
+]
 
 
 def get_pin_repo(session: DbSessionDep) -> PinRepo:
