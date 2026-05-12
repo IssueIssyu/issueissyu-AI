@@ -14,6 +14,7 @@ from app.models.User import User
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
+from app.services.CoordinateResolveService import CoordinateResolveService
 from app.services.IssueService import IssueService
 from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.ImageMultipartGeoService import ImageMultipartGeoService
@@ -140,6 +141,18 @@ ImageExifLocationResolveServiceDep = Annotated[
 ]
 
 
+def get_coordinate_resolve_service(
+    location_resolve: LocationResolveClientDep,
+) -> CoordinateResolveService:
+    return CoordinateResolveService(location_resolve)
+
+
+CoordinateResolveServiceDep = Annotated[
+    CoordinateResolveService,
+    Depends(get_coordinate_resolve_service),
+]
+
+
 def get_pin_repo(session: DbSessionDep) -> PinRepo:
     return PinRepo(session)
 
@@ -158,6 +171,7 @@ def get_issue_service(
     vector_store_service: VectorStoreServiceDep,
     vlm_service: VLMServiceDep,
     image_exif_location_resolve_service: ImageExifLocationResolveServiceDep,
+    coordinate_resolve_service: CoordinateResolveServiceDep,
     pin_repo: PinRepoDep,
     issue_pin_repo: IssuePinRepoDep,
     user_repo: UserRepoDep,
@@ -166,6 +180,7 @@ def get_issue_service(
         vector_store_service=vector_store_service,
         vlm_service=vlm_service,
         image_exif_location_resolve_service=image_exif_location_resolve_service,
+        coordinate_resolve_service=coordinate_resolve_service,
         pin_repo=pin_repo,
         issue_pin_repo=issue_pin_repo,
         user_repo=user_repo,
