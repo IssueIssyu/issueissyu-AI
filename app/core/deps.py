@@ -5,8 +5,10 @@ from fastapi import Depends, HTTPException, Request, status
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_async_db_session
+from app.core.codes import ErrorCode
 from app.core.config import settings
+from app.core.database import get_async_db_session
+from app.core.exceptions import raise_business_exception
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
 from app.repositories.IssuePinRepo import IssuePinRepo
@@ -80,7 +82,7 @@ ImageExifLocationResolveServiceDep = Annotated[
 def get_vlm_service() -> VLMService:
     api_key_secret = settings.gemini_api_key
     if api_key_secret is None:
-        raise RuntimeError("GEMINI_API_KEY is not configured.")
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
     return VLMService(
         api_key=api_key_secret.get_secret_value(),
         model_name=settings.gemini_vlm_model,
