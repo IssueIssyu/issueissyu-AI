@@ -262,10 +262,6 @@ class VLMService:
             lv["status"] = "unknown"
         if not isinstance(lv.get("message"), str):
             lv["message"] = "위치 일치 여부를 판단하기 어렵습니다"
-        for k in ("user_location", "photo_location", "photo_address"):
-            v = lv.get(k)
-            if v is not None and not isinstance(v, str):
-                lv[k] = str(v)
         lv["user_location"] = ul
         lv["photo_location"] = pl
         lv["photo_address"] = pa
