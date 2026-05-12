@@ -36,6 +36,21 @@ class ErrorCode(Enum):
     # Issue
     ISSUE_LOW_RELIABILITY = (status.HTTP_422_UNPROCESSABLE_ENTITY, "ISSUE_4221", "신뢰도가 낮아 이슈 핀을 생성할 수 없습니다.")
     ISSUE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "ISSUE_4041", "존재하지 않는 이슈 핀입니다.")
+    ISSUE_PIN_PROMPT_EMPTY = (
+        status.HTTP_400_BAD_REQUEST,
+        "ISSUE_4002",
+        "핀 생성 프롬프트가 비어 있습니다.",
+    )
+    ISSUE_PIN_LLM_NO_OUTPUT = (
+        status.HTTP_502_BAD_GATEWAY,
+        "ISSUE_5021",
+        "핀 생성 모델 응답이 비어 있습니다.",
+    )
+    ISSUE_PIN_LLM_BLOCKED = (
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "ISSUE_4222",
+        "핀 생성 모델 응답을 가져올 수 없습니다. (차단 또는 형식 오류)",
+    )
 
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
