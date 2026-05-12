@@ -8,6 +8,7 @@ import httpx
 from llama_index.core.schema import TextNode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+# python -m rag.scripts.insert_chunks_to_vector 형태 실행 기준
 from app.core.config import settings
 from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
@@ -17,6 +18,11 @@ from rag.scripts.chunk_module import load_jsonl
 DEFAULT_BATCH_SIZE = 50
 
 def build_service() -> VectorStoreService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise RuntimeError(
+            "GEMINI_API_KEY가 없습니다. .env 또는 환경 변수 GEMINI_API_KEY를 설정한 뒤 다시 실행하세요."
+        )
     domain_configs = {
         VectorDomain.COMPLAINT: DomainVectorConfig(
             table_name="complaint",
@@ -28,7 +34,7 @@ def build_service() -> VectorStoreService:
     return VectorStoreService(
         database_url=settings.sync_database_url,
         async_database_url=settings.async_database_url,
-        api_key=settings.gemini_api_key.get_secret_value(),
+        api_key=api_key_secret.get_secret_value(),
         table_name=settings.vector_table_name,
         default_embedding_model=settings.gemini_embedding_model,
         default_embed_dim=settings.vector_embed_dim,
