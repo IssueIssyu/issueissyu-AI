@@ -43,7 +43,7 @@ class ImageMultipartGeoService:
     def _ensure_decodable_image(data: bytes) -> None:
         try:
             with Image.open(BytesIO(data)) as img:
-                img.load()
+                img.verify()
         except UnidentifiedImageError:
             logger.debug("멀티파트 이미지 디코드: 포맷 미식별", exc_info=True)
             raise_file_exception(
