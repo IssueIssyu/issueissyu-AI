@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Boolean, Enum, Identity, String, Text
+from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.EventPin import EventPin
     from app.models.PinImage import PinImage
     from app.models.PinLocation import PinLocation
+    from app.models.User import User
 
 
 class Pin(BaseEntity):
@@ -24,6 +25,12 @@ class Pin(BaseEntity):
         Identity(),
         primary_key=True,
     )
+    uid: Mapped[str] = mapped_column(
+        "uid",
+        String(36),
+        ForeignKey("user.uid"),
+        nullable=False,
+    )
     pin_type: Mapped[PinType] = mapped_column(
         "pin_type",
         Enum(PinType, native_enum=False, length=32),
@@ -31,29 +38,40 @@ class Pin(BaseEntity):
     )
     pin_title: Mapped[str] = mapped_column("pin_title", String(100), nullable=False)
     pin_content: Mapped[str] = mapped_column("pin_content", Text, nullable=False)
-    tone_type: Mapped[ToneType | None] = mapped_column(
+    tone_type: Mapped[ToneType] = mapped_column(
         "tone_type",
         Enum(ToneType, native_enum=False, length=32),
-        nullable=True,
-    )
-    visibility_status: Mapped[bool] = mapped_column(
-        "visibility_status",
-        Boolean,
-        default=True,
         nullable=False,
+        default=ToneType.NEUTRAL,
+        server_default=text("'NEUTRAL'"),
+    )
+    like_count: Mapped[int] = mapped_column(
+        "like_count",
+        Integer,
+        default=0,
+        nullable=False,
+        server_default=text("0"),
+    )
+
+    user: Mapped[User] = relationship(
+        "User",
+        back_populates="pins",
+        foreign_keys=[uid],
+        lazy="selectin",
     )
     pin_images: Mapped[list[PinImage]] = relationship(
         "PinImage",
         back_populates="pin",
         lazy="selectin",
     )
-    pin_locations: Mapped[list[PinLocation]] = relationship(
-        "PinLocation",
-        back_populates="pin",
-        lazy="selectin",
-    )
     event_pin: Mapped[EventPin | None] = relationship(
         "EventPin",
+        back_populates="pin",
+        uselist=False,
+        lazy="selectin",
+    )
+    pin_location: Mapped[PinLocation | None] = relationship(
+        "PinLocation",
         back_populates="pin",
         uselist=False,
         lazy="selectin",

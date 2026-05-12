@@ -30,6 +30,7 @@ class OAuth(BaseEntity):
         lazy="selectin",
     )
     provider_id: Mapped[str] = mapped_column("provider_id", String(255), nullable=False)
+    password: Mapped[str | None] = mapped_column("password", String(255), nullable=True)
     social_type: Mapped[SocialType] = mapped_column(
         "social_type",
         Enum(SocialType, native_enum=False, length=32),

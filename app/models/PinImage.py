@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, Identity, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Identity, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -30,3 +30,4 @@ class PinImage(Base):
     )
     pin_s3_key: Mapped[str] = mapped_column("pin_s3_key", String(500), nullable=False)
     pin_s3_url: Mapped[str] = mapped_column("pin_s3_url", String(500), nullable=False)
+    is_main: Mapped[bool] = mapped_column("is_main", Boolean, default=False, nullable=False)
