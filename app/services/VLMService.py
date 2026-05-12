@@ -223,9 +223,14 @@ class VLMService:
         mime = (upload.content_type or "").split(";")[0].strip().lower()
         if not mime:
             guessed, _ = mimetypes.guess_type(upload.filename or "")
-            mime = (guessed or "image/jpeg").split(";")[0].strip().lower()
+            mime = (guessed or "").split(";")[0].strip().lower()
+        if not mime:
+            raise RuntimeError(
+                "업로드 파일의 MIME 타입을 확인할 수 없습니다. "
+                "Content-Type을 지정하거나 이미지 확장자가 있는 파일명을 사용하세요.",
+            )
         if not mime.startswith("image/"):
-            mime = "image/jpeg"
+            raise RuntimeError(f"이미지 파일만 업로드할 수 있습니다. (받은 MIME: {mime})")
 
         eff_user_location = user_location
         if (eff_user_location is None or not str(eff_user_location).strip()) and (
