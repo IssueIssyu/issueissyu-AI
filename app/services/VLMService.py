@@ -17,6 +17,14 @@ from app.services.vlm_prompt import (
     build_vlm_prompt,
 )
 
+_LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
+    "matched": "사용자 위치와 사진 메타데이터 위치가 일치합니다",
+    "same_area": "사용자 위치와 사진 메타데이터 위치가 같은 동네 수준으로 보입니다",
+    "different_area": "사용자 위치와 사진 메타데이터 위치가 다를 수 있습니다",
+    "not_checked": "메타데이터에 주소가 없습니다",
+    "unknown": "위치 일치 여부를 판단하기 어렵습니다",
+}
+
 # 위치 정보가 없을 때 지역 표현 제거에 사용하는 패턴
 _LOCATION_PATTERN = re.compile(
     r"[가-힣0-9]+(?:특별자치도|특별자치시|특별시|광역시)(?:\s*[,\s]|$)+|"
@@ -257,11 +265,27 @@ class VLMService:
         lv = parsed.get("location_verification")
         if not isinstance(lv, dict):
             lv = {}
+        if pa is None:
+            default_lv_status = "not_checked"
+            default_lv_message = "메타데이터에 주소가 없습니다"
+        else:
+            default_lv_status = "unknown"
+            default_lv_message = "위치 일치 여부를 판단하기 어렵습니다"
         st = lv.get("status")
-        if not isinstance(st, str) or st not in VLM_LOCATION_VERIFICATION_STATUSES:
-            lv["status"] = "unknown"
-        if not isinstance(lv.get("message"), str):
-            lv["message"] = "위치 일치 여부를 판단하기 어렵습니다"
+        status_was_invalid = not isinstance(st, str) or st not in VLM_LOCATION_VERIFICATION_STATUSES
+        if status_was_invalid:
+            lv["status"] = default_lv_status
+        msg = lv.get("message")
+        if not isinstance(msg, str) or not msg.strip():
+            if status_was_invalid:
+                lv["message"] = default_lv_message
+            else:
+                st_ok = lv.get("status")
+                lv["message"] = (
+                    _LOCATION_VERIFICATION_FALLBACK_MESSAGES[st_ok]
+                    if isinstance(st_ok, str) and st_ok in _LOCATION_VERIFICATION_FALLBACK_MESSAGES
+                    else default_lv_message
+                )
         lv["user_location"] = ul
         lv["photo_location"] = pl
         lv["photo_address"] = pa

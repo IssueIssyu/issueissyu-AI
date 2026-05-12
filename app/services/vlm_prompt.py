@@ -63,6 +63,21 @@ def _render_optional(value: str | None) -> str:
     return stripped if stripped else "null"
 
 
+def _location_context_json_fragment_for_prompt(
+    user_location_text: str,
+    photo_address_text: str,
+    photo_location_text: str,
+) -> str:
+    """프롬프트 내 location_context 예시용 JSON 조각. 사용자 위치 우선, 없으면 사진 주소·좌표 순."""
+    if user_location_text != "null":
+        return json.dumps(user_location_text, ensure_ascii=False)
+    if photo_address_text != "null":
+        return json.dumps(photo_address_text, ensure_ascii=False)
+    if photo_location_text != "null":
+        return json.dumps(photo_location_text, ensure_ascii=False)
+    return "null"
+
+
 def build_vlm_prompt(
     *,
     user_text: str,
@@ -74,10 +89,10 @@ def build_vlm_prompt(
     photo_location_text = _render_optional(photo_location)
     photo_address_text = _render_optional(photo_address)
     safe_user_text = user_text.strip()
-    location_json_value = (
-        "null"
-        if user_location_text == "null"
-        else json.dumps(user_location_text, ensure_ascii=False)
+    location_json_value = _location_context_json_fragment_for_prompt(
+        user_location_text,
+        photo_address_text,
+        photo_location_text,
     )
 
     return f"""
