@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
                 domain_configs=domain_configs,
                 hybrid_search=settings.vector_hybrid_search,
                 text_search_config=settings.vector_text_search_config,
+                embedding_batch_size_override=settings.gemini_embedding_batch_size,
             )
             if settings.vector_dim_check:
                 dimension_checks = (

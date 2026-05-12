@@ -34,6 +34,7 @@ class VectorStoreService:
         domain_configs: dict[VectorDomain, DomainVectorConfig] | None = None,
         hybrid_search: bool = True,
         text_search_config: str = "simple",
+        embedding_batch_size_override: int | None = None,
     ) -> None:
         url = make_url(database_url)
         if not url.database:
@@ -60,6 +61,7 @@ class VectorStoreService:
         self._bundles: dict[str, _VectorIndexBundle] = {}
         self._domain_configs = domain_configs or {}
         self._embed_models: dict[tuple[str, int], BaseEmbedding] = {}
+        self._embedding_batch_size_override = embedding_batch_size_override
 
     @staticmethod
     def _normalize_domain(domain: str) -> str:
@@ -97,9 +99,12 @@ class VectorStoreService:
         embed_model = self._embed_models.get(model_key)
         if embed_model is not None:
             return embed_model
-        # gemini-embedding-2는 다중 입력 요청 시 응답 임베딩 수 불일치가 발생할 수 있어
-        # LlamaIndex 내부 배치를 1로 고정해 KeyError(id_to_embed_map 누락)를 방지한다.
-        embed_batch_size = 1 if model_name.strip().endswith("embedding-2") else 10
+        # gemini-embedding-2는 다중 입력 시 응답 수 불일치(KeyError) 이슈가 있어 기본 배치 1.
+        # GEMINI_EMBEDDING_BATCH_SIZE로 올리면 처리량↑ (API/버전에 따라 실패할 수 있음).
+        if self._embedding_batch_size_override is not None:
+            embed_batch_size = max(1, int(self._embedding_batch_size_override))
+        else:
+            embed_batch_size = 1 if model_name.strip().endswith("embedding-2") else 10
         embed_model = GoogleGenAIEmbedding(
             model_name=model_name,
             api_key=self._api_key,

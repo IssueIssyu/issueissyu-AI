@@ -58,6 +58,11 @@ class Settings(BaseSettings):
         default="gemini-embedding-2",
         alias="GEMINI_EMBEDDING_MODEL",
     )
+    # None이면 모델별 기본값(embedding-2 → 1, 그 외 → 10). 지정 시 LlamaIndex embed_batch_size로 전달.
+    gemini_embedding_batch_size: int | None = Field(
+        default=None,
+        alias="GEMINI_EMBEDDING_BATCH_SIZE",
+    )
     vector_table_name: str = Field(default="complaint_chunks", alias="VECTOR_TABLE_NAME")
     vector_embed_dim: int = Field(default=1536, alias="VECTOR_EMBED_DIM")
     vector_dim_check: bool = Field(
@@ -74,6 +79,13 @@ class Settings(BaseSettings):
         default=False,
         alias="VECTOR_DIM_CHECK",
     )
+
+    @field_validator("gemini_embedding_batch_size", mode="before")
+    @classmethod
+    def _empty_string_gemini_embed_batch(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
 
     @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
     @classmethod
