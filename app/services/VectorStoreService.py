@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from llama_index.core import VectorStoreIndex
 from llama_index.core.base.embeddings.base import BaseEmbedding
-from llama_index.core.schema import BaseNode
+from llama_index.core.schema import BaseNode, MetadataMode
 from llama_index.core.vector_stores.types import MetadataFilters
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
@@ -14,6 +17,23 @@ from sqlalchemy import make_url
 from starlette.concurrency import run_in_threadpool
 
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
+
+_embed_rate_lock = threading.Lock()
+_embed_rate_next: float = 0.0
+
+
+def _wait_for_embed_slot(rps_limit: float) -> None:
+    """All threads/instances share one timeline — globally ≤ rps_limit calls/s."""
+    global _embed_rate_next
+    interval = 1.0 / rps_limit
+    with _embed_rate_lock:
+        now = time.monotonic()
+        scheduled = max(now, _embed_rate_next)
+        _embed_rate_next = scheduled + interval
+    delay = scheduled - time.monotonic()
+    if delay > 0:
+        time.sleep(delay)
+
 
 @dataclass(slots=True)
 class _VectorIndexBundle:
@@ -35,14 +55,14 @@ class VectorStoreService:
         hybrid_search: bool = True,
         text_search_config: str = "simple",
         embedding_batch_size_override: int | None = None,
+        embed_workers: int = 10,
+        embed_rps_limit: float = 40.0,
     ) -> None:
         url = make_url(database_url)
         if not url.database:
             raise ValueError("Vector DB database name is required.")
         if not url.host:
             raise ValueError("Vector DB host is required.")
-        if not url.username:
-            raise ValueError("Vector DB user is required.")
         if url.port is None:
             raise ValueError("Vector DB port is required.")
 
@@ -62,6 +82,8 @@ class VectorStoreService:
         self._domain_configs = domain_configs or {}
         self._embed_models: dict[tuple[str, int], BaseEmbedding] = {}
         self._embedding_batch_size_override = embedding_batch_size_override
+        self._embed_workers = max(1, embed_workers)
+        self._embed_rps_limit = max(1.0, float(embed_rps_limit))
 
     @staticmethod
     def _normalize_domain(domain: str) -> str:
@@ -208,7 +230,24 @@ class VectorStoreService:
             embed_model_name=embed_model_name,
             embed_dim=embed_dim,
         )
-        await run_in_threadpool(bundle.index.insert_nodes, nodes)
+        embed_model = self._get_or_create_embed_model(embed_model_name, embed_dim)
+
+        def _pre_embed_and_insert() -> None:
+            needs_embed = [n for n in nodes if n.embedding is None]
+            if needs_embed:
+                rps = self._embed_rps_limit
+
+                def _embed_one(node: BaseNode) -> None:
+                    _wait_for_embed_slot(rps)
+                    text = node.get_content(metadata_mode=MetadataMode.EMBED)
+                    node.embedding = embed_model.get_text_embedding(text)
+
+                workers = min(len(needs_embed), self._embed_workers)
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    list(pool.map(_embed_one, needs_embed))
+            bundle.index.insert_nodes(nodes)
+
+        await run_in_threadpool(_pre_embed_and_insert)
         return resolved_table_name
 
     async def aretrieve(
