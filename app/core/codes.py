@@ -30,6 +30,9 @@ class ErrorCode(Enum):
     TOKEN_NO_AUTH = (status.HTTP_403_FORBIDDEN, "JWT_4033", "권한 정보가 없는 token입니다.")
     TOKEN_EXPIRED = (status.HTTP_401_UNAUTHORIZED, "JWT_4011", "token 유효기간이 만료되었습니다.")
 
+    # VLM (Gemini)
+    VLM_NOT_CONFIGURED = (status.HTTP_503_SERVICE_UNAVAILABLE, "VLM_5031", "VLM(Gemini) API 키가 설정되지 않았습니다.")
+
     # Issue
     ISSUE_LOW_RELIABILITY = (status.HTTP_422_UNPROCESSABLE_ENTITY, "ISSUE_4221", "신뢰도가 낮아 이슈 핀을 생성할 수 없습니다.")
     ISSUE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "ISSUE_4041", "존재하지 않는 이슈 핀입니다.")

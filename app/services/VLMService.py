@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from json import JSONDecodeError
 
 from google import genai
 from google.genai import types
+from starlette.datastructures import UploadFile
 
+from app.schemas.IssueDTO import ImageWithLocation
 from app.services.vlm_prompt import (
     VLM_ADMIN_DOMAINS,
     VLM_CATEGORY_TYPES,
@@ -107,6 +111,44 @@ def normalize_validity(value: object) -> bool:
     return False
 
 
+def coerce_photo_address(value: object) -> str | None:
+    """str·list·tuple 등을 단일 주소 문자열로 정규화. 여러 항목은 ', '로 연결."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        s = value.strip()
+        return s or None
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        parts: list[str] = []
+        for item in value:
+            if item is None:
+                continue
+            t = str(item).strip()
+            if t:
+                parts.append(t)
+        if not parts:
+            return None
+        return ", ".join(parts)
+    s = str(value).strip()
+    return s or None
+
+
+def resolve_upload_image_mime(upload: UploadFile) -> str:
+    """UploadFile에서 image/* MIME을 결정. 비이미지·미확인이면 RuntimeError."""
+    mime = (upload.content_type or "").split(";")[0].strip().lower()
+    if not mime:
+        guessed, _ = mimetypes.guess_type(upload.filename or "")
+        mime = (guessed or "").split(";")[0].strip().lower()
+    if not mime:
+        raise RuntimeError(
+            "업로드 파일의 MIME 타입을 확인할 수 없습니다. "
+            "Content-Type을 지정하거나 이미지 확장자가 있는 파일명을 사용하세요.",
+        )
+    if not mime.startswith("image/"):
+        raise RuntimeError(f"이미지 파일만 업로드할 수 있습니다. (받은 MIME: {mime})")
+    return mime
+
+
 VLM_RESPONSE_SCHEMA = {
     "type": "object",
     "required": [
@@ -186,13 +228,38 @@ class VLMService:
         self,
         *,
         user_text: str,
-        image_bytes: bytes,
-        image_mime_type: str,
+        images: list[ImageWithLocation],
         user_location: str | None = None,
-        photo_location: str | None = None,
-        photo_address: str | None = None,
         location: str | None = None,
     ) -> dict:
+        if not images:
+            raise RuntimeError(
+                "이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.",
+            )
+
+        image_parts: list[types.Part] = []
+        per_address_strings: list[str] = []
+        slot_lines: list[str] = []
+
+        for idx, row in enumerate(images, start=1):
+            upload = row.image
+            addr = row.address
+            image_bytes = await upload.read()
+            if not image_bytes:
+                raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")
+            mime = resolve_upload_image_mime(upload)
+            image_parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime))
+            one_addr = coerce_photo_address(addr)
+            if one_addr:
+                per_address_strings.append(one_addr)
+            name = upload.filename or f"image_{idx}"
+            slot_lines.append(
+                f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}"
+            )
+
+        photo_address_str = ", ".join(per_address_strings) if per_address_strings else None
+        per_image_slot_text = "\n".join(slot_lines)
+
         eff_user_location = user_location
         if (eff_user_location is None or not str(eff_user_location).strip()) and (
             location is not None and str(location).strip()
@@ -201,10 +268,9 @@ class VLMService:
         prompt = build_vlm_prompt(
             user_text=user_text,
             user_location=eff_user_location,
-            photo_location=photo_location,
-            photo_address=photo_address,
+            photo_address=photo_address_str,
+            per_image_slot_text=per_image_slot_text,
         )
-        image_part = types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type)
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=VLM_RESPONSE_SCHEMA,
@@ -212,7 +278,7 @@ class VLMService:
 
         response = await self.client.aio.models.generate_content(
             model=self.model_name,
-            contents=[image_part, prompt],
+            contents=[*image_parts, prompt],
             config=config,
         )
 
@@ -228,8 +294,7 @@ class VLMService:
         return self._normalize(
             parsed=parsed,
             user_location=eff_user_location,
-            photo_location=photo_location,
-            photo_address=photo_address,
+            photo_address=photo_address_str,
         )
 
     @staticmethod
@@ -237,15 +302,13 @@ class VLMService:
         *,
         parsed: dict,
         user_location: str | None,
-        photo_location: str | None,
         photo_address: str | None,
     ) -> dict:
         ul = user_location.strip() if isinstance(user_location, str) and user_location.strip() else None
-        pl = photo_location.strip() if isinstance(photo_location, str) and photo_location.strip() else None
         pa = photo_address.strip() if isinstance(photo_address, str) and photo_address.strip() else None
 
-        # 사용자·사진 메타 위치·주소가 모두 없을 때: location_context 삭제, 쿼리/키워드에서 지명·행정구역 조각 제거
-        if ul is None and pl is None and pa is None:
+        # 사용자 위치·사진 메타 주소가 모두 없을 때: location_context 삭제, 쿼리/키워드에서 지명·행정구역 조각 제거
+        if ul is None and pa is None:
             lc_raw = parsed.get("location_context")
             model_lc = lc_raw.strip() if isinstance(lc_raw, str) else ""
             rq = parsed.get("retrieval_query")
@@ -287,7 +350,7 @@ class VLMService:
                     else default_lv_message
                 )
         lv["user_location"] = ul
-        lv["photo_location"] = pl
+        lv["photo_location"] = None
         lv["photo_address"] = pa
         parsed["location_verification"] = lv
 
