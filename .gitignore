@@ -1,0 +1,10 @@
+.env
+.pem
+
+__pycache__/
+*.pyc
+
+rag/raw
+rag/output
+.venv/
+.idea/
