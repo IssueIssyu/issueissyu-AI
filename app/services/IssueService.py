@@ -61,19 +61,14 @@ class IssueService:
         if not isinstance(raw, dict):
             return None
         domain_name = raw.get("domain")
-        type_name = raw.get("type")
-        parts: list[MetadataFilter] = []
-        if isinstance(domain_name, str):
-            d = domain_name.strip()
-            if d and d != "공통":
-                parts.append(MetadataFilter(key="domain", value=d))
-        if isinstance(type_name, str):
-            t = type_name.strip()
-            if t:
-                parts.append(MetadataFilter(key="category", value=t))
-        if not parts:
+        if not isinstance(domain_name, str):
             return None
-        return MetadataFilters(filters=parts)
+        d = domain_name.strip()
+        if not d or d == "공통":
+            return None
+        return MetadataFilters(
+            filters=[MetadataFilter(key="category", value=d)]
+        )
 
     @staticmethod
     def _rag_hits_to_dicts(hits: Any) -> list[dict[str, Any]]:
@@ -154,13 +149,17 @@ class IssueService:
             query = user_content.strip()
 
         filters = self._build_rag_metadata_filters(vlm_result)
+        logger.warning(
+            "RAG retrieve start — query=%r, domain=%s, filters=%s",
+            query, VectorDomain.COMPLAINT.value, filters,
+        )
         rag_hits = await self._vector_store_service.aretrieve(
             query=query,
             domain=VectorDomain.COMPLAINT,
             similarity_top_k=10,
             filters=filters,
         )
-        logger.info("Issue RAG hits exists: %s", bool(rag_hits))
+        logger.warning("Issue RAG hits count=%d, hits=%s", len(rag_hits), rag_hits)
         rag_payload = self._rag_hits_to_dicts(rag_hits)
 
         bundle: dict[str, Any] = {
