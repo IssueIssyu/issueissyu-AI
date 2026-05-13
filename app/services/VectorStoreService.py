@@ -44,13 +44,11 @@ class VectorStoreService:
             raise ValueError("Vector DB database name is required.")
         if not url.host:
             raise ValueError("Vector DB host is required.")
-        if url.port is None:
-            raise ValueError("Vector DB port is required.")
 
         self._database = url.database
         self._host = url.host
         self._password = url.password or ""
-        self._port = url.port
+        self._port = 5432
         self._user = url.username
         self._async_database_url = async_database_url
         self._default_table_name = table_name
