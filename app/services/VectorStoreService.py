@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,8 @@ from sqlalchemy import make_url
 from starlette.concurrency import run_in_threadpool
 
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
+
+logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class _VectorIndexBundle:
@@ -41,8 +44,6 @@ class VectorStoreService:
             raise ValueError("Vector DB database name is required.")
         if not url.host:
             raise ValueError("Vector DB host is required.")
-        if not url.username:
-            raise ValueError("Vector DB user is required.")
         if url.port is None:
             raise ValueError("Vector DB port is required.")
 
@@ -228,6 +229,11 @@ class VectorStoreService:
             domain_config.embedding_model if domain_config else self._default_embedding_model
         )
         embed_dim = domain_config.embed_dim if domain_config else self._default_embed_dim
+        logger.warning(
+            "aretrieve — table=%s, model=%s, dim=%d, mode=%s, top_k=%d, filters=%s",
+            resolved_table_name, embed_model_name, embed_dim,
+            vector_store_query_mode, similarity_top_k, filters,
+        )
         bundle = self._get_or_create_bundle(
             resolved_table_name=resolved_table_name,
             embed_model_name=embed_model_name,
@@ -238,4 +244,6 @@ class VectorStoreService:
             filters=filters,
             vector_store_query_mode=vector_store_query_mode,
         )
-        return await retriever.aretrieve(query)
+        results = await retriever.aretrieve(query)
+        logger.warning("aretrieve — returned %d nodes", len(results))
+        return results

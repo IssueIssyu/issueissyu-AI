@@ -11,13 +11,6 @@ class UserDTO(BaseModel):
 
     uid: str
     user_name: str
-    phone: str | None = None
-    nickname: str | None = None
-    email: str | None = None
-    location_id: int | None = None
-    event_alarm_active: bool
-    hot_alarm_active: bool
-    store_alarm_active: bool
-    like_alarm_active: bool
+
     created_at: datetime
     updated_at: datetime | None = None

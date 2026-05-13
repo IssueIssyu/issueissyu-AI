@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 import logging
+from typing import Any
 
 import httpx
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
@@ -125,6 +127,38 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+def _patch_binary_media_schema(node: Any) -> None:
+    if isinstance(node, dict):
+        if node.get("type") == "string" and node.get("contentMediaType") == "application/octet-stream":
+            node.pop("contentMediaType", None)
+            node["format"] = "binary"
+        for value in node.values():
+            _patch_binary_media_schema(value)
+        return
+    if isinstance(node, list):
+        for item in node:
+            _patch_binary_media_schema(item)
+
+
+def custom_openapi() -> dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version=app.openapi_version,
+        description=app.description,
+        routes=app.routes,
+    )
+    _patch_binary_media_schema(openapi_schema)
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 register_exception_handlers(app)
 for router in enabled_routers:
