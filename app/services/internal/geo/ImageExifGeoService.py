@@ -67,6 +67,7 @@ class ImageExifGeoService:
 
         lat_dir = ImageExifGeoService._normalize_latlon_ref(lat_ref, ("N", "S"))
         lon_dir = ImageExifGeoService._normalize_latlon_ref(lon_ref, ("E", "W"))
+        # 방향 태그가 bytes(b'N')가 아닌 str로만 검사하던 문제·빈 태그 보정. 남·서반구는 제대로 된 ref 필요.
         if lat_dir is None:
             lat_dir = "N"
             logger.debug("GPSLatitudeRef 누락/비정상 — N으로 가정")
