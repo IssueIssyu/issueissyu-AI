@@ -15,6 +15,7 @@ _GPS_IFD = getattr(IFD, "GPSInfo", None)
 if _GPS_IFD is None:
     _GPS_IFD = getattr(IFD, "GPS", 34853)
 
+# GPS 서브디렉토리 표준 로컬 태그 번호. GPSTAGS 매핑이 어긋난 파일도 읽기 위함.
 _GPS_TAG_LAT_REF = 1
 _GPS_TAG_LAT = 2
 _GPS_TAG_LON_REF = 3
