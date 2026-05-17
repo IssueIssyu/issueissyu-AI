@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from functools import cached_property
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import quote_plus
@@ -7,6 +9,15 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True, slots=True)
+class DbConnectionParams:
+    host: str
+    port: int
+    name: str
+    user: str | None
+    password: str
 
 
 class Settings(BaseSettings):
@@ -153,9 +164,13 @@ class Settings(BaseSettings):
             self.aws_db_password,
         )
 
-    @property
-    def db_name(self) -> str:
-        _, _, db_name_raw, _, _ = self._selected_db_values()
+    @cached_property
+    def _db_connection(self) -> DbConnectionParams:
+        host, port, db_name_raw, db_user_raw, password_secret = self._selected_db_values()
+
+        if host is None or not host.strip():
+            raise ValueError("Database host is required.")
+
         if db_name_raw is None or not db_name_raw.strip():
             raise ValueError("Database name is required.")
         if "://" in db_name_raw:
@@ -167,37 +182,45 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Database name must be plain value (no path/query/fragment).",
             )
-        return db_name
+
+        if db_user_raw is None or not db_user_raw.strip():
+            if self.env == "local":
+                db_user: str | None = None
+            else:
+                raise ValueError("Database user is required.")
+        else:
+            db_user = db_user_raw.strip()
+
+        password = (
+            password_secret.get_secret_value() if password_secret is not None else ""
+        )
+        return DbConnectionParams(
+            host=host,
+            port=port if port is not None else 5432,
+            name=db_name,
+            user=db_user,
+            password=password,
+        )
+
+    @property
+    def db_name(self) -> str:
+        return self._db_connection.name
 
     @property
     def db_host(self) -> str:
-        host, _, _, _, _ = self._selected_db_values()
-        if host is None or not host.strip():
-            raise ValueError("Database host is required.")
-        return host
+        return self._db_connection.host
 
     @property
     def db_port(self) -> int:
-        _, port, _, _, _ = self._selected_db_values()
-        if port is not None:
-            return port
-        return 5432
+        return self._db_connection.port
 
     @property
     def db_user(self) -> str | None:
-        _, _, _, db_user, _ = self._selected_db_values()
-        if db_user is None or not db_user.strip():
-            if self.env == "local":
-                return None
-            raise ValueError("Database user is required.")
-        return db_user.strip()
+        return self._db_connection.user
 
     @property
     def db_password(self) -> str:
-        _, _, _, _, password_secret = self._selected_db_values()
-        if password_secret is not None:
-            return password_secret.get_secret_value()
-        return ""
+        return self._db_connection.password
 
     def build_database_url(
         self,
@@ -224,24 +247,26 @@ class Settings(BaseSettings):
 
     @property
     def sync_database_url(self) -> str:
+        conn = self._db_connection
         return self.build_database_url(
             async_mode=False,
-            db_host=self.db_host,
-            db_port=self.db_port,
-            db_name=self.db_name,
-            db_user=self.db_user,
-            db_password=self.db_password,
+            db_host=conn.host,
+            db_port=conn.port,
+            db_name=conn.name,
+            db_user=conn.user,
+            db_password=conn.password,
         )
 
     @property
     def async_database_url(self) -> str:
+        conn = self._db_connection
         return self.build_database_url(
             async_mode=True,
-            db_host=self.db_host,
-            db_port=self.db_port,
-            db_name=self.db_name,
-            db_user=self.db_user,
-            db_password=self.db_password,
+            db_host=conn.host,
+            db_port=conn.port,
+            db_name=conn.name,
+            db_user=conn.user,
+            db_password=conn.password,
         )
 
 
