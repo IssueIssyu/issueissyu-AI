@@ -36,8 +36,6 @@ def build_service() -> VectorStoreService:
         # 필요 도메인 추가
     }
     return VectorStoreService(
-        database_url=settings.sync_database_url,
-        async_database_url=settings.async_database_url,
         api_key=api_key_secret.get_secret_value(),
         table_name=settings.vector_table_name,
         default_embedding_model=settings.gemini_embedding_model,

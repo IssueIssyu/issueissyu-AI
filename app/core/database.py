@@ -9,8 +9,12 @@ from app.core.config import settings
 class Base(DeclarativeBase):
     pass
 
+
+async_database_url = settings.async_database_url
+sync_database_url = settings.sync_database_url
+
 async_engine = create_async_engine(
-    settings.async_database_url,
+    async_database_url,
     pool_pre_ping=True,
 )
 

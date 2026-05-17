@@ -23,20 +23,6 @@ async def get_my_user(user_service: UserServiceDep, uid: CurrentUserIdDep):
     return success_response(result=user, success_code=SuccessCode.USER_INFO_GET_SUCCESS)
 
 
-@router.post("/user")
-async def create_test_user(
-    user_service: UserServiceDep,
-    email: str = "test@issueissyu.ai",
-    nickname: str = "tester",
-    phone: str | None = None,
-):
-    user = await user_service.create_test_user(
-        email=email,
-        nickname=nickname,
-        phone=phone,
-    )
-    return success_response(result=user, success_code=SuccessCode.CREATED)
-
 @router.get("/error")
 async def raise_test_user_error():
     """에러 응답 포맷 테스트용 엔드포인트."""
