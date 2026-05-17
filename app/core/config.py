@@ -1,12 +1,23 @@
+from dataclasses import dataclass
+from functools import cached_property
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import quote_plus
 
 from pydantic import AliasChoices
 from pydantic import Field
-from pydantic import computed_field
 from pydantic import field_validator
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+@dataclass(frozen=True, slots=True)
+class DbConnectionParams:
+    host: str
+    port: int
+    name: str
+    user: str | None
+    password: str
 
 
 class Settings(BaseSettings):
@@ -19,11 +30,15 @@ class Settings(BaseSettings):
     env: Literal["local", "dev", "prod"] = Field(default="local", alias="APP_ENV")
 
     # Database
-    local_db_url: str | None = Field(default=None, alias="LOCAL_DB_URL")
-    local_db_username: str | None = Field(default=None, alias="LOCAL_DB_USERNAME")
+    local_db_host: str | None = Field(default=None, alias="LOCAL_DB_HOST")
+    local_db_port: int | None = Field(default=5432, alias="LOCAL_DB_PORT")
+    local_db_name: str | None = Field(default=None, alias="LOCAL_DB_NAME")
+    local_db_user: str | None = Field(default=None, alias="LOCAL_DB_USER")
     local_db_password: SecretStr | None = Field(default=None, alias="LOCAL_DB_PASSWORD")
-    aws_db_url: str | None = Field(default=None, alias="AWS_DB_URL")
-    aws_db_username: str | None = Field(default=None, alias="AWS_DB_USERNAME")
+    aws_db_host: str | None = Field(default=None, alias="AWS_DB_HOST")
+    aws_db_port: int | None = Field(default=5432, alias="AWS_DB_PORT")
+    aws_db_name: str | None = Field(default=None, alias="AWS_DB_NAME")
+    aws_db_user: str | None = Field(default=None, alias="AWS_DB_USER")
     aws_db_password: SecretStr | None = Field(default=None, alias="AWS_DB_PASSWORD")
 
     # JWT 검증(디코딩)만 — 발급은 다른 서비스 (.env: JWT_SECRET, JWT_ALGORITHM)
@@ -105,7 +120,14 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("redis_local_port", "redis_aws_port", "redis_aws_db", mode="before")
+    @field_validator(
+        "local_db_port",
+        "aws_db_port",
+        "redis_local_port",
+        "redis_aws_port",
+        "redis_aws_db",
+        mode="before",
+    )
     @classmethod
     def _empty_string_to_none_for_int_fields(cls, value: object) -> object:
         if value == "":
@@ -122,38 +144,130 @@ class Settings(BaseSettings):
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")
 
-    def _selected_db_values(self) -> tuple[str | None, str | None, SecretStr | None]:
+    def _selected_db_values(
+        self,
+    ) -> tuple[str | None, int | None, str | None, str | None, SecretStr | None]:
         # local이면 LOCAL DB, dev/prod면 AWS DB 사용
         if self.env == "local":
-            return self.local_db_url, self.local_db_username, self.local_db_password
-        return self.aws_db_url, self.aws_db_username, self.aws_db_password
-
-    def _build_database_url(self, *, async_mode: bool) -> str:
-        base_url, username, password_secret = self._selected_db_values()
-        password = password_secret.get_secret_value() if password_secret else ""
-        auth_url = (base_url or "").replace(
-            "postgresql://", f"postgresql://{username}:{password}@", 1
-        )
-
-        if async_mode:
             return (
-                auth_url.replace("postgresql+psycopg://", "postgresql+asyncpg://", 1)
-                .replace("postgresql://", "postgresql+asyncpg://", 1)
+                self.local_db_host,
+                self.local_db_port,
+                self.local_db_name,
+                self.local_db_user,
+                self.local_db_password,
             )
         return (
-            auth_url.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
-            .replace("postgresql://", "postgresql+psycopg://", 1)
+            self.aws_db_host,
+            self.aws_db_port,
+            self.aws_db_name,
+            self.aws_db_user,
+            self.aws_db_password,
         )
 
-    @computed_field
+    @cached_property
+    def _db_connection(self) -> DbConnectionParams:
+        host, port, db_name_raw, db_user_raw, password_secret = self._selected_db_values()
+
+        if host is None or not host.strip():
+            raise ValueError("Database host is required.")
+
+        if db_name_raw is None or not db_name_raw.strip():
+            raise ValueError("Database name is required.")
+        if "://" in db_name_raw:
+            raise ValueError(
+                "Database name must be plain name only (e.g. 'app'), not a full DSN.",
+            )
+        db_name = db_name_raw.strip().lstrip("/")
+        if not db_name or "/" in db_name or "?" in db_name or "#" in db_name:
+            raise ValueError(
+                "Database name must be plain value (no path/query/fragment).",
+            )
+
+        if db_user_raw is None or not db_user_raw.strip():
+            if self.env == "local":
+                db_user: str | None = None
+            else:
+                raise ValueError("Database user is required.")
+        else:
+            db_user = db_user_raw.strip()
+
+        password = (
+            password_secret.get_secret_value() if password_secret is not None else ""
+        )
+        return DbConnectionParams(
+            host=host,
+            port=port if port is not None else 5432,
+            name=db_name,
+            user=db_user,
+            password=password,
+        )
+
+    @property
+    def db_name(self) -> str:
+        return self._db_connection.name
+
+    @property
+    def db_host(self) -> str:
+        return self._db_connection.host
+
+    @property
+    def db_port(self) -> int:
+        return self._db_connection.port
+
+    @property
+    def db_user(self) -> str | None:
+        return self._db_connection.user
+
+    @property
+    def db_password(self) -> str:
+        return self._db_connection.password
+
+    def build_database_url(
+        self,
+        *,
+        async_mode: bool,
+        db_host: str,
+        db_port: int,
+        db_name: str,
+        db_user: str | None,
+        db_password: str,
+    ) -> str:
+        drivername = "postgresql+asyncpg" if async_mode else "postgresql+psycopg"
+        if db_user:
+            if db_password:
+                authority = (
+                    f"{quote_plus(db_user)}:{quote_plus(db_password)}"
+                    f"@{db_host}:{db_port}"
+                )
+            else:
+                authority = f"{quote_plus(db_user)}@{db_host}:{db_port}"
+        else:
+            authority = f"{db_host}:{db_port}"
+        return f"{drivername}://{authority}/{db_name}"
+
     @property
     def sync_database_url(self) -> str:
-        return self._build_database_url(async_mode=False)
+        conn = self._db_connection
+        return self.build_database_url(
+            async_mode=False,
+            db_host=conn.host,
+            db_port=conn.port,
+            db_name=conn.name,
+            db_user=conn.user,
+            db_password=conn.password,
+        )
 
-    @computed_field
     @property
     def async_database_url(self) -> str:
-        return self._build_database_url(async_mode=True)
+        conn = self._db_connection
+        return self.build_database_url(
+            async_mode=True,
+            db_host=conn.host,
+            db_port=conn.port,
+            db_name=conn.name,
+            db_user=conn.user,
+            db_password=conn.password,
+        )
 
 
 @lru_cache
