@@ -40,13 +40,13 @@ async def _run(
     from app.repositories.PinRepo import PinRepo
     from app.repositories.UserRepo import UserRepo
     from app.schemas.IssueDTO import CreateIssuePinRequest
-    from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
-    from app.services.ImageMultipartGeoService import ImageMultipartGeoService
-    from app.services.IssuePinLLMService import IssuePinLLMService
+    from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
+    from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
+    from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
     from app.services.IssueService import IssueService
-    from app.services.LocationResolveClient import LocationResolveClient
+    from app.services.internal.geo.LocationResolveClient import LocationResolveClient
     from app.services.vector_domains import DomainVectorConfig, VectorDomain
-    from app.services.VLMService import VLMService
+    from app.services.internal.ai.VLMService import VLMService
     from app.services.VectorStoreService import VectorStoreService
 
     secret = settings.gemini_api_key

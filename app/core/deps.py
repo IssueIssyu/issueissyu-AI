@@ -14,14 +14,14 @@ from app.models.User import User
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
-from app.services.IssuePinLLMService import IssuePinLLMService
 from app.services.IssueService import IssueService
-from app.services.ImageExifLocationResolveService import ImageExifLocationResolveService
-from app.services.ImageMultipartGeoService import ImageMultipartGeoService
-from app.services.LocationResolveClient import LocationResolveClient
 from app.services.UserService import UserService
-from app.services.VLMService import VLMService
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
+from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
+from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
+from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 from app.utils.S3Util import S3Util
 
 
