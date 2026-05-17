@@ -12,18 +12,21 @@ from google import genai
 from google.genai import types
 from starlette.datastructures import UploadFile
 
-from app.schemas.IssueDTO import ImageWithLocation
 from app.schemas.ComplaintEmailDTO import (
-    VlmAnalyzeInput,
-    VlmAnalyzeResult,
-    VlmLocationVerification,
-    VlmModelOutput,
+    ComplaintEmailVlmAnalyzeResult,
+    ComplaintEmailVlmImageSlot,
+    ComplaintEmailVlmInput,
+    ComplaintEmailVlmOutput,
 )
-from app.services.ComplaintEmailVlm_prompt import VlmCatalog, VlmPromptBuilder
+from app.schemas.IssueDTO import ImageWithLocation
+from app.services.ComplaintEmailVlm_prompt import (
+    ComplaintEmailVlmCatalog,
+    ComplaintEmailVlmPromptBuilder,
+)
 
 
-class VlmResultProcessor:
-    """LLM JSON 파싱·enum 보정·위치·신뢰도 등 백엔드 후처리."""
+class ComplaintEmailVlmResultProcessor:
+    """VLM JSON 파싱·enum 보정·error_code·검색어 후처리."""
 
     _LOCATION_VERIFICATION_MESSAGES: dict[str, str] = {
         "matched": "사용자 위치와 사진 메타데이터 위치가 일치합니다",
@@ -33,7 +36,6 @@ class VlmResultProcessor:
         "unknown": "위치 일치 여부를 판단하기 어렵습니다",
     }
 
-    _NO_USER_LOCATION_MESSAGE = "사용자 위치 정보가 없습니다"
     _LOCATION_MISMATCH_RISK = "사용자 위치와 사진 메타데이터 주소가 다를 수 있음"
 
     _LOCATION_PATTERN = re.compile(
@@ -49,10 +51,10 @@ class VlmResultProcessor:
 
     _PRIVACY_HINTS: tuple[str, ...] = ("번호판", "얼굴", "안면", "차량번호", "신분증")
 
-    def __init__(self, catalog: type[VlmCatalog] = VlmCatalog) -> None:
+    def __init__(self, catalog: type[ComplaintEmailVlmCatalog] = ComplaintEmailVlmCatalog) -> None:
         self._catalog = catalog
 
-    def parse_model_output(self, parsed: dict[str, Any]) -> VlmModelOutput:
+    def parse_model_output(self, parsed: dict[str, Any]) -> ComplaintEmailVlmOutput:
         category_type, domain = self._normalize_type_and_domain(
             raw_type=parsed.get("type"),
             raw_domain=parsed.get("domain"),
@@ -60,11 +62,11 @@ class VlmResultProcessor:
         cat = self._catalog
 
         subcategory = parsed.get("subcategory")
-        sub = (
-            subcategory.strip()
-            if isinstance(subcategory, str) and subcategory.strip()
-            else cat.DEFAULT_SUBCATEGORY
-        )
+        sub: str | None
+        if isinstance(subcategory, str) and subcategory.strip():
+            sub = subcategory.strip()
+        else:
+            sub = cat.DEFAULT_SUBCATEGORY
 
         summary = parsed.get("summary")
         summary_s = summary.strip() if isinstance(summary, str) else ""
@@ -76,73 +78,74 @@ class VlmResultProcessor:
             else []
         )
 
-        keywords = self._normalize_keywords(parsed.get("keywords"))
-
-        query = parsed.get("query")
-        query_s = query.strip() if isinstance(query, str) else ""
-
-        return VlmModelOutput(
+        return ComplaintEmailVlmOutput(
             type=category_type,
             domain=domain,
             subcategory=sub,
             summary=summary_s,
             objects=objects,
-            keywords=keywords,
-            query=query_s,
+            error_code=self._parse_vlm_error_code(parsed.get("error_code")),
+            keywords=self._normalize_keywords(parsed.get("keywords")),
+            query=self._parse_query(parsed.get("query")),
         )
 
-    def enrich(
+    def normalize_model_output(
         self,
-        model: VlmModelOutput,
+        model: ComplaintEmailVlmOutput,
         *,
         user_location: str | None,
         photo_address: str | None,
-    ) -> VlmAnalyzeResult:
-        location_context = user_location or photo_address
+    ) -> ComplaintEmailVlmAnalyzeResult:
         query = model.query
         keywords = list(model.keywords)
 
         if user_location is None and photo_address is None:
             query = self._clean_location_query(query, location_context=None)
             keywords = self._clean_location_keywords(keywords, location_context=None)
-            location_context = None
 
-        location_verification = self._build_location_verification(
+        error_code = self._resolve_error_code(
+            model=model,
+            vlm_error_code=model.error_code,
             user_location=user_location,
             photo_address=photo_address,
         )
-        validity, error_code = self._assess_validity(model)
-        privacy_note = self._assess_privacy_note(summary=model.summary, objects=model.objects)
-        if privacy_note == self._catalog.PRIVACY_RISK_NOTE and validity:
-            error_code = "E007_PRIVACY_RISK"
-            validity = False
 
-        confidence_score = self._compute_confidence_score(
-            model=model,
-            validity=validity,
-            location_status=location_verification.status,
-        )
-        risk_note = self._build_risk_note(
-            location_status=location_verification.status,
-            photo_address=photo_address,
-        )
-
-        return VlmAnalyzeResult(
+        return ComplaintEmailVlmAnalyzeResult(
             type=model.type,
             domain=model.domain,
             subcategory=model.subcategory,
             summary=model.summary,
             objects=model.objects,
+            error_code=error_code,
             keywords=keywords,
             query=query,
-            location_context=location_context,
-            validity=validity,
-            error_code=error_code if not validity else None,
-            privacy_note=privacy_note,
-            location_verification=location_verification,
-            confidence_score=confidence_score,
-            risk_note=risk_note,
         )
+
+    def build_legacy_context(
+        self,
+        result: ComplaintEmailVlmAnalyzeResult,
+        *,
+        user_location: str | None,
+        photo_address: str | None,
+    ) -> dict[str, Any]:
+        location_verification = self._build_location_verification(
+            user_location=user_location,
+            photo_address=photo_address,
+        )
+        legacy = result.to_legacy_dict(
+            user_location=user_location,
+            photo_address=photo_address,
+            location_verification=location_verification,
+        )
+        legacy["confidence_score"] = self._compute_confidence_score(
+            result=result,
+            location_status=location_verification["status"],
+        )
+        if location_verification["status"] == "different_area":
+            legacy["risk_note"] = self._LOCATION_MISMATCH_RISK
+        elif photo_address is None:
+            legacy["risk_note"] = "메타데이터에 주소가 없습니다"
+        return legacy
 
     @staticmethod
     def coerce_photo_address(value: object) -> str | None:
@@ -179,6 +182,55 @@ class VlmResultProcessor:
         if not mime.startswith("image/"):
             raise RuntimeError(f"이미지 파일만 업로드할 수 있습니다. (받은 MIME: {mime})")
         return mime
+
+    def _parse_vlm_error_code(self, raw: object) -> str | None:
+        if not isinstance(raw, str):
+            return None
+        code = raw.strip()
+        if code and code in self._catalog.VLM_ERROR_CODES:
+            return code
+        return None
+
+    @staticmethod
+    def _parse_query(raw: object) -> str:
+        return raw.strip() if isinstance(raw, str) else ""
+
+    def _resolve_error_code(
+        self,
+        *,
+        model: ComplaintEmailVlmOutput,
+        vlm_error_code: str | None,
+        user_location: str | None,
+        photo_address: str | None,
+    ) -> str | None:
+        if vlm_error_code is not None:
+            return vlm_error_code
+
+        if self._has_privacy_risk(summary=model.summary, objects=model.objects):
+            return "E007_PRIVACY_RISK"
+
+        if user_location and photo_address:
+            status = self._compare_addresses(
+                user_location=user_location,
+                photo_address=photo_address,
+            )
+            if status == "different_area":
+                return "E008_LOCATION_MISMATCH"
+
+        cat = self._catalog
+        if not model.summary and not model.objects:
+            return "E001_IMAGE_ANALYSIS_FAILED"
+        if not model.objects:
+            return "E002_OBJECT_NOT_IDENTIFIED"
+        if model.type == cat.DEFAULT_TYPE:
+            return "E004_CATEGORY_UNCLEAR"
+        if not model.query and not model.keywords:
+            return "E006_UNVERIFIABLE_CLAIM"
+        return None
+
+    def _has_privacy_risk(self, *, summary: str, objects: list[str]) -> bool:
+        blob = f"{summary} {' '.join(objects)}"
+        return any(hint in blob for hint in self._PRIVACY_HINTS)
 
     def _normalize_type_and_domain(
         self,
@@ -217,53 +269,31 @@ class VlmResultProcessor:
             keywords = keywords[: cat.KEYWORDS_MAX]
         return keywords
 
-    def _assess_privacy_note(self, *, summary: str, objects: list[str]) -> str:
-        blob = f"{summary} {' '.join(objects)}"
-        if any(hint in blob for hint in self._PRIVACY_HINTS):
-            return self._catalog.PRIVACY_RISK_NOTE
-        return self._catalog.DEFAULT_PRIVACY_NOTE
-
-    def _assess_validity(self, model: VlmModelOutput) -> tuple[bool, str | None]:
-        cat = self._catalog
-        if not model.summary and not model.objects:
-            return False, "E001_IMAGE_ANALYSIS_FAILED"
-        if not model.objects:
-            return False, "E002_OBJECT_NOT_IDENTIFIED"
-        if model.type == cat.DEFAULT_TYPE:
-            return False, "E004_CATEGORY_UNCLEAR"
-        if not model.query.strip() and not model.keywords:
-            return False, "E006_UNVERIFIABLE_CLAIM"
-        return True, None
-
     def _build_location_verification(
         self,
         *,
         user_location: str | None,
         photo_address: str | None,
-    ) -> VlmLocationVerification:
+    ) -> dict[str, Any]:
         if photo_address is None:
-            return VlmLocationVerification(
-                status="not_checked",
-                message=self._LOCATION_VERIFICATION_MESSAGES["not_checked"],
+            status = "not_checked"
+        elif user_location is None:
+            status = "not_checked"
+        else:
+            status = self._compare_addresses(
                 user_location=user_location,
-                photo_address=None,
-            )
-        if user_location is None:
-            return VlmLocationVerification(
-                status="not_checked",
-                message=self._NO_USER_LOCATION_MESSAGE,
-                user_location=None,
                 photo_address=photo_address,
             )
-        status = self._compare_addresses(user_location=user_location, photo_address=photo_address)
-        if status not in self._catalog.LOCATION_STATUSES:
-            status = "unknown"
-        return VlmLocationVerification(
-            status=status,
-            message=self._LOCATION_VERIFICATION_MESSAGES[status],
-            user_location=user_location,
-            photo_address=photo_address,
-        )
+        return {
+            "status": status,
+            "message": self._LOCATION_VERIFICATION_MESSAGES.get(
+                status,
+                self._LOCATION_VERIFICATION_MESSAGES["unknown"],
+            ),
+            "user_location": user_location,
+            "photo_location": None,
+            "photo_address": photo_address,
+        }
 
     def _compare_addresses(self, *, user_location: str, photo_address: str) -> str:
         u = user_location.strip()
@@ -289,31 +319,23 @@ class VlmResultProcessor:
     def _compute_confidence_score(
         self,
         *,
-        model: VlmModelOutput,
-        validity: bool,
+        result: ComplaintEmailVlmAnalyzeResult,
         location_status: str,
     ) -> float:
-        if not validity:
+        if result.error_code is not None:
             return 0.2
         score = 0.5
-        if model.summary:
+        if result.summary:
             score += 0.15
-        if model.objects:
+        if result.objects:
             score += 0.15
-        if len(model.keywords) >= 5:
+        if len(result.keywords) >= 5:
             score += 0.1
         if location_status == "matched":
             score += 0.1
         elif location_status == "different_area":
             score -= 0.15
         return max(0.0, min(1.0, score))
-
-    def _build_risk_note(self, *, location_status: str, photo_address: str | None) -> str | None:
-        if location_status == "different_area":
-            return self._LOCATION_MISMATCH_RISK
-        if photo_address is None:
-            return "메타데이터에 주소가 없습니다"
-        return None
 
     def _remove_location_terms(self, text: str) -> str:
         t = text.strip()
@@ -360,18 +382,18 @@ class VlmResultProcessor:
 
 
 @dataclass(slots=True)
-class VLMService:
+class ComplaintEmailVlmService:
     api_key: str
     model_name: str = "gemini-3.1-pro-preview"
     client: genai.Client = field(init=False, repr=False)
-    catalog: type[VlmCatalog] = VlmCatalog
-    _prompt_builder: VlmPromptBuilder = field(init=False, repr=False)
-    _result_processor: VlmResultProcessor = field(init=False, repr=False)
+    catalog: type[ComplaintEmailVlmCatalog] = ComplaintEmailVlmCatalog
+    _prompt_builder: ComplaintEmailVlmPromptBuilder = field(init=False, repr=False)
+    _result_processor: ComplaintEmailVlmResultProcessor = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)
-        self._prompt_builder = VlmPromptBuilder(self.catalog)
-        self._result_processor = VlmResultProcessor(self.catalog)
+        self._prompt_builder = ComplaintEmailVlmPromptBuilder(self.catalog)
+        self._result_processor = ComplaintEmailVlmResultProcessor(self.catalog)
 
     async def analyze_image(
         self,
@@ -382,24 +404,41 @@ class VLMService:
         location: str | None = None,
     ) -> dict[str, Any]:
         """기존 호출부 호환용. 구조화 결과는 :meth:`analyze` 사용."""
-        result = await self.analyze(
-            request=self.build_request(
-                user_text=user_text,
-                user_location=user_location,
-                location=location,
+        request = self.build_request(
+            user_text=user_text,
+            user_location=user_location,
+            location=location,
+        )
+        photo_address, image_slots = await self.prepare_images(images)
+        result = await self._call_vlm(
+            request=self._finalize_request(
+                request,
+                photo_address=photo_address,
+                image_slots=image_slots,
             ),
             images=images,
         )
-        return result.to_legacy_dict()
+        return self._result_processor.build_legacy_context(
+            result,
+            user_location=request.user_location,
+            photo_address=photo_address,
+        )
 
     async def analyze(
         self,
         *,
-        request: VlmAnalyzeInput,
+        request: ComplaintEmailVlmInput,
         images: list[ImageWithLocation],
-    ) -> VlmAnalyzeResult:
-        photo_address = await self.collect_photo_addresses(images)
-        return await self._call_vlm(request=request, images=images, photo_address=photo_address)
+    ) -> ComplaintEmailVlmAnalyzeResult:
+        photo_address, image_slots = await self.prepare_images(images)
+        return await self._call_vlm(
+            request=self._finalize_request(
+                request,
+                photo_address=photo_address,
+                image_slots=image_slots,
+            ),
+            images=images,
+        )
 
     def build_request(
         self,
@@ -407,13 +446,13 @@ class VLMService:
         user_text: str,
         user_location: str | None,
         location: str | None = None,
-    ) -> VlmAnalyzeInput:
+    ) -> ComplaintEmailVlmInput:
         eff_user_location = user_location
         if (eff_user_location is None or not str(eff_user_location).strip()) and (
             location is not None and str(location).strip()
         ):
             eff_user_location = location
-        return VlmAnalyzeInput(
+        return ComplaintEmailVlmInput(
             user_text=user_text,
             user_location=(
                 eff_user_location.strip()
@@ -422,32 +461,58 @@ class VLMService:
             ),
         )
 
-    async def collect_photo_addresses(self, images: list[ImageWithLocation]) -> str | None:
+    @staticmethod
+    def _finalize_request(
+        request: ComplaintEmailVlmInput,
+        *,
+        photo_address: str | None,
+        image_slots: list[ComplaintEmailVlmImageSlot],
+    ) -> ComplaintEmailVlmInput:
+        return request.model_copy(
+            update={
+                "photo_address": photo_address,
+                "image_count": len(image_slots),
+                "image_slots": image_slots,
+            },
+        )
+
+    async def prepare_images(
+        self,
+        images: list[ImageWithLocation],
+    ) -> tuple[str | None, list[ComplaintEmailVlmImageSlot]]:
         if not images:
             raise RuntimeError(
                 "이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.",
             )
         per_address_strings: list[str] = []
+        slots: list[ComplaintEmailVlmImageSlot] = []
         for idx, row in enumerate(images, start=1):
             image_bytes = await row.image.read()
             if not image_bytes:
                 raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")
             await row.image.seek(0)
             one_addr = self._result_processor.coerce_photo_address(row.address)
+            name = row.image.filename or f"image_{idx}"
+            slots.append(
+                ComplaintEmailVlmImageSlot(
+                    index=idx,
+                    filename=name,
+                    photo_address=one_addr,
+                ),
+            )
             if one_addr:
                 per_address_strings.append(one_addr)
-        return ", ".join(per_address_strings) if per_address_strings else None
+        photo_address = ", ".join(per_address_strings) if per_address_strings else None
+        return photo_address, slots
 
     async def _call_vlm(
         self,
         *,
-        request: VlmAnalyzeInput,
+        request: ComplaintEmailVlmInput,
         images: list[ImageWithLocation],
-        photo_address: str | None,
-    ) -> VlmAnalyzeResult:
+    ) -> ComplaintEmailVlmAnalyzeResult:
         image_parts = await self._build_image_parts(images)
-        prompt_request = request.model_copy(update={"photo_address": photo_address})
-        prompt = self._prompt_builder.build_from_input(prompt_request)
+        prompt = self._prompt_builder.build_from_input(request)
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
@@ -473,10 +538,10 @@ class VLMService:
             raise RuntimeError("Gemini VLM 응답이 JSON 객체가 아닙니다.")
 
         model_output = self._result_processor.parse_model_output(parsed)
-        return self._result_processor.enrich(
+        return self._result_processor.normalize_model_output(
             model_output,
             user_location=request.user_location,
-            photo_address=photo_address,
+            photo_address=request.photo_address,
         )
 
     async def _build_image_parts(self, images: list[ImageWithLocation]) -> list[types.Part]:
@@ -489,3 +554,7 @@ class VLMService:
             parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime))
             await row.image.seek(0)
         return parts
+
+
+# deps·IssueService 등 기존 import 호환
+VLMService = ComplaintEmailVlmService

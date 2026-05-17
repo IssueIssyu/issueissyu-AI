@@ -4,19 +4,26 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class ComplaintEmailVlmInput(BaseModel):
-    #VLM 분석 요청 (이미지 바이너리는 별도 ImageWithLocation 리스트로 전달)
-    user_text: str
-    user_location: str | None = None
+class ComplaintEmailVlmImageSlot(BaseModel):
+    # 프롬프트,메타 설명용 이미지 슬롯 (바이너리는 별도 전달)
+    index: int = Field(ge=1)
+    filename: str
     photo_address: str | None = None
 
 
+class ComplaintEmailVlmInput(BaseModel):
+    #VLM 분석 요청. 업로드 이미지 바이너리는 서비스 images 인자로 전달
+    user_text: str
+    user_location: str | None = None
+    photo_address: str | None = None
+    image_slots: list[ComplaintEmailVlmImageSlot] = Field(default_factory=list)
+
+
 class ComplaintEmailVlmOutput(BaseModel):
-    #Gemini가 반환하는 JSON
+    #Gemini VLM이 반환하는 JSON (이미지 분석 결과)
     type: str
     domain: str
-    subcategory: str
+    subcategory: str | None = None
     summary: str = ""
     objects: list[str] = Field(default_factory=list)
     error_code: str | None = None
@@ -25,10 +32,11 @@ class ComplaintEmailVlmOutput(BaseModel):
 
 
 class ComplaintEmailVlmAnalyzeResult(BaseModel):
-    #LLM 분석 + 백엔드 검증 필드를 합친 최종 결과
+    """VLM 분석 + 백엔드 검증을 합친 최종 결과."""
+
     type: str
     domain: str
-    subcategory: str
+    subcategory: str | None = None
     summary: str
     objects: list[str]
     error_code: str | None = None
@@ -37,9 +45,22 @@ class ComplaintEmailVlmAnalyzeResult(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    """def to_legacy_dict(self) -> dict[str, Any]:
-        #기존 파이프라인(IssueService 등)이 기대하는 dict 형태.
-        lv = self.location_verification
+    def to_legacy_dict(
+        self,
+        *,
+        user_location: str | None = None,
+        photo_address: str | None = None,
+        location_verification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """IssueService 등 기존 dict 기반 호출부 호환."""
+        lv = location_verification or {
+            "status": "not_checked",
+            "message": "메타데이터에 주소가 없습니다",
+            "user_location": user_location,
+            "photo_location": None,
+            "photo_address": photo_address,
+        }
+        validity = self.error_code is None
         return {
             "category": {"type": self.type, "domain": self.domain},
             "type": self.type,
@@ -52,19 +73,15 @@ class ComplaintEmailVlmAnalyzeResult(BaseModel):
             "keywords": self.keywords,
             "retrieval_query": self.query,
             "query": self.query,
-            "location_context": self.location_context,
-            "validity": self.validity,
             "error_code": self.error_code,
-            "risk_note": self.risk_note,
-            "privacy_note": self.privacy_note,
+            "validity": validity,
+            "privacy_note": (
+                "주의) 개인정보 포함 가능성 있음"
+                if self.error_code == "E007_PRIVACY_RISK"
+                else "해당 없음"
+            ),
             "recommended_action": None,
-            "confidence_score": self.confidence_score,
-            "location_verification": {
-                "status": lv.status,
-                "message": lv.message,
-                "user_location": lv.user_location,
-                "photo_location": None,
-                "photo_address": lv.photo_address,
-            },
+            "confidence_score": 0.5 if validity else 0.2,
+            "risk_note": None,
+            "location_verification": lv,
         }
-"""

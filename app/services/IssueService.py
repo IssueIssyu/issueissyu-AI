@@ -21,7 +21,7 @@ from app.services.ImageExifLocationResolveService import ImageExifLocationResolv
 from app.services.issue_pin_prompt import build_issue_pin_prompt_from_pipeline_bundle
 from app.services.IssuePinLLMService import IssuePinLLMService
 from app.services.vector_domains import VectorDomain
-from app.services.VLMService import VLMService
+from app.services.ComplaintEmailVlmService import VLMService
 from app.services.VectorStoreService import VectorStoreService
 
 MAX_IMAGES = 5
