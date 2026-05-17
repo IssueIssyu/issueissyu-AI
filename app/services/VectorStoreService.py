@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -10,10 +11,13 @@ from llama_index.core.schema import BaseNode
 from llama_index.core.vector_stores.types import MetadataFilters
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
-from sqlalchemy import make_url
 from starlette.concurrency import run_in_threadpool
 
+from app.core.database import async_database_url as default_async_database_url
+from app.core.database import sync_database_url as default_sync_database_url
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
+
+logger = logging.getLogger(__name__)
 
 @dataclass(slots=True)
 class _VectorIndexBundle:
@@ -25,32 +29,18 @@ class VectorStoreService:
     def __init__(
         self,
         *,
-        database_url: str,
-        async_database_url: str,
         api_key: str,
         table_name: str,
         default_embedding_model: str,
         default_embed_dim: int,
+        sync_database_url: str = default_sync_database_url,
+        async_database_url: str = default_async_database_url,
         domain_configs: dict[VectorDomain, DomainVectorConfig] | None = None,
         hybrid_search: bool = True,
         text_search_config: str = "simple",
         embedding_batch_size_override: int | None = None,
     ) -> None:
-        url = make_url(database_url)
-        if not url.database:
-            raise ValueError("Vector DB database name is required.")
-        if not url.host:
-            raise ValueError("Vector DB host is required.")
-        if not url.username:
-            raise ValueError("Vector DB user is required.")
-        if url.port is None:
-            raise ValueError("Vector DB port is required.")
-
-        self._database = url.database
-        self._host = url.host
-        self._password = url.password or ""
-        self._port = url.port
-        self._user = url.username
+        self._sync_database_url = sync_database_url
         self._async_database_url = async_database_url
         self._default_table_name = table_name
         self._default_embedding_model = default_embedding_model
@@ -126,11 +116,7 @@ class VectorStoreService:
             return bundle
 
         vector_store = PGVectorStore.from_params(
-            database=self._database,
-            host=self._host,
-            password=self._password,
-            port=self._port,
-            user=self._user,
+            connection_string=self._sync_database_url,
             async_connection_string=self._async_database_url,
             table_name=resolved_table_name,
             embed_dim=embed_dim,
@@ -228,6 +214,11 @@ class VectorStoreService:
             domain_config.embedding_model if domain_config else self._default_embedding_model
         )
         embed_dim = domain_config.embed_dim if domain_config else self._default_embed_dim
+        logger.warning(
+            "aretrieve — table=%s, model=%s, dim=%d, mode=%s, top_k=%d, filters=%s",
+            resolved_table_name, embed_model_name, embed_dim,
+            vector_store_query_mode, similarity_top_k, filters,
+        )
         bundle = self._get_or_create_bundle(
             resolved_table_name=resolved_table_name,
             embed_model_name=embed_model_name,
@@ -238,4 +229,6 @@ class VectorStoreService:
             filters=filters,
             vector_store_query_mode=vector_store_query_mode,
         )
-        return await retriever.aretrieve(query)
+        results = await retriever.aretrieve(query)
+        logger.warning("aretrieve — returned %d nodes", len(results))
+        return results
