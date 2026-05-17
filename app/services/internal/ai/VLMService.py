@@ -29,6 +29,7 @@ _LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
     "unknown": "위치 일치 여부를 판단하기 어렵습니다",
 }
 
+# 위치 정보가 없을 때 지역 표현 제거에 사용하는 패턴
 _LOCATION_PATTERN = re.compile(
     r"[가-힣0-9]+(?:특별자치도|특별자치시|특별시|광역시)(?:\s*[,\s]|$)+|"
     r"[가-힣0-9]+(?:시|군)(?:\s*[,\s]|$)+|"
