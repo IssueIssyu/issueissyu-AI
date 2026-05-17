@@ -4,7 +4,6 @@ from urllib.parse import quote_plus
 
 from pydantic import AliasChoices
 from pydantic import Field
-from pydantic import computed_field
 from pydantic import field_validator
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -154,7 +153,6 @@ class Settings(BaseSettings):
             self.aws_db_password,
         )
 
-    @computed_field
     @property
     def db_name(self) -> str:
         _, _, db_name_raw, _, _ = self._selected_db_values()
@@ -171,7 +169,6 @@ class Settings(BaseSettings):
             )
         return db_name
 
-    @computed_field
     @property
     def db_host(self) -> str:
         host, _, _, _, _ = self._selected_db_values()
@@ -179,15 +176,13 @@ class Settings(BaseSettings):
             raise ValueError("Database host is required.")
         return host
 
-    @computed_field
     @property
     def db_port(self) -> int:
         _, port, _, _, _ = self._selected_db_values()
         if port is not None:
-            return int(port)
+            return port
         return 5432
 
-    @computed_field
     @property
     def db_user(self) -> str | None:
         _, _, _, db_user, _ = self._selected_db_values()
@@ -197,7 +192,6 @@ class Settings(BaseSettings):
             raise ValueError("Database user is required.")
         return db_user.strip()
 
-    @computed_field
     @property
     def db_password(self) -> str:
         _, _, _, _, password_secret = self._selected_db_values()
@@ -215,9 +209,6 @@ class Settings(BaseSettings):
         db_user: str | None,
         db_password: str,
     ) -> str:
-        database_path = db_name.strip().lstrip("/")
-        if not database_path:
-            raise ValueError("Database name is required.")
         drivername = "postgresql+asyncpg" if async_mode else "postgresql+psycopg"
         if db_user:
             if db_password:
@@ -229,9 +220,8 @@ class Settings(BaseSettings):
                 authority = f"{quote_plus(db_user)}@{db_host}:{db_port}"
         else:
             authority = f"{db_host}:{db_port}"
-        return f"{drivername}://{authority}/{database_path}"
+        return f"{drivername}://{authority}/{db_name}"
 
-    @computed_field
     @property
     def sync_database_url(self) -> str:
         return self.build_database_url(
@@ -243,7 +233,6 @@ class Settings(BaseSettings):
             db_password=self.db_password,
         )
 
-    @computed_field
     @property
     def async_database_url(self) -> str:
         return self.build_database_url(

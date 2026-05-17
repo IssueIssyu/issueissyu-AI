@@ -13,7 +13,8 @@ from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
 from starlette.concurrency import run_in_threadpool
 
-from app.core.database import async_database_url, sync_database_url
+from app.core.database import async_database_url as default_async_database_url
+from app.core.database import sync_database_url as default_sync_database_url
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ class VectorStoreService:
         table_name: str,
         default_embedding_model: str,
         default_embed_dim: int,
+        sync_database_url: str = default_sync_database_url,
+        async_database_url: str = default_async_database_url,
         domain_configs: dict[VectorDomain, DomainVectorConfig] | None = None,
         hybrid_search: bool = True,
         text_search_config: str = "simple",
