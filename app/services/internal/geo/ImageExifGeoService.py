@@ -11,7 +11,11 @@ from app.schemas.Wgs84PointDTO import Wgs84PointDTO
 
 logger = logging.getLogger(__name__)
 
-# Pillow 12+: IFD.GPSInfo, 그 이전 버전 일부는 IFD.GPS. 존재하지 않으면 TIFF 표준값 34853(0x8825).
+# Pillow 버전에 따라 EXIF GPS IFD 식별자 노출 방식이 다르다.
+# - 최신 Pillow 계열: IFD.GPSInfo 사용
+# - 일부 버전/빌드: IFD.GPS 또는 정수 상수만 접근 가능
+# 따라서 단일 심볼에만 의존하면 버전 업/다운 시 GPS 파싱이 깨질 수 있어,
+# GPSInfo -> GPS -> 표준 EXIF GPS IFD(34853) 순으로 폴백한다.
 _GPS_IFD = getattr(IFD, "GPSInfo", None)
 if _GPS_IFD is None:
     _GPS_IFD = getattr(IFD, "GPS", 34853)
