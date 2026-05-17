@@ -132,6 +132,7 @@ def coerce_photo_address(value: object) -> str | None:
 
 
 def resolve_upload_image_mime(upload: UploadFile) -> str:
+    """UploadFile에서 image/* MIME을 결정. 비이미지·미확인이면 RuntimeError."""
     mime = (upload.content_type or "").split(";")[0].strip().lower()
     if not mime:
         guessed, _ = mimetypes.guess_type(upload.filename or "")
