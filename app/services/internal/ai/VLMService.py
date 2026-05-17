@@ -294,6 +294,7 @@ class VLMService:
         ul = user_location.strip() if isinstance(user_location, str) and user_location.strip() else None
         pa = photo_address.strip() if isinstance(photo_address, str) and photo_address.strip() else None
 
+        # 사용자 위치·사진 메타 주소가 모두 없을 때: location_context 삭제, 쿼리/키워드에서 지명·행정구역 조각 제거
         if ul is None and pa is None:
             lc_raw = parsed.get("location_context")
             model_lc = lc_raw.strip() if isinstance(lc_raw, str) else ""
