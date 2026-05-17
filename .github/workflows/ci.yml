@@ -34,8 +34,10 @@ jobs:
 
     env:
       APP_ENV: local
-      LOCAL_DB_URL: postgresql://localhost:5432/app
-      LOCAL_DB_USERNAME: postgres
+      LOCAL_DB_HOST: localhost
+      LOCAL_DB_PORT: 5432
+      LOCAL_DB_NAME: app
+      LOCAL_DB_USER: postgres
       LOCAL_DB_PASSWORD: postgres
 
     steps:
@@ -87,11 +89,11 @@ jobs:
 
           async def check_postgres() -> None:
               conn = await asyncpg.connect(
-                  user=os.getenv("LOCAL_DB_USERNAME", "postgres"),
+                  user=os.getenv("LOCAL_DB_USER", "postgres"),
                   password=os.getenv("LOCAL_DB_PASSWORD", "postgres"),
                   database="app",
-                  host="127.0.0.1",
-                  port=5432,
+                  host=os.getenv("LOCAL_DB_HOST", "127.0.0.1"),
+                  port=int(os.getenv("LOCAL_DB_PORT", "5432")),
               )
               try:
                   result = await conn.fetchval("SELECT 1;")
