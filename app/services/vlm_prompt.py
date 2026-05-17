@@ -112,10 +112,18 @@ def build_vlm_prompt(
         이 규칙은 모든 규칙보다 우선한다
         
         [입력]
-        사용자 민원 내용: {safe_user_text}
-        사용자 위치 정보: {user_location_text}
-        업로드 이미지와 각 이미지에 대응하는 사진 메타 주소(아래 순서가 이 메시지 직전에 첨부된 바이너리 이미지 순서와 같다):
-{per_image_slot_text}
+        아래 값은 이슈 핀 생성 API(IssueService)에서 그대로 전달된다. 형식을 잃지 말고 해석한다.
+
+        사용자 민원 텍스트(고정 형식): {safe_user_text}
+        - 한 줄은 반드시 `title:` 로 시작하며 제목이다.
+        - 다른 한 줄은 `content:` 로 시작하며 본문(상세 설명)이다.
+        - 분류·요약·RAG용 retrieval_keywords·retrieval_query에는 제목과 본문의 핵심 대상·행위·장소를 균형 있게 반영한다.
+
+        사용자 위치 정보(GPS, null 가능): {user_location_text}
+        - null이 아니면 WGS84 십진 좌표 하나의 문자열이다: `위도,경도`(예: 37.566535,126.977969). 행정 주소 문장이 아니다.
+        - 핀(신고 지점) 좌표로 쓰이며, 사진 EXIF 역지오코딩 주소와는 표기 체계가 다르다.
+
+        업로드 이미지와 각 이미지에 대응하는 사진 메타 주소(아래 순서가 이 메시지 직전에 첨부된 바이너리 이미지 순서와 같다): {per_image_slot_text}
         사진 메타데이터 주소 정보 전체(역지오코딩 등, 검색·검증 참고용): {photo_address_text}
         
         [카테고리 구조]
@@ -263,41 +271,43 @@ def build_vlm_prompt(
         위치 정보는 다음 두 종류로 구분한다.
 
         1. 사용자 위치 정보
-        - 사용자가 직접 입력하거나 앱에서 전달한 현재 위치/선택 위치이다.
+        - API에서 전달된 핀 좌표이다. null이 아니면 `위도,경도` 숫자 문자열이며 행정 주소가 아니다.
 
         2. 사진 메타데이터 주소 정보
         - EXIF 기반 역지오코딩 등으로 얻은 주소 문자열이다.
         - 이 값이 null이면(입력 없음) 사용자 위치와의 일치 비교는 수행하지 않는다.
 
         사진 메타데이터 주소가 없는 경우:
-        - location_context는 사용자 위치 정보가 있으면 사용자 위치 정보만 사용한다.
+        - location_context는 사용자 위치 정보가 있으면 그 좌표 문자열을 그대로 사용할 수 있다(추가 가공·주소 변환 금지).
         - location_verification.status는 "not_checked"로 출력한다.
         - location_verification.message는 "메타데이터에 주소가 없습니다"로 출력한다.
         - 위치 불일치를 이유로 validity를 false로 판단하지 않는다.
-        - retrieval_query에는 사용자 위치 정보가 있으면 사용자 위치만 포함한다.
+        - retrieval_query에 좌표 숫자만 억지로 나열하지 않는다(일반 명사형 검색어·짧은 문장 위주). 좌표가 유일한 위치 단서면 지명 추측을 하지 않는다.
         - 사진 위치·주소를 추측해서 생성하지 않는다.
 
-        사진 메타데이터 주소와 사용자 위치 정보가 모두 있는 경우:
-        - 두 값이 정확히 같은 주소인지 우선 확인한다.
-        - 정확히 같지 않더라도 같은 시/군/구 또는 같은 동/읍/면 수준이면 "same_area"로 판단한다.
-        - 같은 동네 수준으로 보기 어렵다면 "different_area"로 판단한다.
+        사진 메타데이터 주소와 사용자 위치(GPS 문자열)가 모두 있는 경우:
+        - 좌표 문자열과 한국어 주소 문자열은 글자 그대로 같을 수 없으므로, 단순 문자열 일치로 "matched"를 주지 않는다.
+        - 주소에 나온 시·군·구·읍·면·동 등과, 좌표가 가리키는 지역이 행정적으로 모순 없이 호환되면 "same_area"로 본다.
+        - 서로 다른 광역·기초지자체로 보일 만한 명백한 불일치가 있으면 "different_area"로 본다.
+        - 좌표만으로 주소의 동·리까지 단정할 수 없으면 "unknown"을 사용한다.
+        - 일반적으로 GPS+주소 조합에서 "matched"는 사용하지 않는다(예외: 다른 경로에서 사용자 위치가 주소 문자열로 온 경우 등, 두 값이 모두 주소이고 사실상 동일할 때만).
         - 단, 위치가 다르다는 이유만으로 민원 자체를 자동 invalid 처리하지 않는다.
-        - risk_note에 "사용자 위치와 사진 메타데이터 주소가 다를 수 있음"이라고 작성한다.
+        - risk_note에 "사용자 핀 좌표와 사진 메타데이터 주소가 다를 수 있음" 등, 단정하지 않는 주의 문구를 적절히 작성한다.
 
         위치 판단 결과는 반드시 location_verification에 작성한다.
         location_verification.photo_location은 입력이 없으므로 항상 null로 출력한다.
 
         location_verification.status 값:
-        - "matched": 사용자 위치와 사진 메타데이터 주소가 동일하거나 사실상 같은 위치
-        - "same_area": 정확히 같지는 않지만 같은 동네/행정구역 수준
+        - "matched": (주로 주소 대 주소일 때) 사용자 위치 문자열과 사진 메타데이터 주소가 사실상 동일
+        - "same_area": GPS와 주소가 서로 다른 표기지만 같은 행정권역으로 보이는 경우
         - "different_area": 서로 다른 지역으로 보임
         - "not_checked": 사진 메타데이터 주소가 없어 판단하지 않음
         - "unknown": 정보가 부족해 판단 불가
 
         location_verification.message 작성 규칙:
         - matched: "사용자 위치와 사진 메타데이터 위치가 일치합니다"
-        - same_area: "사용자 위치와 사진 메타데이터 위치가 같은 동네 수준으로 보입니다"
-        - different_area: "사용자 위치와 사진 메타데이터 위치가 다를 수 있습니다"
+        - same_area: "사용자 핀 좌표와 사진 메타데이터 주소가 같은 동네 수준으로 보입니다"
+        - different_area: "사용자 핀 좌표와 사진 메타데이터 주소가 다를 수 있습니다"
         - not_checked: "메타데이터에 주소가 없습니다"
         - unknown: "위치 일치 여부를 판단하기 어렵습니다"
 
@@ -321,10 +331,11 @@ def build_vlm_prompt(
         retrieval_query 규칙:
         반드시 1문장
         30~50자 내외
-        구조: "[위치] + [민원 대상] + [문제 상황] + [조치 요청]"
+        구조: "[위치 단서가 있으면 짧게] + [민원 대상] + [문제 상황] + [조치 요청]" — 위치는 사진 주소·본문·title에서 확인되는 표현만 사용하고, GPS 숫자만으로 지명을 새로 쓰지 않는다.
         감정 표현 금지
         추측 표현 금지
         구어체 금지
+        빈 문자열이면 서버는 원문(title/content)으로 대체 검색하므로, 가능하면 title·content 핵심어를 포함한 한 문장을 만든다.
 
         [신뢰도 점수 규칙]
         confidence_score는 이미지 내용, 사용자 텍스트, 위치 정보, 사진 메타데이터의 일관성을 종합해 0.0~1.0 사이로 출력한다.
@@ -334,7 +345,7 @@ def build_vlm_prompt(
         - confidence_score를 위치 정보 부족만으로 과도하게 낮추지 않는다.
         - risk_note 또는 location_verification.message에 "메타데이터에 주소가 없습니다"를 포함한다.
 
-        사진 메타데이터와 사용자 위치가 다른 지역으로 보이는 경우:
+        사진 메타데이터 주소와 사용자 핀 좌표(GPS)가 서로 다른 지역으로 보이는 경우:
         - confidence_score를 낮출 수 있다.
         - 단, 사진 내용이 민원으로 명확하면 validity를 자동 false로 만들지 않는다.
 
@@ -375,9 +386,8 @@ def build_vlm_prompt(
           "location_verification": {{
             "status": "matched | same_area | different_area | not_checked | unknown",
             "message": "위치 검증 결과 메시지",
-            "user_location": "사용자 위치 정보 또는 null",
-            "photo_location": null,
-            "photo_address": "사진 메타데이터 주소 정보 또는 null"
+            "user_location": "`위도,경도` 문자열 또는 null (서버가 입력값으로 덮어씀)",
+            "photo_address": "사진 메타데이터 주소 정보 또는 null (서버가 입력값으로 덮어씀)"
           }}
         }}
     """.strip()

@@ -23,8 +23,8 @@ from app.services.vlm_prompt import (
 
 _LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
     "matched": "사용자 위치와 사진 메타데이터 위치가 일치합니다",
-    "same_area": "사용자 위치와 사진 메타데이터 위치가 같은 동네 수준으로 보입니다",
-    "different_area": "사용자 위치와 사진 메타데이터 위치가 다를 수 있습니다",
+    "same_area": "사용자 핀 좌표와 사진 메타데이터 주소가 같은 동네 수준으로 보입니다",
+    "different_area": "사용자 핀 좌표와 사진 메타데이터 주소가 다를 수 있습니다",
     "not_checked": "메타데이터에 주소가 없습니다",
     "unknown": "위치 일치 여부를 판단하기 어렵습니다",
 }
