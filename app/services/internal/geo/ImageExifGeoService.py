@@ -11,12 +11,10 @@ from app.schemas.Wgs84PointDTO import Wgs84PointDTO
 
 logger = logging.getLogger(__name__)
 
-# Pillow 12+: IFD.GPSInfo, 그 이전 버전 일부는 IFD.GPS. 존재하지 않으면 TIFF 표준값 34853(0x8825).
 _GPS_IFD = getattr(IFD, "GPSInfo", None)
 if _GPS_IFD is None:
     _GPS_IFD = getattr(IFD, "GPS", 34853)
 
-# GPS 서브디렉토리 표준 로컬 태그 번호. GPSTAGS 매핑이 어긋난 파일도 읽기 위함.
 _GPS_TAG_LAT_REF = 1
 _GPS_TAG_LAT = 2
 _GPS_TAG_LON_REF = 3
@@ -69,7 +67,6 @@ class ImageExifGeoService:
 
         lat_dir = ImageExifGeoService._normalize_latlon_ref(lat_ref, ("N", "S"))
         lon_dir = ImageExifGeoService._normalize_latlon_ref(lon_ref, ("E", "W"))
-        # 방향 태그가 bytes(b'N')가 아닌 str로만 검사하던 문제·빈 태그 보정. 남·서반구는 제대로 된 ref 필요.
         if lat_dir is None:
             lat_dir = "N"
             logger.debug("GPSLatitudeRef 누락/비정상 — N으로 가정")

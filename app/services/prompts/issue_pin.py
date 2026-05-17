@@ -342,7 +342,7 @@ def build_issue_pin_prompt_from_pipeline_bundle(
     `create_issue_pin` 파이프라인이 돌려주는 dict 형태에 맞춘 빌더.
 
     기대 키:
-      - issue: {{ "title", "content" }} (선택: "tone" })
+      - issue: { "title", "content" } (선택: "tone" })
       - vlm_result: dict
       - rag_hits: list[dict] (각 원소: text, score, metadata)
       - rag_query, rag_filters_applied: 선택
@@ -390,3 +390,12 @@ def build_issue_pin_prompt_from_pipeline_bundle(
         rag_query=rag_query,
         rag_filters_applied=rag_filters_applied,
     )
+
+
+__all__ = [
+    "ISSUE_PIN_CREATION_PROMPT",
+    "format_user_text_for_pin",
+    "format_retrieved_docs_for_pin",
+    "build_issue_pin_prompt",
+    "build_issue_pin_prompt_from_pipeline_bundle",
+]

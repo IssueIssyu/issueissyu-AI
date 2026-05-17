@@ -6,12 +6,12 @@ from io import BytesIO
 from fastapi import UploadFile
 from PIL import Image, UnidentifiedImageError
 
-logger = logging.getLogger(__name__)
-
 from app.core.codes import ErrorCode
 from app.core.exceptions import raise_file_exception
 from app.schemas.Wgs84PointDTO import Wgs84PointDTO
-from app.services.ImageExifGeoService import ImageExifGeoService
+from app.services.internal.geo.ImageExifGeoService import ImageExifGeoService
+
+logger = logging.getLogger(__name__)
 
 
 class ImageMultipartGeoService:

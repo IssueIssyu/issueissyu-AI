@@ -12,7 +12,7 @@ from google.genai import types
 from starlette.datastructures import UploadFile
 
 from app.schemas.IssueDTO import ImageWithLocation
-from app.services.vlm_prompt import (
+from app.services.prompts import (
     VLM_ADMIN_DOMAINS,
     VLM_CATEGORY_TYPES,
     VLM_ERROR_CODES,
@@ -29,7 +29,6 @@ _LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
     "unknown": "위치 일치 여부를 판단하기 어렵습니다",
 }
 
-# 위치 정보가 없을 때 지역 표현 제거에 사용하는 패턴
 _LOCATION_PATTERN = re.compile(
     r"[가-힣0-9]+(?:특별자치도|특별자치시|특별시|광역시)(?:\s*[,\s]|$)+|"
     r"[가-힣0-9]+(?:시|군)(?:\s*[,\s]|$)+|"
@@ -94,7 +93,6 @@ def _clean_location_keywords(
 
 
 def normalize_validity(value: object) -> bool:
-    """json.loads 직후 validity: bool만 신뢰하고, 문자열 true/false·0/1만 보조 인정. 그 외는 False."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -112,7 +110,6 @@ def normalize_validity(value: object) -> bool:
 
 
 def coerce_photo_address(value: object) -> str | None:
-    """str·list·tuple 등을 단일 주소 문자열로 정규화. 여러 항목은 ', '로 연결."""
     if value is None:
         return None
     if isinstance(value, str):
@@ -134,7 +131,6 @@ def coerce_photo_address(value: object) -> str | None:
 
 
 def resolve_upload_image_mime(upload: UploadFile) -> str:
-    """UploadFile에서 image/* MIME을 결정. 비이미지·미확인이면 RuntimeError."""
     mime = (upload.content_type or "").split(";")[0].strip().lower()
     if not mime:
         guessed, _ = mimetypes.guess_type(upload.filename or "")
@@ -193,13 +189,7 @@ VLM_RESPONSE_SCHEMA = {
         "confidence_score": {"type": "number"},
         "location_verification": {
             "type": "object",
-            "required": [
-                "status",
-                "message",
-                "user_location",
-                "photo_location",
-                "photo_address",
-            ],
+            "required": ["status", "message", "user_location", "photo_location", "photo_address"],
             "properties": {
                 "status": {
                     "type": "string",
@@ -233,9 +223,7 @@ class VLMService:
         location: str | None = None,
     ) -> dict:
         if not images:
-            raise RuntimeError(
-                "이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.",
-            )
+            raise RuntimeError("이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.")
 
         image_parts: list[types.Part] = []
         per_address_strings: list[str] = []
@@ -253,9 +241,7 @@ class VLMService:
             if one_addr:
                 per_address_strings.append(one_addr)
             name = upload.filename or f"image_{idx}"
-            slot_lines.append(
-                f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}"
-            )
+            slot_lines.append(f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}")
 
         photo_address_str = ", ".join(per_address_strings) if per_address_strings else None
         per_image_slot_text = "\n".join(slot_lines)
@@ -307,16 +293,12 @@ class VLMService:
         ul = user_location.strip() if isinstance(user_location, str) and user_location.strip() else None
         pa = photo_address.strip() if isinstance(photo_address, str) and photo_address.strip() else None
 
-        # 사용자 위치·사진 메타 주소가 모두 없을 때: location_context 삭제, 쿼리/키워드에서 지명·행정구역 조각 제거
         if ul is None and pa is None:
             lc_raw = parsed.get("location_context")
             model_lc = lc_raw.strip() if isinstance(lc_raw, str) else ""
             rq = parsed.get("retrieval_query")
             rq_s = rq if isinstance(rq, str) else ""
-            parsed["retrieval_query"] = _clean_location_query(
-                rq_s,
-                model_location_context=model_lc or None,
-            )
+            parsed["retrieval_query"] = _clean_location_query(rq_s, model_location_context=model_lc or None)
             kw = parsed.get("retrieval_keywords")
             if isinstance(kw, list):
                 parsed["retrieval_keywords"] = _clean_location_keywords(
