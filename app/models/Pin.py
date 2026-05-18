@@ -41,13 +41,25 @@ class Pin(BaseEntity):
     pin_content: Mapped[str] = mapped_column("pin_content", Text, nullable=False)
     tone_type: Mapped[ToneType] = mapped_column(
         "tone_type",
-        Enum(ToneType, native_enum=False, length=32),
+        Enum(
+            ToneType,
+            native_enum=False,
+            length=32,
+            values_callable=lambda enum_cls: [member.name for member in enum_cls],
+        ),
         nullable=False,
         default=ToneType.NONE,
-        server_default=text("'없음'"),
+        server_default=text("'NONE'"),
     )
     like_count: Mapped[int] = mapped_column(
         "like_count",
+        Integer,
+        default=0,
+        nullable=False,
+        server_default=text("0"),
+    )
+    view_count: Mapped[int] = mapped_column(
+        "view_count",
         Integer,
         default=0,
         nullable=False,

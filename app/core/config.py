@@ -79,13 +79,22 @@ class Settings(BaseSettings):
 
     # Gemini/Vector DB
     gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    # 이슈 핀 신뢰도 VLM. 3.1-pro는 503·지연이 잦아 기본은 flash 계열.
     gemini_vlm_model: str = Field(
-        default="gemini-3.1-pro-preview",
+        default="gemini-2.5-flash",
         alias="GEMINI_VLM_MODEL",
+    )
+    gemini_vlm_fallback_models: str = Field(
+        default="gemini-2.5-flash,gemini-2.5-pro",
+        alias="GEMINI_VLM_FALLBACK_MODELS",
     )
     gemini_pin_text_model: str = Field(
         default="gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_MODEL",
+    )
+    gemini_pin_text_fallback_models: str = Field(
+        default="gemini-2.5-flash-lite,gemini-2.0-flash-lite",
+        alias="GEMINI_PIN_TEXT_FALLBACK_MODELS",
     )
     gemini_embedding_model: str = Field(
         default="gemini-embedding-2",
@@ -140,6 +149,46 @@ class Settings(BaseSettings):
         if isinstance(value, str) and value.strip() == "":
             return None
         return value
+
+    issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
+    issue_confidence_basis_max_chars: int = Field(
+        default=2000,
+        ge=200,
+        le=10000,
+        alias="ISSUE_CONFIDENCE_BASIS_MAX_CHARS",
+    )
+    issue_pin_reliability_pipeline_timeout_seconds: float = Field(
+        default=240.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS",
+    )
+    issue_pin_reliability_skip_rag_planner: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_RELIABILITY_SKIP_RAG_PLANNER",
+    )
+    issue_pin_reliability_gemini_max_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        alias="ISSUE_PIN_RELIABILITY_GEMINI_MAX_ATTEMPTS",
+    )
+    issue_pin_reliability_rag_timeout_seconds: float = Field(
+        default=45.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_RAG_TIMEOUT_SECONDS",
+    )
+    issue_pin_reliability_vlm_timeout_seconds: float = Field(
+        default=150.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS",
+    )
+    pin_title_max_length: int = Field(default=100, ge=1, le=200, alias="PIN_TITLE_MAX_LENGTH")
+    pin_content_max_length: int = Field(
+        default=10000,
+        ge=1,
+        le=50000,
+        alias="PIN_CONTENT_MAX_LENGTH",
+    )
 
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")

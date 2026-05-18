@@ -11,13 +11,20 @@ from app.core.database import get_async_db_session
 from app.core.exceptions import raise_business_exception
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
+from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
+from app.repositories.PinLikeRepo import PinLikeRepo
+from app.repositories.PinImageRepo import PinImageRepo
+from app.repositories.PinLocationRepo import PinLocationRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
+from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.VectorStoreService import VectorStoreService
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
+from app.services.internal.ai.gemini_retry import parse_gemini_model_list
+from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
@@ -87,6 +94,7 @@ def get_vlm_service() -> VLMService:
     return VLMService(
         api_key=api_key_secret.get_secret_value(),
         model_name=settings.gemini_vlm_model,
+        fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
     )
 
 
@@ -97,13 +105,32 @@ def get_issue_pin_llm_service() -> IssuePinLLMService:
     api_key_secret = settings.gemini_api_key
     if api_key_secret is None:
         raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    pin_fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
     return IssuePinLLMService(
         api_key=api_key_secret.get_secret_value(),
         model_name=settings.gemini_pin_text_model,
+        fallback_models=pin_fallbacks,
     )
 
 
 IssuePinLLMServiceDep = Annotated[IssuePinLLMService, Depends(get_issue_pin_llm_service)]
+
+
+def get_issue_rag_planner_service() -> IssueRagPlannerService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return IssueRagPlannerService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_pin_text_model,
+        fallback_models=parse_gemini_model_list(settings.gemini_pin_text_fallback_models),
+    )
+
+
+IssueRagPlannerServiceDep = Annotated[
+    IssueRagPlannerService,
+    Depends(get_issue_rag_planner_service),
+]
 
 
 def get_vector_store_service(request: Request) -> VectorStoreService:
@@ -114,44 +141,6 @@ def get_vector_store_service(request: Request) -> VectorStoreService:
 
 
 VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
-
-
-def get_image_multipart_geo_service() -> ImageMultipartGeoService:
-    return ImageMultipartGeoService()
-
-
-ImageMultipartGeoServiceDep = Annotated[
-    ImageMultipartGeoService,
-    Depends(get_image_multipart_geo_service),
-]
-
-
-def get_location_resolve_client(request: Request) -> LocationResolveClient:
-    http_client = getattr(request.app.state, "shared_httpx_client", None)
-    if http_client is None or not isinstance(http_client, httpx.AsyncClient):
-        raise RuntimeError(
-            "shared_httpx_client is not initialized. Check FastAPI lifespan in app.main.",
-        )
-    return LocationResolveClient(
-        http_client=http_client,
-        base_url=settings.location_core_base_url,
-    )
-
-
-LocationResolveClientDep = Annotated[LocationResolveClient, Depends(get_location_resolve_client)]
-
-
-def get_image_exif_location_resolve_service(
-    multipart_geo: ImageMultipartGeoServiceDep,
-    location_resolve: LocationResolveClientDep,
-) -> ImageExifLocationResolveService:
-    return ImageExifLocationResolveService(multipart_geo, location_resolve)
-
-
-ImageExifLocationResolveServiceDep = Annotated[
-    ImageExifLocationResolveService,
-    Depends(get_image_exif_location_resolve_service),
-]
 
 
 def get_pin_repo(session: DbSessionDep) -> PinRepo:
@@ -168,27 +157,32 @@ def get_issue_pin_repo(session: DbSessionDep) -> IssuePinRepo:
 IssuePinRepoDep = Annotated[IssuePinRepo, Depends(get_issue_pin_repo)]
 
 
-def get_issue_service(
-    vector_store_service: VectorStoreServiceDep,
-    vlm_service: VLMServiceDep,
-    image_exif_location_resolve_service: ImageExifLocationResolveServiceDep,
-    issue_pin_llm_service: IssuePinLLMServiceDep,
-    pin_repo: PinRepoDep,
-    issue_pin_repo: IssuePinRepoDep,
-    user_repo: UserRepoDep,
-) -> IssueService:
-    return IssueService(
-        vector_store_service=vector_store_service,
-        vlm_service=vlm_service,
-        image_exif_location_resolve_service=image_exif_location_resolve_service,
-        issue_pin_llm_service=issue_pin_llm_service,
-        pin_repo=pin_repo,
-        issue_pin_repo=issue_pin_repo,
-        user_repo=user_repo,
-    )
+def get_pin_location_repo(session: DbSessionDep) -> PinLocationRepo:
+    return PinLocationRepo(session)
 
 
-IssueServiceDep = Annotated[IssueService, Depends(get_issue_service)]
+PinLocationRepoDep = Annotated[PinLocationRepo, Depends(get_pin_location_repo)]
+
+
+def get_pin_image_repo(session: DbSessionDep) -> PinImageRepo:
+    return PinImageRepo(session)
+
+
+PinImageRepoDep = Annotated[PinImageRepo, Depends(get_pin_image_repo)]
+
+
+def get_pin_like_repo(session: DbSessionDep) -> PinLikeRepo:
+    return PinLikeRepo(session)
+
+
+PinLikeRepoDep = Annotated[PinLikeRepo, Depends(get_pin_like_repo)]
+
+
+def get_community_repo(session: DbSessionDep) -> CommunityRepo:
+    return CommunityRepo(session)
+
+
+CommunityRepoDep = Annotated[CommunityRepo, Depends(get_community_repo)]
 
 
 def get_s3_util(request: Request) -> S3Util:
@@ -199,6 +193,64 @@ def get_s3_util(request: Request) -> S3Util:
 
 
 S3UtilDep = Annotated[S3Util, Depends(get_s3_util)]
+
+
+def get_issue_pin_background_runner(
+    request: Request,
+    vlm_service: VLMServiceDep,
+    exif_location_service: ImageExifLocationResolveServiceDep,
+    s3_util: S3UtilDep,
+    issue_rag_planner_service: IssueRagPlannerServiceDep,
+) -> IssuePinBackgroundRunner:
+    vector_store_service = getattr(request.app.state, "vector_store_service", None)
+    return IssuePinBackgroundRunner(
+        vlm_service=vlm_service,
+        exif_location_service=exif_location_service,
+        s3_util=s3_util,
+        vector_store_service=vector_store_service,
+        issue_rag_planner_service=issue_rag_planner_service,
+    )
+
+
+IssuePinBackgroundRunnerDep = Annotated[
+    IssuePinBackgroundRunner,
+    Depends(get_issue_pin_background_runner),
+]
+
+
+def get_issue_service(
+    vector_store_service: VectorStoreServiceDep,
+    issue_rag_planner_service: IssueRagPlannerServiceDep,
+    location_resolve_client: LocationResolveClientDep,
+    issue_pin_llm_service: IssuePinLLMServiceDep,
+    pin_repo: PinRepoDep,
+    issue_pin_repo: IssuePinRepoDep,
+    pin_location_repo: PinLocationRepoDep,
+    pin_image_repo: PinImageRepoDep,
+    pin_like_repo: PinLikeRepoDep,
+    community_repo: CommunityRepoDep,
+    user_repo: UserRepoDep,
+    s3_util: S3UtilDep,
+    background_runner: IssuePinBackgroundRunnerDep,
+) -> IssueService:
+    return IssueService(
+        vector_store_service=vector_store_service,
+        issue_rag_planner_service=issue_rag_planner_service,
+        location_resolve_client=location_resolve_client,
+        issue_pin_llm_service=issue_pin_llm_service,
+        pin_repo=pin_repo,
+        issue_pin_repo=issue_pin_repo,
+        pin_location_repo=pin_location_repo,
+        pin_image_repo=pin_image_repo,
+        pin_like_repo=pin_like_repo,
+        community_repo=community_repo,
+        user_repo=user_repo,
+        s3_util=s3_util,
+        background_runner=background_runner,
+    )
+
+
+IssueServiceDep = Annotated[IssueService, Depends(get_issue_service)]
 
 
 def get_async_redis_client(request: Request) -> AsyncRedis:

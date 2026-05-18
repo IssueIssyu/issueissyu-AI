@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String
+from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String, Float, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
@@ -22,6 +22,19 @@ class IssuePin(BaseEntity):
         Enum(IssuePinState, native_enum=False, length=255),
         nullable=False,
     )
+    issue_confidence: Mapped[float] = mapped_column(
+        "issue_confidence",
+        Float,
+        nullable=True
+    )
+
+    confidence_content: Mapped[str] = mapped_column(
+        "confidence_content",
+        Text,
+        nullable=True
+    )
+
+
     petition_count: Mapped[int] = mapped_column(
         "petition_count",
         Integer,
