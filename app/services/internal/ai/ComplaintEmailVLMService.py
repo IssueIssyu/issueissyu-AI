@@ -17,13 +17,12 @@ from app.schemas.ComplaintEmailDTO import (
 )
 from app.schemas.IssueDTO import ImageWithLocation
 from app.services.internal.ai.VLMService import resolve_upload_image_mime
-from app.services.prompts.complaintemail_vlm import (
+from app.services.prompts.complaint_email_vlm import (
     ComplaintEmailVlmCatalog,
     ComplaintEmailVlmPromptBuilder,
 )
 
 logger = logging.getLogger(__name__)
-
 
 class ComplaintEmailVlmResultProcessor:
     def __init__(self, catalog: type[ComplaintEmailVlmCatalog] = ComplaintEmailVlmCatalog) -> None:
@@ -43,14 +42,14 @@ class ComplaintEmailVlmResultProcessor:
         return data
 
     def normalize(self, data: dict[str, Any]) -> ComplaintEmailVlmOutput:
-        cat = self._catalog
-        type_value = self._pick_enum(data.get("type"), cat.CATEGORY_TYPES, cat.DEFAULT_TYPE)
-        domain_value = self._pick_enum(data.get("domain"), cat.ADMIN_DOMAINS, cat.DEFAULT_DOMAIN)
-        if type_value in cat.TYPE_PLAUSIBLE_DOMAINS:
-            allowed = cat.TYPE_PLAUSIBLE_DOMAINS[type_value]
+        catalog = self._catalog
+        type_value = self._pick_enum(data.get("type"), catalog.CATEGORY_TYPES, catalog.DEFAULT_TYPE)
+        domain_value = self._pick_enum(data.get("domain"), catalog.ADMIN_DOMAINS, catalog.DEFAULT_DOMAIN)
+        if type_value in catalog.TYPE_PLAUSIBLE_DOMAINS:
+            allowed = catalog.TYPE_PLAUSIBLE_DOMAINS[type_value]
             if domain_value not in allowed:
-                domain_value = cat.TYPE_DOMAIN_FALLBACK.get(type_value, cat.DEFAULT_DOMAIN)
-        subcategory = self._clean_str(data.get("subcategory")) or cat.DEFAULT_SUBCATEGORY
+                domain_value = catalog.TYPE_DOMAIN_FALLBACK.get(type_value, catalog.DEFAULT_DOMAIN)
+        subcategory = self._clean_str(data.get("subcategory"))
         summary = self._clean_str(data.get("summary")) or ""
         objects = self._clean_str_list(data.get("objects"))
         keywords = self._clean_keywords(data.get("keywords"))

@@ -16,8 +16,12 @@ from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
 from app.services.UserService import UserService
-from app.services.ComplaintEmailVlmService import VLMService
+from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.RagRerankService import RagRerankService
+from app.services.RagRetrievalService import RagRetrievalService
+from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
@@ -190,6 +194,85 @@ def get_issue_service(
 
 
 IssueServiceDep = Annotated[IssueService, Depends(get_issue_service)]
+
+
+def get_complaint_email_vlm_service() -> ComplaintEmailVlmService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return ComplaintEmailVlmService(
+        api_key=api_key_secret.get_secret_value(),
+        model=settings.gemini_vlm_model,
+    )
+
+
+ComplaintEmailVlmServiceDep = Annotated[
+    ComplaintEmailVlmService,
+    Depends(get_complaint_email_vlm_service),
+]
+
+
+def get_complaint_email_llm_service() -> ComplaintEmailLLMService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return ComplaintEmailLLMService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_pin_text_model,
+    )
+
+
+ComplaintEmailLLMServiceDep = Annotated[
+    ComplaintEmailLLMService,
+    Depends(get_complaint_email_llm_service),
+]
+
+
+def get_rag_rerank_service() -> RagRerankService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return RagRerankService(
+        api_key=api_key_secret.get_secret_value(),
+        embedding_model=settings.gemini_embedding_model,
+        embed_dim=settings.vector_embed_dim,
+        embedding_batch_size=settings.gemini_embedding_batch_size,
+    )
+
+
+RagRerankServiceDep = Annotated[RagRerankService, Depends(get_rag_rerank_service)]
+
+
+def get_rag_retrieval_service(
+    vector_store_service: VectorStoreServiceDep,
+    rag_rerank_service: RagRerankServiceDep,
+) -> RagRetrievalService:
+    return RagRetrievalService(
+        vector_store_service=vector_store_service,
+        rerank_service=rag_rerank_service,
+        retrieve_top_k=settings.rag_retrieve_top_k,
+        rerank_top_k=settings.rag_rerank_top_k,
+    )
+
+
+RagRetrievalServiceDep = Annotated[RagRetrievalService, Depends(get_rag_retrieval_service)]
+
+
+def get_complaint_email_service(
+    complaint_vlm_service: ComplaintEmailVlmServiceDep,
+    pin_validation_vlm_service: VLMServiceDep,
+    complaint_llm_service: ComplaintEmailLLMServiceDep,
+    rag_retrieval_service: RagRetrievalServiceDep,
+) -> ComplaintEmailService:
+    return ComplaintEmailService(
+        complaint_vlm_service=complaint_vlm_service,
+        pin_validation_vlm_service=pin_validation_vlm_service,
+        complaint_llm_service=complaint_llm_service,
+        rag_retrieval_service=rag_retrieval_service,
+    )
+
+
+ComplaintEmailServiceDep = Annotated[ComplaintEmailService, Depends(get_complaint_email_service)]
 
 
 def get_s3_util(request: Request) -> S3Util:

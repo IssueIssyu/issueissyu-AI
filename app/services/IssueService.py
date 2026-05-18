@@ -22,7 +22,6 @@ from app.services.internal.geo.ImageExifLocationResolveService import ImageExifL
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.vector_domains import VectorDomain
 from app.services.internal.ai.VLMService import VLMService
-from app.services.ComplaintEmailVlmService import VLMService
 from app.services.VectorStoreService import VectorStoreService
 
 MAX_IMAGES = 5

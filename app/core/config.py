@@ -87,6 +87,18 @@ class Settings(BaseSettings):
         default="gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_MODEL",
     )
+    rag_retrieve_top_k: int = Field(
+        default=20,
+        ge=1,
+        le=50,
+        alias="RAG_RETRIEVE_TOP_K",
+    )
+    rag_rerank_top_k: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        alias="RAG_RERANK_TOP_K",
+    )
     gemini_embedding_model: str = Field(
         default="gemini-embedding-2",
         alias="GEMINI_EMBEDDING_MODEL",

@@ -4,8 +4,7 @@ from app.schemas.ComplaintEmailDTO import ComplaintEmailVlmImageSlot, ComplaintE
 
 
 class ComplaintEmailVlmCatalog:
-    """청원 분석 VLM — 프롬프트·스키마·후처리 공용."""
-
+    # 청원 분석 VLM
     CATEGORY_TYPES: tuple[str, ...] = (
         "불법주정차",
         "불법쓰레기투기",
@@ -96,7 +95,7 @@ class ComplaintEmailVlmCatalog:
 
 
 class ComplaintEmailVlmPromptBuilder:
-    """청원용 분석 VLM 프롬프트 (검증·error_code 없음)."""
+    # 청원용 분석 VLM 프롬프트 (검증, error_code 없음)
 
     def __init__(self, catalog: type[ComplaintEmailVlmCatalog] = ComplaintEmailVlmCatalog) -> None:
         self._catalog = catalog
@@ -112,54 +111,54 @@ class ComplaintEmailVlmPromptBuilder:
         image_count = len(request.image_slots) or 1
 
         return f"""
-[청원 의견서 작성용 이미지·텍스트 분석 — VLM]
-
-[역할]
-지자체 청원(의견 제출) 문서 작성을 돕기 위해, 첨부된 {image_count}장의 이미지와 이슈 핀(제목·본문)을 분석한다.
-- type/domain 분류
-- summary, objects 추출 (이미지에서 확인된 내용만)
-- RAG 검색용 keywords, query 생성
-
-[원칙]
-입력에 없는 정보는 생성하지 않는다. 모르면 null 또는 "판단불가".
-감정·구어체 금지. 확인되지 않은 사실·위법 확정·고의성은 추측하지 않는다.
-번호판·얼굴 등 개인정보는 summary·objects에 그대로 쓰지 않는다.
-error_code·validity·위치 검증은 하지 않는다 (별도 단계).
-
-[이미지]
-첨부 순서와 동일:
-{image_slots_text}
-
-[이슈 핀]
-제목: {pin_title}
-본문: {pin_content}
-
-[사진 메타 주소(참고)]
-{photo_address_text}
-
-[분류]
-type: {types_line}
-domain: {domains_line}
-힌트: 주정차·도로→교통, 쓰레기·무단투기→환경미화, 시설 파손→안전건설, 불확실→공통
-
-[type 기준]
-불법주정차: 부적절 정차·주차 | 불법쓰레기투기: 쓰레기·폐기물 방치 | 시설물 민원: 시설 파손·고장 | 기타/판단불가: 분류 어려움
-
-[검색]
-keywords: 5~8개 명사, 일반어(문제, 민원, 사진) 금지.
-query: 1문장 30~50자. photo_address가 있으면 포함 가능.
-
-[출력 JSON]
-{{
-  "type": "",
-  "domain": "",
-  "subcategory": "",
-  "summary": "",
-  "objects": [],
-  "keywords": [],
-  "query": ""
-}}
-""".strip()
+            [청원 의견서 작성용 이미지·텍스트 분석 — VLM]
+            
+            [역할]
+            지자체 청원(의견 제출) 문서 작성을 돕기 위해, 첨부된 {image_count}장의 이미지와 이슈 핀(제목·본문)을 분석한다.
+            - type/domain 분류
+            - summary, objects 추출 (이미지에서 확인된 내용만)
+            - RAG 검색용 keywords, query 생성
+            
+            [원칙]
+            입력에 없는 정보는 생성하지 않는다. 모르면 null 또는 "판단불가".
+            감정·구어체 금지. 확인되지 않은 사실·위법 확정·고의성은 추측하지 않는다.
+            번호판·얼굴 등 개인정보는 summary·objects에 그대로 쓰지 않는다.
+            error_code·validity·위치 검증은 하지 않는다 (별도 단계).
+            
+            [이미지]
+            첨부 순서와 동일:
+            {image_slots_text}
+            
+            [이슈 핀]
+            제목: {pin_title}
+            본문: {pin_content}
+            
+            [사진 메타 주소(참고)]
+            {photo_address_text}
+            
+            [분류]
+            type: {types_line}
+            domain: {domains_line}
+            힌트: 주정차·도로→교통, 쓰레기·무단투기→환경미화, 시설 파손→안전건설, 불확실→공통
+            
+            [type 기준]
+            불법주정차: 부적절 정차·주차 | 불법쓰레기투기: 쓰레기·폐기물 방치 | 시설물 민원: 시설 파손·고장 | 기타/판단불가: 분류 어려움
+            
+            [검색]
+            keywords: 5~8개 명사, 일반어(문제, 민원, 사진) 금지.
+            query: 1문장 30~50자. photo_address가 있으면 포함 가능.
+            
+            [출력 JSON]
+            {{
+              "type": "",
+              "domain": "",
+              "subcategory": "",
+              "summary": "",
+              "objects": [],
+              "keywords": [],
+              "query": ""
+            }}
+        """.strip()
 
     @staticmethod
     def _format_image_slots(slots: list[ComplaintEmailVlmImageSlot]) -> str:
