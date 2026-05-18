@@ -339,7 +339,7 @@ class IssueService:
                 ErrorCode.VALIDATION_ERROR,
                 detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
             )
-        detail_address = resolved.address.strip()
+        detail_address = (resolved.address or "").strip()
         if not detail_address:
             raise_validation_exception(
                 ErrorCode.VALIDATION_ERROR,
@@ -347,6 +347,11 @@ class IssueService:
             )
         detail_address = detail_address[:150]
         location_id = resolved.location_id
+        if location_id is None:
+            raise_validation_exception(
+                ErrorCode.VALIDATION_ERROR,
+                detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
+            )
         user_address = detail_address
 
         image_snapshots = await self._snapshot_upload_images(uploads)
