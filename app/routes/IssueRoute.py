@@ -1,6 +1,4 @@
-from typing import Annotated
-
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, Form
 
 from app.core.codes import SuccessCode
 from app.core.deps import CurrentUserIdDep, IssueServiceDep
@@ -21,7 +19,6 @@ async def get_tone_types():
 async def create_issue_pin_ai(
     uid: CurrentUserIdDep,
     issue_service: IssueServiceDep,
-    images: Annotated[list[UploadFile], File(...)],
     title: str = Form(...),
     content: str = Form(...),
     tone: ToneType = Form(ToneType.NONE),
@@ -37,7 +34,6 @@ async def create_issue_pin_ai(
     )
     result = await issue_service.issue_pin_ai_make(
         uid=uid,
-        images=images,
         request=request,
     )
     return success_response(result=result, success_code=SuccessCode.CREATED)

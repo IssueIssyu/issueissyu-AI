@@ -3,75 +3,56 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import UploadFile
-from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
-
-from app.core.codes import ErrorCode
-from app.core.exceptions import raise_business_exception
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
-from app.schemas.IssueDTO import (
-    CreateIssuePinRequest,
-    ImageWithLocation,
-    IssueAnalysisResult,
-    ReliabilityBasis,
-)
-from app.services.prompts import build_issue_pin_prompt_from_pipeline_bundle
-from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
-from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
-from app.services.vector_domains import VectorDomain
-from app.services.internal.ai.VLMService import VLMService
+from app.schemas.IssueDTO import CreateIssuePinRequest, IssueAnalysisResult
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
+from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
+from app.services.internal.geo.LocationResolveClient import LocationResolveClient
+from app.services.prompts import build_issue_pin_prompt_from_pipeline_bundle
+from app.services.vector_domains import VectorDomain
 
-MAX_IMAGES = 5
 logger = logging.getLogger(__name__)
+SINGLE_RETRIEVAL_TOP_K = 5
 
 
 class IssueService:
     def __init__(
         self,
         vector_store_service: VectorStoreService,
-        vlm_service: VLMService,
-        image_exif_location_resolve_service: ImageExifLocationResolveService,
+        issue_rag_planner_service: IssueRagPlannerService,
+        location_resolve_client: LocationResolveClient,
         issue_pin_llm_service: IssuePinLLMService,
         pin_repo: PinRepo,
         issue_pin_repo: IssuePinRepo,
         user_repo: UserRepo,
     ) -> None:
         self._vector_store_service = vector_store_service
-        self._vlm_service = vlm_service
-        self._image_exif_location_resolve_service = image_exif_location_resolve_service
+        self._issue_rag_planner_service = issue_rag_planner_service
+        self._location_resolve_client = location_resolve_client
         self._issue_pin_llm_service = issue_pin_llm_service
         self._pin_repo = pin_repo
         self._issue_pin_repo = issue_pin_repo
         self._user_repo = user_repo
 
     @staticmethod
-    def _user_content_from_request(request: CreateIssuePinRequest) -> str:
-        return f"title:{request.title.strip()}\ncontent:{request.content.strip()}\n"
-
-    @staticmethod
-    def _user_location_from_request(request: CreateIssuePinRequest) -> str | None:
+    def _user_coordinates_from_request(request: CreateIssuePinRequest) -> str:
         return f"{request.latitude:.6f},{request.longitude:.6f}"
 
-    @staticmethod
-    def _build_rag_metadata_filters(vlm_result: dict[str, Any]) -> MetadataFilters | None:
-        raw = vlm_result.get("category")
-        if not isinstance(raw, dict):
-            return None
-        domain_name = raw.get("domain")
-        if not isinstance(domain_name, str):
-            return None
-        d = domain_name.strip()
-        if not d or d == "공통":
-            return None
-        return MetadataFilters(
-            filters=[MetadataFilter(key="category", value=d)]
+    async def _resolve_user_location_address(self, request: CreateIssuePinRequest) -> str | None:
+        resolved = await self._location_resolve_client.resolve_wgs84(
+            latitude=request.latitude,
+            longitude=request.longitude,
         )
+        if resolved is None:
+            return None
+        address = (resolved.address or "").strip()
+        return address or None
 
     @staticmethod
-    def _rag_hits_to_dicts(hits: Any) -> list[dict[str, Any]]:
+    def _rag_hits_to_dicts(hits: list[Any]) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for hit in hits:
             node = hit.node
@@ -86,113 +67,99 @@ class IssueService:
         return rows
 
     @staticmethod
-    def _optional_text(value: Any) -> str | None:
+    def _sanitize_single_query(value: object) -> str | None:
         if not isinstance(value, str):
             return None
         text = value.strip()
-        return text or None
+        if not text:
+            return None
+        if len(text) > 180:
+            text = text[:180].rstrip()
+        return text
 
     @staticmethod
-    def _reliability_from_vlm(vlm_result: dict[str, Any]) -> float:
-        raw = vlm_result.get("confidence_score")
-        try:
-            score = float(raw)
-        except (TypeError, ValueError):
-            return 0.0
-        return max(0.0, min(1.0, score))
-
-    @staticmethod
-    def _reliability_basis_from_vlm(vlm_result: dict[str, Any]) -> ReliabilityBasis:
-        location_status: str | None = None
-        location_message: str | None = None
-        location_verification = vlm_result.get("location_verification")
-        if isinstance(location_verification, dict):
-            location_status = IssueService._optional_text(location_verification.get("status"))
-            location_message = IssueService._optional_text(location_verification.get("message"))
-
-        raw_validity = vlm_result.get("validity")
-        validity = raw_validity if isinstance(raw_validity, bool) else False
-
-        return ReliabilityBasis(
-            confidence_score=IssueService._reliability_from_vlm(vlm_result),
-            validity=validity,
-            location_verification_status=location_status,
-            location_verification_message=location_message,
-            error_code=IssueService._optional_text(vlm_result.get("error_code")),
-            risk_note=IssueService._optional_text(vlm_result.get("risk_note")),
-            scene_summary=IssueService._optional_text(vlm_result.get("scene_summary")),
+    def _tune_title(*, original_title: str, rewritten: dict[str, Any]) -> str:
+        primary = rewritten.get("primary_query")
+        keyword = rewritten.get("keyword_query")
+        candidate = (
+            IssueService._sanitize_single_query(primary)
+            or IssueService._sanitize_single_query(keyword)
+            or original_title.strip()
         )
+        # 제목은 짧고 선명하게: 불필요한 접미 구두점 제거 + 길이 제한
+        tuned = candidate.strip().rstrip(" .,!?:;")
+        if len(tuned) > 42:
+            tuned = tuned[:42].rstrip()
+        return tuned or "민원 제보"
 
     async def issue_pin_ai_make(
         self,
         *,
         uid: str,
-        images: list[UploadFile],
         request: CreateIssuePinRequest,
     ) -> IssueAnalysisResult:
+        _ = uid
+        safe_title = request.title.strip()
+        safe_content = request.content.strip()
+        user_content = f"title:{safe_title}\ncontent:{safe_content}\n".strip()
+        user_location = await self._resolve_user_location_address(request)
+        if user_location is None:
+            user_location = "주소 확인 불가"
+        user_coordinates = self._user_coordinates_from_request(request)
 
-        if not images:
-            raise_business_exception(ErrorCode.VALIDATION_ERROR, detail="이미지는 1장 이상 필요합니다.")
-
-        user_content = self._user_content_from_request(request)
-        user_imgs = await self._extract_locations_from_images(images=images)
-        user_location = self._user_location_from_request(request)
-
-        vlm_result = await self._vlm_service.analyze_image(
-            user_text=user_content,
-            images=user_imgs,
-            user_location=user_location,
+        rewritten = await self._issue_rag_planner_service.rewrite_queries(
+            title=safe_title,
+            content=safe_content,
+            user_location=user_coordinates,
         )
-
-        query = (vlm_result.get("retrieval_query") or "").strip()
-        if not query:
-            query = user_content.strip()
-
-        filters = self._build_rag_metadata_filters(vlm_result)
+        filters = None
+        primary_query = self._sanitize_single_query(rewritten.get("primary_query"))
+        keyword_query = self._sanitize_single_query(rewritten.get("keyword_query"))
+        selected_query = primary_query or keyword_query or user_content
         logger.warning(
-            "RAG retrieve start — query=%r, domain=%s, filters=%s",
-            query, VectorDomain.COMPLAINT.value, filters,
+            "Issue RAG retrieve start — single_query=%r source=%s domain=%s filters=%s top_k=%d",
+            selected_query,
+            "primary" if primary_query else ("keyword" if keyword_query else "fallback"),
+            VectorDomain.COMPLAINT.value,
+            filters,
+            SINGLE_RETRIEVAL_TOP_K,
         )
+
         rag_hits = await self._vector_store_service.aretrieve(
-            query=query,
+            query=selected_query,
             domain=VectorDomain.COMPLAINT,
-            similarity_top_k=10,
+            similarity_top_k=SINGLE_RETRIEVAL_TOP_K,
             filters=filters,
         )
-        logger.warning("Issue RAG hits count=%d, hits=%s", len(rag_hits), rag_hits)
+        if len(rag_hits) > SINGLE_RETRIEVAL_TOP_K:
+            logger.warning(
+                "Issue RAG capped hits: raw=%d capped=%d",
+                len(rag_hits),
+                SINGLE_RETRIEVAL_TOP_K,
+            )
+            rag_hits = rag_hits[:SINGLE_RETRIEVAL_TOP_K]
         rag_payload = self._rag_hits_to_dicts(rag_hits)
+        logger.warning("Issue RAG hits=%d", len(rag_hits))
 
         bundle: dict[str, Any] = {
             "issue": {
-                "title": request.title,
-                "content": request.content,
+                "title": safe_title,
+                "content": safe_content,
                 "tone": request.tone,
+                "location": user_location,
             },
-            "vlm_result": vlm_result,
-            "rag_query": query,
+            "rag_queries": [selected_query],
             "rag_filters_applied": filters is not None,
             "rag_hits": rag_payload,
         }
         pin_prompt = build_issue_pin_prompt_from_pipeline_bundle(bundle)
         pin_body = await self._issue_pin_llm_service.generate_pin_text(prompt=pin_prompt)
-
-        for row in user_imgs:
-            await row.image.seek(0)
-
-        return IssueAnalysisResult(
-            title=request.title,
-            content=pin_body,
-            reliability=self._reliability_from_vlm(vlm_result),
-            reliability_basis=self._reliability_basis_from_vlm(vlm_result),
+        tuned_title = self._tune_title(
+            original_title=request.title,
+            rewritten=rewritten,
         )
 
-    async def _extract_locations_from_images(
-        self,
-        images: list[UploadFile],
-    ) -> list[ImageWithLocation]:
-        results: list[ImageWithLocation] = []
-        for image in images[:MAX_IMAGES]:
-            resolved = await self._image_exif_location_resolve_service.extract_and_resolve(image)
-            await image.seek(0)
-            results.append(ImageWithLocation(image=image, address=resolved.address))
-        return results
+        return IssueAnalysisResult(
+            title=tuned_title,
+            content=pin_body,
+        )

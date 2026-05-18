@@ -39,7 +39,6 @@ RAG_EXTRACTION_PROMPT = """
 
 4) 필터 힌트
 - domain_hint는 입력 근거가 충분할 때만 제안, 아니면 "공통"
-- confidence는 0~1 범위 (입력 명확성 기준)
 
 [출력 JSON 스키마]
 {{
@@ -57,8 +56,7 @@ RAG_EXTRACTION_PROMPT = """
   "keyword_query": "BM25용 키워드열",
   "retrieval_query": "하이브리드 검색용 대표 질의 1문장",
   "expansion_queries": ["대체 질의1", "대체 질의2", "대체 질의3"],
-  "domain_hint": "교통 | 환경미화 | 안전건설 | ... | 공통",
-  "confidence": 0.0
+  "domain_hint": "교통 | 환경미화 | 안전건설 | ... | 공통"
 }}
 """.strip()
 

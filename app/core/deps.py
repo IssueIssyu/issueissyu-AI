@@ -18,6 +18,7 @@ from app.services.IssueService import IssueService
 from app.services.UserService import UserService
 from app.services.VectorStoreService import VectorStoreService
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
+from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
@@ -106,6 +107,22 @@ def get_issue_pin_llm_service() -> IssuePinLLMService:
 IssuePinLLMServiceDep = Annotated[IssuePinLLMService, Depends(get_issue_pin_llm_service)]
 
 
+def get_issue_rag_planner_service() -> IssueRagPlannerService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return IssueRagPlannerService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_pin_text_model,
+    )
+
+
+IssueRagPlannerServiceDep = Annotated[
+    IssueRagPlannerService,
+    Depends(get_issue_rag_planner_service),
+]
+
+
 def get_vector_store_service(request: Request) -> VectorStoreService:
     vector_store_service = getattr(request.app.state, "vector_store_service", None)
     if vector_store_service is None:
@@ -114,44 +131,6 @@ def get_vector_store_service(request: Request) -> VectorStoreService:
 
 
 VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
-
-
-def get_image_multipart_geo_service() -> ImageMultipartGeoService:
-    return ImageMultipartGeoService()
-
-
-ImageMultipartGeoServiceDep = Annotated[
-    ImageMultipartGeoService,
-    Depends(get_image_multipart_geo_service),
-]
-
-
-def get_location_resolve_client(request: Request) -> LocationResolveClient:
-    http_client = getattr(request.app.state, "shared_httpx_client", None)
-    if http_client is None or not isinstance(http_client, httpx.AsyncClient):
-        raise RuntimeError(
-            "shared_httpx_client is not initialized. Check FastAPI lifespan in app.main.",
-        )
-    return LocationResolveClient(
-        http_client=http_client,
-        base_url=settings.location_core_base_url,
-    )
-
-
-LocationResolveClientDep = Annotated[LocationResolveClient, Depends(get_location_resolve_client)]
-
-
-def get_image_exif_location_resolve_service(
-    multipart_geo: ImageMultipartGeoServiceDep,
-    location_resolve: LocationResolveClientDep,
-) -> ImageExifLocationResolveService:
-    return ImageExifLocationResolveService(multipart_geo, location_resolve)
-
-
-ImageExifLocationResolveServiceDep = Annotated[
-    ImageExifLocationResolveService,
-    Depends(get_image_exif_location_resolve_service),
-]
 
 
 def get_pin_repo(session: DbSessionDep) -> PinRepo:
@@ -170,8 +149,8 @@ IssuePinRepoDep = Annotated[IssuePinRepo, Depends(get_issue_pin_repo)]
 
 def get_issue_service(
     vector_store_service: VectorStoreServiceDep,
-    vlm_service: VLMServiceDep,
-    image_exif_location_resolve_service: ImageExifLocationResolveServiceDep,
+    issue_rag_planner_service: IssueRagPlannerServiceDep,
+    location_resolve_client: LocationResolveClientDep,
     issue_pin_llm_service: IssuePinLLMServiceDep,
     pin_repo: PinRepoDep,
     issue_pin_repo: IssuePinRepoDep,
@@ -179,8 +158,8 @@ def get_issue_service(
 ) -> IssueService:
     return IssueService(
         vector_store_service=vector_store_service,
-        vlm_service=vlm_service,
-        image_exif_location_resolve_service=image_exif_location_resolve_service,
+        issue_rag_planner_service=issue_rag_planner_service,
+        location_resolve_client=location_resolve_client,
         issue_pin_llm_service=issue_pin_llm_service,
         pin_repo=pin_repo,
         issue_pin_repo=issue_pin_repo,
