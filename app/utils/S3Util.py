@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import io
 import logging
+import mimetypes
 from pathlib import Path
 from typing import TypedDict
 from urllib.parse import quote
@@ -132,4 +134,74 @@ class S3Util:
             "key": resolved_key,
             "url": self._build_public_file_url(resolved_key),
         }
+
+    async def upload_bytes(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str,
+        prefix: str = "uploads",
+        object_key: str | None = None,
+        extra_args: dict[str, object] | None = None,
+    ) -> UploadedImageResult:
+        if not data:
+            raise_file_exception(
+                ErrorCode.FILE_UPLOAD_ERROR,
+                detail="업로드할 이미지 데이터가 비어 있습니다.",
+            )
+        extension = Path(filename).suffix.lower()
+        if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
+            raise_file_exception(
+                ErrorCode.FILE_TYPE_NOT_SUPPORTED,
+                detail="이미지 파일만 업로드할 수 있습니다.",
+            )
+        if not content_type.lower().startswith("image/"):
+            raise_file_exception(
+                ErrorCode.FILE_TYPE_NOT_SUPPORTED,
+                detail="이미지 MIME 타입만 업로드할 수 있습니다.",
+            )
+
+        bucket_name = self._ensure_bucket_name()
+        resolved_key = object_key or self._build_object_key(filename, prefix)
+        upload_args = dict(extra_args or {})
+        upload_args.setdefault("ContentType", content_type)
+        buffer = io.BytesIO(data)
+
+        try:
+            await to_thread.run_sync(
+                lambda: self.client.upload_fileobj(
+                    buffer,
+                    bucket_name,
+                    resolved_key,
+                    ExtraArgs=upload_args,
+                ),
+            )
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이트 업로드 실패: %s", exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+
+        return {
+            "key": resolved_key,
+            "url": self._build_public_file_url(resolved_key),
+        }
+
+    async def download_bytes(self, object_key: str) -> tuple[bytes, str]:
+        bucket_name = self._ensure_bucket_name()
+        normalized_key = object_key.lstrip("/")
+
+        def _download() -> tuple[bytes, str]:
+            response = self.client.get_object(Bucket=bucket_name, Key=normalized_key)
+            body = response["Body"].read()
+            content_type = (response.get("ContentType") or "").split(";")[0].strip().lower()
+            if not content_type or not content_type.startswith("image/"):
+                guessed, _ = mimetypes.guess_type(normalized_key)
+                content_type = (guessed or "image/jpeg").split(";")[0].strip().lower()
+            return body, content_type
+
+        try:
+            return await to_thread.run_sync(_download)
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이트 다운로드 실패 key=%s err=%s", normalized_key, exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
 

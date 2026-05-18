@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -8,8 +7,9 @@ from json import JSONDecodeError
 from typing import Any
 
 from google import genai
-from google.genai import errors as genai_errors
 from google.genai import types
+
+from app.services.internal.ai.gemini_retry import generate_content_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -71,56 +71,29 @@ def _normalize_string_list(value: object) -> list[str]:
 @dataclass(slots=True)
 class IssueRagPlannerService:
     api_key: str
-    model_name: str = "gemini-2.0-flash"
+    model_name: str = "gemini-2.5-flash"
     client: genai.Client = field(init=False, repr=False)
-    fallback_models: tuple[str, ...] = ("gemini-2.0-flash", "gemini-2.0-flash-lite")
+    fallback_models: tuple[str, ...] = ("gemini-2.5-flash-lite", "gemini-2.0-flash-lite")
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)
-
-    @staticmethod
-    def _is_retryable_error(exc: Exception) -> bool:
-        status_code = getattr(exc, "status_code", None)
-        if status_code in {429, 500, 502, 503, 504}:
-            return True
-        text = str(exc).lower()
-        return ("unavailable" in text) or ("high demand" in text) or ("timed out" in text)
 
     async def _generate_with_retry(
         self,
         *,
         contents: str,
         config: types.GenerateContentConfig,
+        log_context: str | None = None,
     ):
-        model_candidates: list[str] = [self.model_name]
-        model_candidates.extend(m for m in self.fallback_models if m != self.model_name)
-        last_error: Exception | None = None
-        for model in model_candidates:
-            for attempt in range(3):
-                try:
-                    return await self.client.aio.models.generate_content(
-                        model=model,
-                        contents=contents,
-                        config=config,
-                    )
-                except (genai_errors.ServerError, genai_errors.APIError) as exc:
-                    last_error = exc
-                    if not self._is_retryable_error(exc):
-                        raise
-                    if attempt == 2:
-                        break
-                    delay = 0.6 * (2 ** attempt)
-                    logger.warning(
-                        "Planner model retry: model=%s attempt=%d delay=%.1fs err=%s",
-                        model,
-                        attempt + 1,
-                        delay,
-                        exc,
-                    )
-                    await asyncio.sleep(delay)
-        if last_error is not None:
-            raise last_error
-        raise RuntimeError("generate_content 호출에 실패했습니다.")
+        return await generate_content_with_retry(
+            self.client,
+            model_name=self.model_name,
+            fallback_models=self.fallback_models,
+            contents=contents,
+            config=config,
+            log_prefix="Planner",
+            log_context=log_context,
+        )
 
     async def rewrite_queries(
         self,

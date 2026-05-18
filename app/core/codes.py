@@ -86,6 +86,18 @@ class SuccessCode(Enum):
     USER_PROFILE_UPDATE_SUCCESS = (status.HTTP_200_OK, "USER_2006", "프로필 저장이 완료되었습니다.")
     USER_INFO_GET_SUCCESS = (status.HTTP_200_OK, "USER_2007", "유저 정보 조회가 완료되었습니다.")
 
+    # Issue
+    ISSUE_PIN_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2001",
+        "이슈 핀 상세 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_RELIABILITY_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2002",
+        "이슈 핀 신뢰도 조회에 성공했습니다.",
+    )
+
     @property
     def http_status(self) -> int:
         return int(self.value[0])
