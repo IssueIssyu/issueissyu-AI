@@ -115,7 +115,6 @@ python-bidi==0.6.10
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.2
 python-multipart==0.0.26
-pywin32==311
 PyYAML==6.0.3
 redis==7.4.0
 regex==2026.4.4
