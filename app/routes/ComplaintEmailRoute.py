@@ -63,7 +63,7 @@ async def run_complaint_email_rag_pipeline(
     payload = build_rag_api_response(rag_result)
     return success_response(
         result=payload.model_dump(by_alias=True, exclude_none=False),
-        success_code=SuccessCode.COMPLAINT_EMAIL_GENERATE_SUCCESS,
+        success_code=SuccessCode.OK
     )
 
 

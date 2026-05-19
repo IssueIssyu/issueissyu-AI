@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
 
@@ -170,8 +171,28 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("pdf_korean_font_paths", mode="before")
+    @classmethod
+    def _empty_pdf_korean_font_paths_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    # 의견서 PDF @font-face (쉼표 구분). 미설정 시 Linux 일반 경로만 자동 탐색.
+    pdf_korean_font_paths: str | None = Field(
+        default=None,
+        alias="PDF_KOREAN_FONT_PATHS",
+    )
+
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")
+
+    @property
+    def pdf_korean_font_path_list(self) -> list[Path]:
+        raw = (self.pdf_korean_font_paths or "").strip()
+        if not raw:
+            return []
+        return [Path(part.strip()) for part in raw.split(",") if part.strip()]
 
     def _selected_db_values(
         self,

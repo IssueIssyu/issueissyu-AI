@@ -30,7 +30,6 @@ async def _run(
 ) -> None:
     from app.core.config import settings
     from app.schemas.IssueDTO import ImageWithLocation
-    from app.services.ComplaintEmailVlmService import VLMService
     from app.services.internal.ai.VLMService import VLMService
 
     secret = settings.gemini_api_key

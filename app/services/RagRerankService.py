@@ -86,24 +86,14 @@ class RagRerankService:
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
-        if hasattr(self._embed_model, "_get_text_embeddings"):
-            vectors = self._embed_model._get_text_embeddings(texts)
-            if len(vectors) == len(texts):
-                return vectors
-            logger.warning(
-                "Batch _get_text_embeddings 호출이 %d/%d 개의 벡터만 반환해서, 하나씩 개별 처리 방식으로 fallback",
-                len(vectors),
-                len(texts),
-            )
-        elif hasattr(self._embed_model, "get_text_embedding_batch"):
-            vectors = self._embed_model.get_text_embedding_batch(texts)
-            if len(vectors) == len(texts):
-                return vectors
-            logger.warning(
-                "get_text_embedding_batch가 %d/%d 개의 벡터만 반환해서, 하나씩 처리하는 방식으로 전환",
-                len(vectors),
-                len(texts),
-            )
+        vectors = self._embed_model.get_text_embedding_batch(texts)
+        if len(vectors) == len(texts):
+            return vectors
+        logger.warning(
+            "get_text_embedding_batch가 %d/%d 개의 벡터만 반환해서, 하나씩 처리하는 방식으로 전환",
+            len(vectors),
+            len(texts),
+        )
         return self._embed_texts_one_by_one(texts)
 
     def _embed_texts_one_by_one(self, texts: list[str]) -> list[list[float]]:

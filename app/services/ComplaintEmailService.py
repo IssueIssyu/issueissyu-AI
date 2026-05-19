@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from llama_index.core.vector_stores import MetadataFilter, MetadataFilters
+from llama_index.core.vector_stores.types import MetadataFilter, MetadataFilters
 
 from app.core.codes import ErrorCode
 from app.core.exceptions import BusinessException, raise_business_exception

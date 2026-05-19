@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from llama_index.core.vector_stores import MetadataFilters
+from llama_index.core.vector_stores.types import MetadataFilters
 
 from app.schemas.ComplaintEmailDTO import ComplaintEmailRagHit, ComplaintEmailRagPipelineResult
 from app.services.RagRerankService import RagRerankCandidate, RagRerankService

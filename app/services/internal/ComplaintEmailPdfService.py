@@ -1,21 +1,30 @@
 from __future__ import annotations
 
 import logging
-from io import BytesIO
 from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
+
+from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_BASE = Path(__file__).resolve().parent.parent / "templates"
 
-_KOREAN_FONT_CANDIDATES = (
-    Path(r"C:\Windows\Fonts\malgun.ttf"),
-    Path(r"C:\Windows\Fonts\malgunbd.ttf"),
+# Linux 서버, EB 기본 탐색 경로 (Windows는 PDF_KOREAN_FONT_PATHS 로 지정)
+_DEFAULT_KOREAN_FONT_CANDIDATES: tuple[Path, ...] = (
     Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+    Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
     Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf"),
 )
+
+
+def _korean_font_candidates() -> tuple[Path, ...]:
+    configured = get_settings().pdf_korean_font_path_list
+    if configured:
+        return tuple(configured) + _DEFAULT_KOREAN_FONT_CANDIDATES
+    return _DEFAULT_KOREAN_FONT_CANDIDATES
 
 
 class ComplaintEmailPdfService:
@@ -62,7 +71,7 @@ class ComplaintEmailPdfService:
             raise ValueError("PDF로 변환할 HTML이 비어 있습니다.")
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = playwright.chromium.launch(args=["--no-sandbox", "--disable-setuid-sandbox"])
             try:
                 page = browser.new_page()
                 page.set_content(source, wait_until="load")
@@ -80,7 +89,7 @@ class ComplaintEmailPdfService:
 
     @staticmethod
     def _korean_font_face_css() -> str:
-        for font_path in _KOREAN_FONT_CANDIDATES:
+        for font_path in _korean_font_candidates():
             if not font_path.is_file():
                 continue
             uri = font_path.resolve().as_uri()
@@ -90,6 +99,9 @@ class ComplaintEmailPdfService:
                 @font-face {{
                   font-family: 'KoreanBody';
                   src: url('{uri}');
+                }}
+                body {{
+                    font-family: 'KoreanBody', "Malgun Gothic", "Batang", sans-serif;
                 }}
                 </style>
             """
