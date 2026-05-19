@@ -91,7 +91,7 @@ class RagRerankService:
             if len(vectors) == len(texts):
                 return vectors
             logger.warning(
-                "Batch _get_text_embeddings returned %d/%d vectors; falling back to one-by-one",
+                "Batch _get_text_embeddings 호출이 %d/%d 개의 벡터만 반환해서, 하나씩 개별 처리 방식으로 fallback",
                 len(vectors),
                 len(texts),
             )
@@ -100,7 +100,7 @@ class RagRerankService:
             if len(vectors) == len(texts):
                 return vectors
             logger.warning(
-                "get_text_embedding_batch returned %d/%d vectors; falling back to one-by-one",
+                "get_text_embedding_batch가 %d/%d 개의 벡터만 반환해서, 하나씩 처리하는 방식으로 전환",
                 len(vectors),
                 len(texts),
             )

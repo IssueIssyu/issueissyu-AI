@@ -7,7 +7,6 @@ from starlette import status
 
 
 class ErrorCode(Enum):
-    """에러 코드 정의 (HTTP 상태, 문자열 코드, 기본 메시지)"""
 
     # Common
     BAD_REQUEST = (status.HTTP_400_BAD_REQUEST, "COMMON_400", "잘못된 요청입니다.")
@@ -72,7 +71,6 @@ class ErrorCode(Enum):
 
 
 class SuccessCode(Enum):
-    """성공 코드 정의 (HTTP 상태, 문자열 코드, 기본 메시지)"""
 
     # Common
     OK = (status.HTTP_200_OK, "COMMON_200", "Success")

@@ -31,7 +31,7 @@ class ComplaintEmailVlmOutput(BaseModel):
 
 class ComplaintEmailRagHit(BaseModel):
     text: str = ""
-    retrieval_score: float | None = None  # 1차 벡터·하이브리드 검색
+    retrieval_score: float | None = None  # 1차 벡터, 하이브리드 검색
     rerank_score: float | None = None  # 2차 rerank (LLM에 넣을 문맥 선별, 정렬 기준)
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
@@ -43,7 +43,7 @@ class ComplaintEmailRagPipelineResult(BaseModel):
 
 
 class ComplaintEmailRagRunResult(BaseModel):
-    """VLM + RAG 파이프라인까지만 실행한 결과."""
+    # VLM + RAG 파이프라인까지만 실행한 결과
 
     pin_title: str = ""
     pin_content: str = ""
@@ -106,12 +106,11 @@ class ComplaintEmailOutputsApi(BaseModel):
 
 
 class ComplaintEmailRagPipelineApi(BaseModel):
-    """RAG 1차 검색·2차 rerank를 분리해 표시."""
-
+    # RAG 1차 검색, 2차 rerank를 분리해 표시
     rag_query: str = ""
     retrieval: list[ComplaintEmailRagHit] = Field(
         default_factory=list,
-        description="1차 벡터·하이브리드 검색 결과 (retrieval_score)",
+        description="1차 벡터, 하이브리드 검색 결과 (retrieval_score)",
     )
     rerank: list[ComplaintEmailRagHit] = Field(
         default_factory=list,
@@ -120,8 +119,7 @@ class ComplaintEmailRagPipelineApi(BaseModel):
 
 
 class ComplaintEmailRagApiResponse(BaseModel):
-    """RAG·rerank 디버그 전용 응답."""
-
+    # RAG, rerank 디버그 전용 응답
     input: ComplaintEmailPinInputApi
     vlm_input: ComplaintEmailVlmInput
     vlm_output: ComplaintEmailVlmOutput
@@ -129,8 +127,7 @@ class ComplaintEmailRagApiResponse(BaseModel):
 
 
 class ComplaintEmailOutputsOnlyApiResponse(BaseModel):
-    """BE 연동용 — 최종 산출물만."""
-
+    # BE 연동용 — 최종 산출물만
     input: ComplaintEmailPinInputApi
     outputs: ComplaintEmailOutputsApi
 

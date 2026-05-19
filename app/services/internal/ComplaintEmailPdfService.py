@@ -19,7 +19,7 @@ _KOREAN_FONT_CANDIDATES = (
 
 
 class ComplaintEmailPdfService:
-    # HTML → PDF (WeasyPrint 우선, 실패 시 Playwright — HTML을 문자열로 찍지 않음)
+    # HTML을 PDF로 (WeasyPrint 우선, 실패 시 Playwright — HTML을 문자열로 찍지 않음)
 
     @staticmethod
     async def html_to_pdf(html: str) -> bytes:
@@ -86,11 +86,11 @@ class ComplaintEmailPdfService:
             uri = font_path.resolve().as_uri()
             logger.info("PDF Korean font: %s", font_path)
             return f"""
-<style>
-@font-face {{
-  font-family: 'KoreanBody';
-  src: url('{uri}');
-}}
-</style>
-"""
+                <style>
+                @font-face {{
+                  font-family: 'KoreanBody';
+                  src: url('{uri}');
+                }}
+                </style>
+            """
         return ""

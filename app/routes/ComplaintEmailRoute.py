@@ -40,10 +40,9 @@ def _pdf_response(generated: ComplaintEmailGenerateResult) -> Response:
 
 @router.post(
     "/pipeline/rag",
-    summary="VLM + RAG(1차 검색·2차 rerank)만 실행",
+    summary="VLM + RAG(1차 검색, 2차 rerank)만 실행",
     description=(
-        "의견서·PDF·메일은 생성하지 않습니다. "
-        "Swagger에서 retrieval / rerank 결과만 확인할 때 사용하세요."
+        "retrieval / rerank 결과만 확인할 때 사용"
     ),
 )
 async def run_complaint_email_rag_pipeline(
@@ -72,9 +71,9 @@ async def run_complaint_email_rag_pipeline(
     "/generate/outputs",
     summary="청원 패키지 최종 산출물만 (JSON)",
     description=(
-        "전체 파이프라인을 실행하고 **input + outputs** 만 반환합니다. "
-        "opinion_html, opinion_pdf_base64, notification_email_body, reliability_score 포함. "
-        "RAG 디버그는 **POST /complaint-email/pipeline/rag** 를 사용하세요."
+        "전체 파이프라인을 실행하고 input + outputs 만 반환합니다. "
+        "opinion_html, opinion_pdf_base64, notification_email_body, reliability_score 포함"
+        "RAG 디버그는 POST /complaint-email/pipeline/rag 를 사용하세요."
     ),
 )
 async def generate_complaint_email_outputs(
@@ -103,7 +102,7 @@ async def generate_complaint_email_outputs(
     "/generate/pdf",
     summary="청원 의견서 PDF만 생성",
     description=(
-        "전체 파이프라인 실행 후 **application/pdf** 바이너리만 반환합니다. "
+        "전체 파이프라인 실행 후 application/pdf 바이너리만 반환합니다. "
         "JSON이 아니라 PDF 파일이므로 Swagger 응답이 `%PDF-1.4` 로 보이는 것이 정상입니다."
     ),
     responses={

@@ -44,7 +44,7 @@ def nl2br(value: str | None) -> Markup:
 
 
 class ComplaintEmailOpinionRenderer:
-    """행정절차법 의견제출서 양식(의견제출서양식.hwp)과 동일한 HTML 레이아웃."""
+    # 행정절차법 의견제출서 양식(의견제출서양식, hwp)과 동일한 HTML 레이아웃
 
     def __init__(self) -> None:
         self._env = Environment(
