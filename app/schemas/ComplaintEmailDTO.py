@@ -36,10 +36,29 @@ class ComplaintEmailRagHit(BaseModel):
     metadata: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
 
 
+class ComplaintEmailRagPipelineResult(BaseModel):
+    rag_query: str = ""
+    retrieval_hits: list[ComplaintEmailRagHit] = Field(default_factory=list)
+    reranked_hits: list[ComplaintEmailRagHit] = Field(default_factory=list)
+
+
+class ComplaintEmailRagRunResult(BaseModel):
+    """VLM + RAG 파이프라인까지만 실행한 결과."""
+
+    pin_title: str = ""
+    pin_content: str = ""
+    photo_address: str | None = None
+    image_count: int = 0
+    vlm_input: ComplaintEmailVlmInput
+    vlm_output: ComplaintEmailVlmOutput
+    rag: ComplaintEmailRagPipelineResult
+
+
 class ComplaintEmailLlmBundle(BaseModel):
     # 의견서 HTML 생성 LLM에 넘기는 JSON
     pin_title: str
     pin_content: str
+    rag_query: str = ""
     vlm: ComplaintEmailVlmOutput
     rag_hits: list[ComplaintEmailRagHit] = Field(default_factory=list)
 
@@ -54,8 +73,100 @@ class ComplaintEmailValidationResult(BaseModel):
 
 
 class ComplaintEmailGenerateResult(BaseModel):
-    # 청원 최종 산출물
+    # 입력
+    pin_title: str = ""
+    pin_content: str = ""
+    photo_address: str | None = None
+    image_count: int = 0
+    # 파이프라인 중간 산출
+    vlm_input: ComplaintEmailVlmInput | None = None
+    vlm_output: ComplaintEmailVlmOutput | None = None
+    rag: ComplaintEmailRagPipelineResult | None = None
+    llm_bundle: ComplaintEmailLlmBundle | None = None
+    validation: ComplaintEmailValidationResult | None = None
+    # 최종 산출물
+    opinion_html: str = ""
+    opinion_pdf_bytes: bytes = b""
+    notification_email_body: str = ""
+    reliability_score: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class ComplaintEmailPinInputApi(BaseModel):
+    pin_title: str
+    pin_content: str
+    photo_address: str | None = None
+    image_count: int = 0
+
+
+class ComplaintEmailOutputsApi(BaseModel):
     opinion_html: str
-    opinion_pdf_bytes: bytes
+    opinion_pdf_base64: str
     notification_email_body: str
     reliability_score: float = Field(ge=0.0, le=1.0)
+
+
+class ComplaintEmailRagPipelineApi(BaseModel):
+    """RAG 1차 검색·2차 rerank를 분리해 표시."""
+
+    rag_query: str = ""
+    retrieval: list[ComplaintEmailRagHit] = Field(
+        default_factory=list,
+        description="1차 벡터·하이브리드 검색 결과 (retrieval_score)",
+    )
+    rerank: list[ComplaintEmailRagHit] = Field(
+        default_factory=list,
+        description="2차 rerank 결과 (rerank_score, LLM 입력 문맥)",
+    )
+
+
+class ComplaintEmailRagApiResponse(BaseModel):
+    """RAG·rerank 디버그 전용 응답."""
+
+    input: ComplaintEmailPinInputApi
+    vlm_input: ComplaintEmailVlmInput
+    vlm_output: ComplaintEmailVlmOutput
+    rag: ComplaintEmailRagPipelineApi
+
+
+class ComplaintEmailOutputsOnlyApiResponse(BaseModel):
+    """BE 연동용 — 최종 산출물만."""
+
+    input: ComplaintEmailPinInputApi
+    outputs: ComplaintEmailOutputsApi
+
+    @classmethod
+    def from_generate_result(cls, result: ComplaintEmailGenerateResult) -> ComplaintEmailOutputsOnlyApiResponse:
+        import base64
+
+        return cls(
+            input=ComplaintEmailPinInputApi(
+                pin_title=result.pin_title,
+                pin_content=result.pin_content,
+                photo_address=result.photo_address,
+                image_count=result.image_count,
+            ),
+            outputs=ComplaintEmailOutputsApi(
+                opinion_html=result.opinion_html,
+                opinion_pdf_base64=base64.b64encode(result.opinion_pdf_bytes).decode("ascii"),
+                notification_email_body=result.notification_email_body,
+                reliability_score=result.reliability_score,
+            ),
+        )
+
+
+def build_rag_api_response(result: ComplaintEmailRagRunResult) -> ComplaintEmailRagApiResponse:
+    return ComplaintEmailRagApiResponse(
+        input=ComplaintEmailPinInputApi(
+            pin_title=result.pin_title,
+            pin_content=result.pin_content,
+            photo_address=result.photo_address,
+            image_count=result.image_count,
+        ),
+        vlm_input=result.vlm_input,
+        vlm_output=result.vlm_output,
+        rag=ComplaintEmailRagPipelineApi(
+            rag_query=result.rag.rag_query,
+            retrieval=result.rag.retrieval_hits,
+            rerank=result.rag.reranked_hits,
+        ),
+    )

@@ -98,6 +98,12 @@ class SuccessCode(Enum):
         "이슈 핀 신뢰도 조회에 성공했습니다.",
     )
 
+    COMPLAINT_EMAIL_GENERATE_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "COMPLAINT_201",
+        "청원 이메일 패키지 생성에 성공했습니다.",
+    )
+
     @property
     def http_status(self) -> int:
         return int(self.value[0])

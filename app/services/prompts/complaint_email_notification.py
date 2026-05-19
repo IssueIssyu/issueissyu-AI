@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-def complaint_notification_prompt(
+def format_notification_email_body(
     *,
     pin_title: str,
     pin_content: str,
@@ -10,28 +10,20 @@ def complaint_notification_prompt(
     validity: bool,
     risk_note: str | None,
 ) -> str:
+    title = pin_title.strip()
+    content = pin_content.strip()
+    summary = opinion_summary.strip() or f"{title}\n{content}".strip()
     risk_line = risk_note.strip() if risk_note and risk_note.strip() else "없음"
     validity_ko = "유효" if validity else "추가 확인 필요"
-    score_pct = round(reliability_score * 100, 1)
-    pin_fallback = f"{pin_title.strip()}\n{pin_content.strip()}".strip()
-    return f"""
-        [역할]
-        청원 의견서 PDF를 메일로 보낼 때 함께 실을 본문(plain text)을 작성한다.
-        
-        [이슈 핀]
-        제목: {pin_title.strip()}
-        본문: {pin_content.strip()}
-        
-        [민원 요약]
-        {opinion_summary.strip() or pin_fallback}
-        
-        [신뢰도]
-        - 점수: {score_pct}% (0~100, 모델 추정)
-        - 판정: {validity_ko}
-        - 참고: {risk_line}
-        
-        [작성 규칙]
-        - 3~6문장, 정중한 안내 톤.
-        - PDF 첨부 안내, 신뢰도 점수는 참고용이며 최종 판단은 담당 부서임을 한 문장 포함.
-        - HTML·마크다운 없이 본문 텍스트만 출력.
-    """.strip()
+    score_pct = round(max(0.0, min(1.0, reliability_score)) * 100, 1)
+
+    return (
+        f"안녕하세요.\n\n"
+        f"이슈 핀 「{title}」에 대한 청원 의견서 초안(PDF)을 첨부하여 보내드립니다.\n\n"
+        f"【민원 요약】\n{summary}\n\n"
+        f"【자동 검증 참고】 신뢰도 {score_pct}% ({validity_ko}). "
+        f"참고 사항: {risk_line}\n"
+        f"위 점수는 AI 추정치이며, 최종 판단 및 조치는 담당 부서에서 결정됩니다.\n\n"
+        f"첨부 PDF를 확인해 주시고, 문의 사항이 있으시면 회신 부탁드립니다.\n"
+        f"감사합니다."
+    )

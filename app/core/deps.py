@@ -246,6 +246,8 @@ def get_rag_retrieval_service(
         rerank_service=rag_rerank_service,
         retrieve_top_k=settings.rag_retrieve_top_k,
         rerank_top_k=settings.rag_rerank_top_k,
+        enable_rerank=settings.rag_enable_rerank,
+        vector_query_mode=settings.rag_vector_query_mode,
     )
 
 

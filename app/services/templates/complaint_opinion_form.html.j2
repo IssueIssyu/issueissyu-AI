@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<style>
+@page { size: A4; margin: 25mm 20mm 18mm 20mm; }
+
+body {
+  font-family: "Malgun Gothic", "Batang", sans-serif;
+  font-size: 11pt;
+  color: #000;
+  margin: 0;
+}
+
+h1 {
+  text-align: center;
+  font-size: 20pt;
+  letter-spacing: 0.35em;
+  margin: 0 0 32px 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+td, th {
+  border: 1px solid #000;
+  padding: 6px 8px;
+  font-weight: normal;
+  vertical-align: middle;
+}
+
+.center { text-align: center; }
+.left { text-align: left; }
+.top { vertical-align: top; }
+
+.label { width: 26%; }
+.sub { width: 13%; }
+
+.title-row { height: 48px; }
+.party-row { height: 49px; }
+.opinion-row { height: 188px; }
+.other-row { min-height: 67px; height: auto; }
+
+.other-cell .attachment-images {
+  margin-top: 10px;
+}
+
+.other-cell .attachment-item {
+  margin-bottom: 10px;
+  page-break-inside: avoid;
+}
+
+.other-cell .attachment-caption {
+  font-size: 9pt;
+  margin-bottom: 4px;
+}
+
+.other-cell .attachment-images img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  width: auto;
+  height: auto;
+}
+
+.legal-row {
+  height: 210px;
+  vertical-align: top;
+  padding: 14px 0 0 0;
+  border-bottom: 1px solid #000;
+}
+
+.legal-text {
+  margin-bottom: 22px;
+}
+
+.date {
+  text-align: center;
+  letter-spacing: 1.2em;
+  margin: 18px 0 18px 0;
+}
+
+.info-line {
+  position: relative;
+  height: 28px;
+  padding: 0 0;
+}
+
+.phone {
+  text-align: right;
+  padding-right: 28px;
+}
+
+.name-line {
+  display: flex;
+  justify-content: center;
+  gap: 170px;
+  margin-top: 8px;
+}
+
+.recipient {
+  text-align: right;
+  padding-right: 36px;
+  margin-top: 6px;
+}
+
+.note-label {
+  width: 26%;
+  text-align: center;
+}
+
+.note-cell {
+  font-size: 10pt;
+  line-height: 1.55;
+  padding: 14px 8px;
+}
+</style>
+</head>
+
+<body>
+<h1>의견제출서</h1>
+
+<table>
+  <tr class="title-row">
+    <td class="label center">1. 예정된 처분의 제목</td>
+    <td colspan="3">{{ disposition_title | nl2br }}</td>
+  </tr>
+
+  <tr class="party-row">
+    <td rowspan="2" class="label center">2. 당사자</td>
+    <td class="sub center">성명(명칭)</td>
+    <td colspan="2">{{ submitter_name | default('', true) }}</td>
+  </tr>
+  <tr class="party-row">
+    <td class="sub center">주소</td>
+    <td colspan="2">{{ submitter_address | default('', true) }}</td>
+  </tr>
+
+  <tr class="opinion-row">
+    <td class="label center">3. 의&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;견</td>
+    <td colspan="3" class="top">{{ opinion | nl2br }}</td>
+  </tr>
+
+  <tr class="other-row">
+    <td class="label center">4. 기&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;타</td>
+    <td colspan="3" class="top other-cell">
+      {{ other | nl2br }}
+      {% if attachment_images %}
+      <div class="attachment-images">
+        {% for img in attachment_images %}
+        <div class="attachment-item">
+          {% if img.caption %}<div class="attachment-caption">{{ img.caption }}</div>{% endif %}
+          <img src="{{ img.data_uri | safe }}" alt="{{ img.caption }}" />
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </td>
+  </tr>
+
+  <tr>
+    <td colspan="4" class="legal-row">
+      <div class="legal-text">
+        행정절차법 제27조제1항(제31조제3항)의 규정에 의하여 위와 같이 의견을 제출합니다.
+      </div>
+
+      <div class="date">{{ written_date }}</div>
+
+      <div class="info-line">
+        의견제출인 주소&nbsp;&nbsp;{{ submitter_address_footer | default('', true) }}
+      </div>
+
+      <div class="info-line phone">
+        (전화:&nbsp;&nbsp;{{ submitter_phone | default('', true) }})
+      </div>
+
+      <div class="name-line">
+        <span>성명</span>
+        <span>(서명 또는 인)&nbsp;&nbsp;{{ submitter_name_footer | default('', true) }}</span>
+      </div>
+
+      <div class="recipient">귀하</div>
+    </td>
+  </tr>
+
+  <tr>
+    <td class="note-label">비<br/>고</td>
+    <td colspan="3" class="note-cell">
+      1. 기재란이 부족한 경우에는 별지를 사용하실 수 있습니다.<br/>
+      2. 증거자료 등을 첨부하실 수 있습니다.<br/>
+      3. 위 의견제출과 관련하여 문서를 받으신 경우에는 문서번호와 일자를<br/>
+      &nbsp;&nbsp;&nbsp;제1호에 함께 기재해 주시기 바랍니다.
+    </td>
+  </tr>
+</table>
+</body>
+</html>

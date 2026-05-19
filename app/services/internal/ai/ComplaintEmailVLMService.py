@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.core.codes import ErrorCode
@@ -16,6 +17,7 @@ from app.schemas.ComplaintEmailDTO import (
     ComplaintEmailVlmInput,
 )
 from app.schemas.IssueDTO import ImageWithLocation
+from app.services.internal.ai.gemini_retry import generate_content_with_retry
 from app.services.internal.ai.VLMService import resolve_upload_image_mime
 from app.services.prompts.complaint_email_vlm import (
     ComplaintEmailVlmCatalog,
@@ -189,12 +191,29 @@ class ComplaintEmailVlmService:
             response_json_schema=self._catalog.response_json_schema(),
         )
 
-        response = await client.aio.models.generate_content(
-            model=self._model,
-            contents=parts,
-            config=config,
-        )
-        text = (response.text or "").strip()
+        try:
+            response = await generate_content_with_retry(
+                client,
+                model_name=self._model,
+                fallback_models=(),
+                contents=parts,
+                config=config,
+                log_prefix="ComplaintEmailVLM",
+            )
+        except genai_errors.APIError as exc:
+            raise BusinessException(
+                ErrorCode.ISSUE_PIN_LLM_BLOCKED,
+                f"민원 분석 VLM 호출 실패: {exc}",
+            ) from exc
+
+        try:
+            raw_text = response.text
+        except (ValueError, AttributeError) as exc:
+            raise BusinessException(
+                ErrorCode.ISSUE_PIN_LLM_BLOCKED,
+                str(exc) if str(exc) else None,
+            ) from exc
+        text = (raw_text or "").strip()
         if not text:
             raise BusinessException(ErrorCode.VALIDATION_ERROR, "VLM 응답이 비어 있습니다.")
         return text

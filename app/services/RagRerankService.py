@@ -59,20 +59,54 @@ class RagRerankService:
             self._embed_texts,
             [query_text, *texts],
         )
+        if len(embeddings) != len(texts) + 1:
+            logger.warning(
+                "Rerank embedding count mismatch: expected %d, got %d",
+                len(texts) + 1,
+                len(embeddings),
+            )
+            embeddings = await run_in_threadpool(
+                self._embed_texts_one_by_one,
+                [query_text, *texts],
+            )
+
         query_vec = embeddings[0]
         doc_vecs = embeddings[1:]
         scored: list[tuple[float, RagRerankCandidate]] = []
-        for candidate, doc_vec in zip(candidates, doc_vecs, strict=True):
-            score = _cosine_similarity(query_vec, doc_vec)
+        for idx, candidate in enumerate(candidates):
+            doc_vec = doc_vecs[idx] if idx < len(doc_vecs) else None
+            if doc_vec is not None:
+                score = _cosine_similarity(query_vec, doc_vec)
+            else:
+                score = candidate.retrieval_score or 0.0
             scored.append((score, candidate))
         scored.sort(key=lambda row: row[0], reverse=True)
         return scored[:top_n]
 
     def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
         if hasattr(self._embed_model, "_get_text_embeddings"):
-            return self._embed_model._get_text_embeddings(texts)
-        if hasattr(self._embed_model, "get_text_embedding_batch"):
-            return self._embed_model.get_text_embedding_batch(texts)
+            vectors = self._embed_model._get_text_embeddings(texts)
+            if len(vectors) == len(texts):
+                return vectors
+            logger.warning(
+                "Batch _get_text_embeddings returned %d/%d vectors; falling back to one-by-one",
+                len(vectors),
+                len(texts),
+            )
+        elif hasattr(self._embed_model, "get_text_embedding_batch"):
+            vectors = self._embed_model.get_text_embedding_batch(texts)
+            if len(vectors) == len(texts):
+                return vectors
+            logger.warning(
+                "get_text_embedding_batch returned %d/%d vectors; falling back to one-by-one",
+                len(vectors),
+                len(texts),
+            )
+        return self._embed_texts_one_by_one(texts)
+
+    def _embed_texts_one_by_one(self, texts: list[str]) -> list[list[float]]:
         return [self._embed_model.get_text_embedding(text) for text in texts]
 
 

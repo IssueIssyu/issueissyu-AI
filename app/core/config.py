@@ -92,8 +92,16 @@ class Settings(BaseSettings):
         default="gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_MODEL",
     )
+    rag_enable_rerank: bool = Field(
+        default=True,
+        alias="RAG_ENABLE_RERANK",
+    )
+    rag_vector_query_mode: str = Field(
+        default="hybrid",
+        alias="RAG_VECTOR_QUERY_MODE",
+    )
     rag_retrieve_top_k: int = Field(
-        default=20,
+        default=8,
         ge=1,
         le=50,
         alias="RAG_RETRIEVE_TOP_K",

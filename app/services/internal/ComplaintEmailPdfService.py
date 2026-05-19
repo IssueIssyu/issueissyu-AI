@@ -2,37 +2,95 @@ from __future__ import annotations
 
 import logging
 from io import BytesIO
+from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
+_TEMPLATE_BASE = Path(__file__).resolve().parent.parent / "templates"
+
+_KOREAN_FONT_CANDIDATES = (
+    Path(r"C:\Windows\Fonts\malgun.ttf"),
+    Path(r"C:\Windows\Fonts\malgunbd.ttf"),
+    Path("/usr/share/fonts/truetype/nanum/NanumGothic.ttf"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
+)
+
 
 class ComplaintEmailPdfService:
-    # HTML → PDF (xhtml2pdf)
+    # HTML → PDF (WeasyPrint 우선, 실패 시 Playwright — HTML을 문자열로 찍지 않음)
 
     @staticmethod
     async def html_to_pdf(html: str) -> bytes:
-        return await run_in_threadpool(ComplaintEmailPdfService._render_sync, html)
+        try:
+            return await run_in_threadpool(ComplaintEmailPdfService._render_weasyprint, html)
+        except Exception:
+            logger.exception("WeasyPrint PDF 실패 — Playwright fallback")
+            return await run_in_threadpool(ComplaintEmailPdfService._render_playwright, html)
 
     @staticmethod
-    def _render_sync(html: str) -> bytes:
-        try:
-            from xhtml2pdf import pisa
-        except ImportError as exc:
-            raise RuntimeError(
-                "xhtml2pdf 패키지가 필요합니다. requirements.txt에 xhtml2pdf를 추가하세요.",
-            ) from exc
+    def _prepare_html(html: str) -> str:
+        text = (html or "").strip()
+        if not text:
+            return ""
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+        font_css = ComplaintEmailPdfService._korean_font_face_css()
+        if font_css and "@font-face" not in text:
+            text = text.replace("</head>", f"{font_css}</head>", 1)
+        return text
 
-        source = (html or "").strip()
+    @staticmethod
+    def _render_weasyprint(html: str) -> bytes:
+        from weasyprint import HTML
+
+        source = ComplaintEmailPdfService._prepare_html(html)
         if not source:
             raise ValueError("PDF로 변환할 HTML이 비어 있습니다.")
 
-        buffer = BytesIO()
-        result = pisa.CreatePDF(src=source, dest=buffer, encoding="utf-8")
-        if result.err:
-            raise RuntimeError(f"HTML→PDF 변환 실패 (err={result.err})")
-        pdf_bytes = buffer.getvalue()
+        pdf_bytes = HTML(string=source, base_url=str(_TEMPLATE_BASE)).write_pdf()
         if not pdf_bytes:
-            raise RuntimeError("PDF 출력이 비어 있습니다.")
+            raise RuntimeError("WeasyPrint PDF 출력이 비어 있습니다.")
         return pdf_bytes
+
+    @staticmethod
+    def _render_playwright(html: str) -> bytes:
+        from playwright.sync_api import sync_playwright
+
+        source = ComplaintEmailPdfService._prepare_html(html)
+        if not source:
+            raise ValueError("PDF로 변환할 HTML이 비어 있습니다.")
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.set_content(source, wait_until="load")
+                pdf_bytes = page.pdf(
+                    format="A4",
+                    print_background=True,
+                    margin={"top": "18mm", "right": "20mm", "bottom": "18mm", "left": "20mm"},
+                )
+            finally:
+                browser.close()
+
+        if not pdf_bytes:
+            raise RuntimeError("Playwright PDF 출력이 비어 있습니다.")
+        return pdf_bytes
+
+    @staticmethod
+    def _korean_font_face_css() -> str:
+        for font_path in _KOREAN_FONT_CANDIDATES:
+            if not font_path.is_file():
+                continue
+            uri = font_path.resolve().as_uri()
+            logger.info("PDF Korean font: %s", font_path)
+            return f"""
+<style>
+@font-face {{
+  font-family: 'KoreanBody';
+  src: url('{uri}');
+}}
+</style>
+"""
+        return ""
