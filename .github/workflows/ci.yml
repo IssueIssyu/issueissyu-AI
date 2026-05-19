@@ -146,3 +146,9 @@ jobs:
           trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT
           code="$(curl --retry 30 --retry-delay 1 --retry-connrefused -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/health)"
           test "$code" = "200"
+
+      - name: Install PDF system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcairo2-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libffi-dev pkg-config
