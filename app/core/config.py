@@ -79,9 +79,14 @@ class Settings(BaseSettings):
 
     # Gemini/Vector DB
     gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    # 이슈 핀 신뢰도 VLM. 3.1-pro는 503·지연이 잦아 기본은 flash 계열.
     gemini_vlm_model: str = Field(
-        default="gemini-3.1-pro-preview",
+        default="gemini-2.5-flash",
         alias="GEMINI_VLM_MODEL",
+    )
+    gemini_vlm_fallback_models: str = Field(
+        default="gemini-2.5-flash,gemini-2.5-pro",
+        alias="GEMINI_VLM_FALLBACK_MODELS",
     )
     gemini_pin_text_model: str = Field(
         default="gemini-2.5-flash",
@@ -98,6 +103,10 @@ class Settings(BaseSettings):
         ge=1,
         le=20,
         alias="RAG_RERANK_TOP_K",
+    )
+    gemini_pin_text_fallback_models: str = Field(
+        default="gemini-2.5-flash-lite,gemini-2.0-flash-lite",
+        alias="GEMINI_PIN_TEXT_FALLBACK_MODELS",
     )
     gemini_embedding_model: str = Field(
         default="gemini-embedding-2",

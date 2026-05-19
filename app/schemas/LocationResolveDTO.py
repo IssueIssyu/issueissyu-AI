@@ -8,5 +8,5 @@ class LocationResolveResultDTO(BaseModel):
 
     model_config = ConfigDict(frozen=True, populate_by_name=True, extra="ignore")
 
-    location_id: int = Field(alias="locationId")
+    location_id: int | None = Field(default=None, alias="locationId")
     address: str

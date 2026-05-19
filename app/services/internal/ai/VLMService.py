@@ -6,6 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from json import JSONDecodeError
+from typing import Any
 
 from google import genai
 from google.genai import types
@@ -19,6 +20,12 @@ from app.services.prompts import (
     VLM_LOCATION_VERIFICATION_STATUSES,
     VLM_PRIVACY_NOTES,
     build_vlm_prompt,
+)
+from app.services.internal.ai.gemini_retry import generate_content_with_retry
+from app.services.prompts.confidence_basis import CONFIDENCE_BASIS_ARRAY_SCHEMA
+from app.services.prompts.issue_reliability_text import (
+    RELIABILITY_TEXT_RESPONSE_SCHEMA,
+    build_issue_reliability_text_prompt,
 )
 
 _LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
@@ -189,6 +196,7 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query",
         "recommended_action",
         "confidence_score",
+        "confidence_basis",
         "location_verification",
     ],
     "properties": {
@@ -215,6 +223,7 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query": {"type": "string"},
         "recommended_action": {"type": ["string", "null"]},
         "confidence_score": {"type": "number"},
+        "confidence_basis": CONFIDENCE_BASIS_ARRAY_SCHEMA,
         "location_verification": {
             "type": "object",
             "required": ["status", "message", "user_location", "photo_location", "photo_address"],
@@ -237,10 +246,31 @@ VLM_RESPONSE_SCHEMA = {
 class VLMService:
     api_key: str
     model_name: str = "gemini-3.1-pro-preview"
+    fallback_models: tuple[str, ...] = ("gemini-2.5-flash", "gemini-2.5-pro")
     client: genai.Client = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)
+
+    async def _generate_with_retry(
+        self,
+        *,
+        contents: Any,
+        config: types.GenerateContentConfig,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
+    ):
+        return await generate_content_with_retry(
+            self.client,
+            model_name=self.model_name,
+            fallback_models=fallback_models if fallback_models is not None else self.fallback_models,
+            contents=contents,
+            config=config,
+            max_attempts_per_model=max_attempts_per_model or 5,
+            log_prefix="VLM",
+            log_context=log_context,
+        )
 
     async def analyze_image(
         self,
@@ -249,6 +279,11 @@ class VLMService:
         images: list[ImageWithLocation],
         user_location: str | None = None,
         location: str | None = None,
+        user_address: str | None = None,
+        rag_context_block: str | None = None,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
     ) -> dict:
         if not images:
             raise RuntimeError("이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.")
@@ -284,16 +319,20 @@ class VLMService:
             user_location=eff_user_location,
             photo_address=photo_address_str,
             per_image_slot_text=per_image_slot_text,
+            user_address=user_address,
+            rag_context_block=rag_context_block,
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=VLM_RESPONSE_SCHEMA,
         )
 
-        response = await self.client.aio.models.generate_content(
-            model=self.model_name,
+        response = await self._generate_with_retry(
             contents=[*image_parts, prompt],
             config=config,
+            max_attempts_per_model=max_attempts_per_model,
+            fallback_models=fallback_models,
+            log_context=log_context,
         )
 
         text = (response.text or "").strip()
@@ -310,6 +349,54 @@ class VLMService:
             user_location=eff_user_location,
             photo_address=photo_address_str,
         )
+
+    async def analyze_text_only(
+        self,
+        *,
+        user_text: str,
+        user_location: str | None = None,
+        user_address: str | None = None,
+        rag_context_block: str | None = None,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
+    ) -> dict:
+        prompt = build_issue_reliability_text_prompt(
+            user_text=user_text,
+            user_location=user_location,
+            user_address=user_address,
+            rag_context_block=rag_context_block or "",
+        )
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=RELIABILITY_TEXT_RESPONSE_SCHEMA,
+        )
+        response = await self._generate_with_retry(
+            contents=[prompt],
+            config=config,
+            max_attempts_per_model=max_attempts_per_model,
+            fallback_models=fallback_models,
+            log_context=log_context,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini text reliability 응답이 비어 있습니다.")
+        try:
+            parsed = json.loads(text)
+        except JSONDecodeError as exc:
+            raise RuntimeError(f"Gemini JSON 파싱 실패: {exc}") from exc
+        if not isinstance(parsed, dict):
+            parsed = {}
+        score = 0.0
+        if "confidence_score" in parsed:
+            try:
+                score = float(parsed["confidence_score"])
+            except (TypeError, ValueError):
+                score = 0.0
+        parsed["confidence_score"] = max(0.0, min(1.0, score))
+        if not isinstance(parsed.get("confidence_basis"), list):
+            parsed["confidence_basis"] = []
+        return parsed
 
     @staticmethod
     def _normalize(

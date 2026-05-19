@@ -1,6 +1,4 @@
-from typing import Annotated
-
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
 
 from app.core.codes import SuccessCode
 from app.core.deps import CurrentUserIdDep, IssueServiceDep
@@ -21,7 +19,6 @@ async def get_tone_types():
 async def create_issue_pin_ai(
     uid: CurrentUserIdDep,
     issue_service: IssueServiceDep,
-    images: Annotated[list[UploadFile], File(...)],
     title: str = Form(...),
     content: str = Form(...),
     tone: ToneType = Form(ToneType.NONE),
@@ -37,7 +34,69 @@ async def create_issue_pin_ai(
     )
     result = await issue_service.issue_pin_ai_make(
         uid=uid,
-        images=images,
         request=request,
     )
     return success_response(result=result, success_code=SuccessCode.CREATED)
+
+
+@router.post("/pin")
+async def create_issue_pin(
+    uid: CurrentUserIdDep,
+    issue_service: IssueServiceDep,
+    background_tasks: BackgroundTasks,
+    title: str = Form(...),
+    content: str = Form(...),
+    tone: ToneType = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    images: list[UploadFile] = File(default=[]),
+):
+    request = CreateIssuePinRequest(
+        title=title,
+        content=content,
+        tone=tone,
+        latitude=latitude,
+        longitude=longitude,
+    )
+    result = await issue_service.create_issue_pin(
+        uid=uid,
+        request=request,
+        images=images,
+        background_tasks=background_tasks,
+    )
+    return success_response(
+        result=result.model_dump(by_alias=True, exclude_none=False),
+        success_code=SuccessCode.CREATED,
+    )
+
+
+@router.get("/pin/{issue_pin_id}/reliability")
+async def get_issue_pin_reliability(
+    issue_pin_id: int,
+    uid: CurrentUserIdDep,
+    issue_service: IssueServiceDep,
+):
+    result = await issue_service.get_issue_pin_reliability(
+        uid=uid,
+        issue_pin_id=issue_pin_id,
+    )
+    return success_response(
+        result=result.model_dump(by_alias=True, exclude_none=False),
+        success_code=SuccessCode.ISSUE_PIN_RELIABILITY_GET_SUCCESS,
+    )
+
+
+@router.get("/pin/{issue_pin_id}")
+async def get_issue_pin_detail(
+    issue_pin_id: int,
+    uid: CurrentUserIdDep,
+    issue_service: IssueServiceDep,
+):
+    result = await issue_service.get_issue_pin_detail(
+        uid=uid,
+        issue_pin_id=issue_pin_id,
+    )
+    return success_response(
+        result=result.model_dump(by_alias=True, exclude_none=False),
+        success_code=SuccessCode.ISSUE_PIN_GET_SUCCESS,
+    )

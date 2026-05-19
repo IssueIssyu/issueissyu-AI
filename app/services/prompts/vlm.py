@@ -81,10 +81,14 @@ def build_vlm_prompt(
     user_location: str | None,
     photo_address: str | None,
     per_image_slot_text: str,
+    user_address: str | None = None,
+    rag_context_block: str | None = None,
 ) -> str:
     user_location_text = _render_optional(user_location)
     photo_address_text = _render_optional(photo_address)
+    user_address_text = _render_optional(user_address)
     safe_user_text = user_text.strip()
+    rag_block = (rag_context_block or "").strip() or "(검색 결과 없음)"
     location_json_value = _location_context_json_fragment_for_prompt(
         user_location_text,
         photo_address_text,
@@ -122,6 +126,11 @@ def build_vlm_prompt(
         사용자 위치 정보(GPS, null 가능): {user_location_text}
         - null이 아니면 WGS84 십진 좌표 하나의 문자열이다: `위도,경도`(예: 37.566535,126.977969). 행정 주소 문장이 아니다.
         - 핀(신고 지점) 좌표로 쓰이며, 사진 EXIF 역지오코딩 주소와는 표기 체계가 다르다.
+
+        사용자 핀 행정 주소(역지오코딩, null 가능): {user_address_text}
+
+        [RAG 검색 근거 — 참고만, 문장 전체 복사·사실 추가 금지]
+        {rag_block}
 
         업로드 이미지와 각 이미지에 대응하는 사진 메타 주소(아래 순서가 이 메시지 직전에 첨부된 바이너리 이미지 순서와 같다): {per_image_slot_text}
         사진 메타데이터 주소 정보 전체(역지오코딩 등, 검색·검증 참고용): {photo_address_text}
@@ -349,6 +358,18 @@ def build_vlm_prompt(
         - confidence_score를 낮출 수 있다.
         - 단, 사진 내용이 민원으로 명확하면 validity를 자동 false로 만들지 않는다.
 
+        [신뢰도 근거 — confidence_basis]
+        이 근거는 일반 시민이 앱에서 읽는다. 쉬운 말·존댓말, 기술 용어(EXIF, 메타데이터, RAG, GPS, AI 등) 금지.
+        고정 축(content, image, location, reference, caution) 배열 3~5개.
+        - content: 글만 봐도 무엇을 제보했는지 이해되는지
+        - image: 사진이 글과 같은 상황인지 (판단 불가 시 skip)
+        - location: 지도 위치와 사진·글이 맞아 보이는지
+        - reference: 비슷한 민원 사례와 주제가 통하는지 (없으면 skip)
+        - caution: 사진 흐림·위치 확인 어려움 등 (없으면 skip)
+        status: ok | warn | skip. skip이면 text="".
+        text: 한국어 1문장, 점수 숫자 금지, 비난·단정 금지.
+        낮은 점수여도 게시되므로, 왜 조심스러운지 친절히 설명한다.
+
         [출력 강제 규칙]
         다음과 같은 경우 절대 생성하지 말고 비워라:
         확신 없는 domain -> "공통"
@@ -383,6 +404,13 @@ def build_vlm_prompt(
           "retrieval_query": "검색용 문장",
           "recommended_action": "처리 요청 방향",
           "confidence_score": 0.0,
+          "confidence_basis": [
+            {{ "axis": "content", "status": "ok", "text": "..." }},
+            {{ "axis": "image", "status": "ok", "text": "..." }},
+            {{ "axis": "location", "status": "warn", "text": "..." }},
+            {{ "axis": "reference", "status": "skip", "text": "" }},
+            {{ "axis": "caution", "status": "skip", "text": "" }}
+          ],
           "location_verification": {{
             "status": "matched | same_area | different_area | not_checked | unknown",
             "message": "위치 검증 결과 메시지",
