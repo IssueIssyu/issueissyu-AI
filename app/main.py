@@ -5,6 +5,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
@@ -14,6 +15,7 @@ from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
 from app.core.config import settings
 from app.routes import enabled_routers
+from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
 from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.utils.RedisUtil import get_redis_client
@@ -113,8 +115,21 @@ async def lifespan(app: FastAPI):
     )
 
     try:
+        await run_in_threadpool(ComplaintEmailPdfService.start_playwright_browser)
+    except Exception as exc:
+        logger.warning(
+            "Playwright PDF browser startup skipped; PDF fallback may lazy-start: %s",
+            exc,
+        )
+
+    try:
         yield
     finally:
+        try:
+            await run_in_threadpool(ComplaintEmailPdfService.stop_playwright_browser)
+        except Exception as exc:
+            logger.warning("Playwright PDF browser shutdown failed: %s", exc)
+
         hx = getattr(app.state, "shared_httpx_client", None)
         if hx is not None:
             await hx.aclose()
