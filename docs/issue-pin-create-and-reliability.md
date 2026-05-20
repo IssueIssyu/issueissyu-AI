@@ -398,11 +398,11 @@ class IssuePinReliabilityJob:
 | `AWS_ACCESS_KEY` / `AWS_SECRET_KEY` / `AWS_REGION` | - | S3 |
 | `ISSUE_PIN_MAX_IMAGES` | `5` | 게시당 최대 이미지 |
 | `ISSUE_CONFIDENCE_BASIS_MAX_CHARS` | `2000` | 근거 최대 길이 |
-| `ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS` | `240` | 전체 파이프라인 |
+| `ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS` | `420` | 전체 파이프라인 |
 | `ISSUE_PIN_RELIABILITY_SKIP_RAG_PLANNER` | `true` | planner 생략 |
 | `ISSUE_PIN_RELIABILITY_GEMINI_MAX_ATTEMPTS` | `2` | 모델당 재시도 |
-| `ISSUE_PIN_RELIABILITY_RAG_TIMEOUT_SECONDS` | `45` | RAG 단계 |
-| `ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS` | `150` | VLM 단계 |
+| `ISSUE_PIN_RELIABILITY_RAG_TIMEOUT_SECONDS` | `120` | RAG 단계 |
+| `ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS` | `180` | VLM 단계 |
 | `PIN_TITLE_MAX_LENGTH` | `100` | |
 | `PIN_CONTENT_MAX_LENGTH` | `10000` | |
 
@@ -566,9 +566,9 @@ class IssuePinReliabilityJob:
 
 | 계층 | 초과 시 |
 |------|---------|
-| RAG 45s | `Reliability stage=RAG TIMEOUT` → 전체 실패 처리 |
-| VLM 150s | `Reliability stage=VLM TIMEOUT` |
-| 전체 240s | `Reliability pipeline TOTAL timeout` |
+| RAG 120s | `Reliability stage=RAG TIMEOUT` → 전체 실패 처리 |
+| VLM 180s | `Reliability stage=VLM TIMEOUT` |
+| 전체 420s | `Reliability pipeline TOTAL timeout` |
 
 ---
 
