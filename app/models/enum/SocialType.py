@@ -4,5 +4,6 @@ from enum import StrEnum
 
 
 class SocialType(StrEnum):
+    LOCAL = "LOCAL"
     NAVER = "NAVER"
     KAKAO = "KAKAO"
