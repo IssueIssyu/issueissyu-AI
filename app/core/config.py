@@ -158,7 +158,7 @@ class Settings(BaseSettings):
         alias="ISSUE_CONFIDENCE_BASIS_MAX_CHARS",
     )
     issue_pin_reliability_pipeline_timeout_seconds: float = Field(
-        default=240.0,
+        default=420.0,
         gt=0,
         alias="ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS",
     )
@@ -173,12 +173,12 @@ class Settings(BaseSettings):
         alias="ISSUE_PIN_RELIABILITY_GEMINI_MAX_ATTEMPTS",
     )
     issue_pin_reliability_rag_timeout_seconds: float = Field(
-        default=45.0,
+        default=120.0,
         gt=0,
         alias="ISSUE_PIN_RELIABILITY_RAG_TIMEOUT_SECONDS",
     )
     issue_pin_reliability_vlm_timeout_seconds: float = Field(
-        default=150.0,
+        default=180.0,
         gt=0,
         alias="ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS",
     )
