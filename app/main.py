@@ -9,8 +9,7 @@ from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
 from app.core.codes import SuccessCode
-from app.core.config import settings
-from app.core.database import AsyncSessionLocal, Base, async_engine
+from app.core.database import AsyncSessionLocal
 from app.core.handlers import register_exception_handlers
 from app.core.responses import success_response
 from app.core.config import settings
@@ -71,8 +70,6 @@ async def lifespan(app: FastAPI):
                 ),
             }
             app.state.vector_store_service = VectorStoreService(
-                database_url=settings.sync_database_url,
-                async_database_url=settings.async_database_url,
                 api_key=gemini_api_key_secret.get_secret_value(),
                 table_name=settings.vector_table_name,
                 default_embedding_model=settings.gemini_embedding_model,

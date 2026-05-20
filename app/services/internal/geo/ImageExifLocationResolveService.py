@@ -3,8 +3,8 @@ from __future__ import annotations
 from fastapi import UploadFile
 
 from app.schemas.ImageExifGeoExtractResponseDTO import ImageExifGeoExtractResponseDTO
-from app.services.ImageMultipartGeoService import ImageMultipartGeoService
-from app.services.LocationResolveClient import LocationResolveClient
+from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
+from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 
 
 class ImageExifLocationResolveService:

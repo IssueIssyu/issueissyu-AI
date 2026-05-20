@@ -6,13 +6,14 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from json import JSONDecodeError
+from typing import Any
 
 from google import genai
 from google.genai import types
 from starlette.datastructures import UploadFile
 
 from app.schemas.IssueDTO import ImageWithLocation
-from app.services.vlm_prompt import (
+from app.services.prompts import (
     VLM_ADMIN_DOMAINS,
     VLM_CATEGORY_TYPES,
     VLM_ERROR_CODES,
@@ -20,11 +21,17 @@ from app.services.vlm_prompt import (
     VLM_PRIVACY_NOTES,
     build_vlm_prompt,
 )
+from app.services.internal.ai.gemini_retry import generate_content_with_retry
+from app.services.prompts.confidence_basis import CONFIDENCE_BASIS_ARRAY_SCHEMA
+from app.services.prompts.issue_reliability_text import (
+    RELIABILITY_TEXT_RESPONSE_SCHEMA,
+    build_issue_reliability_text_prompt,
+)
 
 _LOCATION_VERIFICATION_FALLBACK_MESSAGES: dict[str, str] = {
     "matched": "사용자 위치와 사진 메타데이터 위치가 일치합니다",
-    "same_area": "사용자 위치와 사진 메타데이터 위치가 같은 동네 수준으로 보입니다",
-    "different_area": "사용자 위치와 사진 메타데이터 위치가 다를 수 있습니다",
+    "same_area": "사용자 핀 좌표와 사진 메타데이터 주소가 같은 동네 수준으로 보입니다",
+    "different_area": "사용자 핀 좌표와 사진 메타데이터 주소가 다를 수 있습니다",
     "not_checked": "메타데이터에 주소가 없습니다",
     "unknown": "위치 일치 여부를 판단하기 어렵습니다",
 }
@@ -94,7 +101,16 @@ def _clean_location_keywords(
 
 
 def normalize_validity(value: object) -> bool:
-    """json.loads 직후 validity: bool만 신뢰하고, 문자열 true/false·0/1만 보조 인정. 그 외는 False."""
+    """
+    VLM 출력의 validity 값을 bool로 정규화한다.
+
+    지원 입력:
+    - bool: 그대로 사용
+    - str: "true"/"false"(대소문자 무시)
+    - int: 1/0
+
+    위 규칙에 맞지 않으면 보수적으로 False를 반환한다.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -112,7 +128,17 @@ def normalize_validity(value: object) -> bool:
 
 
 def coerce_photo_address(value: object) -> str | None:
-    """str·list·tuple 등을 단일 주소 문자열로 정규화. 여러 항목은 ', '로 연결."""
+    """
+    사진 메타 주소 입력을 단일 문자열(또는 None)로 정규화한다.
+
+    지원 입력:
+    - None -> None
+    - str -> trim 후 빈 문자열이면 None
+    - 시퀀스(list/tuple 등) -> 각 원소를 문자열로 변환/정리 후 ", "로 결합
+    - 기타 타입 -> str() 변환 후 trim
+
+    최종적으로 유효한 텍스트가 없으면 None을 반환한다.
+    """
     if value is None:
         return None
     if isinstance(value, str):
@@ -134,7 +160,12 @@ def coerce_photo_address(value: object) -> str | None:
 
 
 def resolve_upload_image_mime(upload: UploadFile) -> str:
-    """UploadFile에서 image/* MIME을 결정. 비이미지·미확인이면 RuntimeError."""
+    """
+    업로드 파일에서 이미지 MIME 타입을 확정해 반환한다.
+
+    우선 `UploadFile.content_type`을 사용하고, 비어 있으면 파일명 확장자로 재추정한다.
+    MIME을 끝내 결정할 수 없거나 `image/*`가 아니면 RuntimeError를 발생시킨다.
+    """
     mime = (upload.content_type or "").split(";")[0].strip().lower()
     if not mime:
         guessed, _ = mimetypes.guess_type(upload.filename or "")
@@ -165,6 +196,7 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query",
         "recommended_action",
         "confidence_score",
+        "confidence_basis",
         "location_verification",
     ],
     "properties": {
@@ -191,15 +223,10 @@ VLM_RESPONSE_SCHEMA = {
         "retrieval_query": {"type": "string"},
         "recommended_action": {"type": ["string", "null"]},
         "confidence_score": {"type": "number"},
+        "confidence_basis": CONFIDENCE_BASIS_ARRAY_SCHEMA,
         "location_verification": {
             "type": "object",
-            "required": [
-                "status",
-                "message",
-                "user_location",
-                "photo_location",
-                "photo_address",
-            ],
+            "required": ["status", "message", "user_location", "photo_location", "photo_address"],
             "properties": {
                 "status": {
                     "type": "string",
@@ -219,10 +246,31 @@ VLM_RESPONSE_SCHEMA = {
 class VLMService:
     api_key: str
     model_name: str = "gemini-3.1-pro-preview"
+    fallback_models: tuple[str, ...] = ("gemini-2.5-flash", "gemini-2.5-pro")
     client: genai.Client = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)
+
+    async def _generate_with_retry(
+        self,
+        *,
+        contents: Any,
+        config: types.GenerateContentConfig,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
+    ):
+        return await generate_content_with_retry(
+            self.client,
+            model_name=self.model_name,
+            fallback_models=fallback_models if fallback_models is not None else self.fallback_models,
+            contents=contents,
+            config=config,
+            max_attempts_per_model=max_attempts_per_model or 5,
+            log_prefix="VLM",
+            log_context=log_context,
+        )
 
     async def analyze_image(
         self,
@@ -231,11 +279,14 @@ class VLMService:
         images: list[ImageWithLocation],
         user_location: str | None = None,
         location: str | None = None,
+        user_address: str | None = None,
+        rag_context_block: str | None = None,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
     ) -> dict:
         if not images:
-            raise RuntimeError(
-                "이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.",
-            )
+            raise RuntimeError("이미지는 ImageWithLocation(업로드 파일, 사진 메타 주소) 리스트로 1개 이상 전달해야 합니다.")
 
         image_parts: list[types.Part] = []
         per_address_strings: list[str] = []
@@ -253,9 +304,7 @@ class VLMService:
             if one_addr:
                 per_address_strings.append(one_addr)
             name = upload.filename or f"image_{idx}"
-            slot_lines.append(
-                f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}"
-            )
+            slot_lines.append(f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}")
 
         photo_address_str = ", ".join(per_address_strings) if per_address_strings else None
         per_image_slot_text = "\n".join(slot_lines)
@@ -270,16 +319,20 @@ class VLMService:
             user_location=eff_user_location,
             photo_address=photo_address_str,
             per_image_slot_text=per_image_slot_text,
+            user_address=user_address,
+            rag_context_block=rag_context_block,
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
             response_json_schema=VLM_RESPONSE_SCHEMA,
         )
 
-        response = await self.client.aio.models.generate_content(
-            model=self.model_name,
+        response = await self._generate_with_retry(
             contents=[*image_parts, prompt],
             config=config,
+            max_attempts_per_model=max_attempts_per_model,
+            fallback_models=fallback_models,
+            log_context=log_context,
         )
 
         text = (response.text or "").strip()
@@ -297,6 +350,54 @@ class VLMService:
             photo_address=photo_address_str,
         )
 
+    async def analyze_text_only(
+        self,
+        *,
+        user_text: str,
+        user_location: str | None = None,
+        user_address: str | None = None,
+        rag_context_block: str | None = None,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
+    ) -> dict:
+        prompt = build_issue_reliability_text_prompt(
+            user_text=user_text,
+            user_location=user_location,
+            user_address=user_address,
+            rag_context_block=rag_context_block or "",
+        )
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_json_schema=RELIABILITY_TEXT_RESPONSE_SCHEMA,
+        )
+        response = await self._generate_with_retry(
+            contents=[prompt],
+            config=config,
+            max_attempts_per_model=max_attempts_per_model,
+            fallback_models=fallback_models,
+            log_context=log_context,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini text reliability 응답이 비어 있습니다.")
+        try:
+            parsed = json.loads(text)
+        except JSONDecodeError as exc:
+            raise RuntimeError(f"Gemini JSON 파싱 실패: {exc}") from exc
+        if not isinstance(parsed, dict):
+            parsed = {}
+        score = 0.0
+        if "confidence_score" in parsed:
+            try:
+                score = float(parsed["confidence_score"])
+            except (TypeError, ValueError):
+                score = 0.0
+        parsed["confidence_score"] = max(0.0, min(1.0, score))
+        if not isinstance(parsed.get("confidence_basis"), list):
+            parsed["confidence_basis"] = []
+        return parsed
+
     @staticmethod
     def _normalize(
         *,
@@ -313,10 +414,7 @@ class VLMService:
             model_lc = lc_raw.strip() if isinstance(lc_raw, str) else ""
             rq = parsed.get("retrieval_query")
             rq_s = rq if isinstance(rq, str) else ""
-            parsed["retrieval_query"] = _clean_location_query(
-                rq_s,
-                model_location_context=model_lc or None,
-            )
+            parsed["retrieval_query"] = _clean_location_query(rq_s, model_location_context=model_lc or None)
             kw = parsed.get("retrieval_keywords")
             if isinstance(kw, list):
                 parsed["retrieval_keywords"] = _clean_location_keywords(
