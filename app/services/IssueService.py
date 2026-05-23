@@ -543,13 +543,16 @@ class IssueService:
         self,
         *,
         uid: str,
-        issue_pin_id: int,
+        pin_id: int,
     ) -> IssuePinReliabilityResponse:
-        issue_pin = await self._issue_pin_repo.get_by_issue_pin_id(issue_pin_id)
+        _ = uid
+        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
         if issue_pin is None or issue_pin.pin is None:
             raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
 
         pin = issue_pin.pin
+        if pin.pin_type != PinType.ISSUE:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
         pin_images = list(pin.pin_images or [])
         reliability = self._derive_reliability_status(
             issue_confidence=issue_pin.issue_confidence,
