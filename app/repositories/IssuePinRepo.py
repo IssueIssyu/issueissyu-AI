@@ -21,7 +21,9 @@ class IssuePinRepo(BaseRepo[IssuePin]):
 
     async def get_by_pin_id(self, pin_id: int) -> IssuePin | None:
         result = await self.session.execute(
-            select(IssuePin).where(IssuePin.pin_id == pin_id),
+            select(IssuePin)
+            .where(IssuePin.pin_id == pin_id)
+            .options(*_ISSUE_PIN_LOAD_OPTIONS),
         )
         return result.scalar_one_or_none()
 
