@@ -4,6 +4,7 @@ from app.routes.IssueRoute import router as issue_router
 from app.routes.UserRoute import router as user_router
 from app.routes.TestRoute import router as test_router
 from app.routes.VectorTestRoute import router as vector_test_router
+from app.routes.FestivalPinRoute import router as festival_pin_router
 from app.core.config import settings
 
 ROUTER_REGISTRY = (
@@ -13,6 +14,7 @@ ROUTER_REGISTRY = (
     {"router": image_geo_router, "disabled_envs": set()},
     {"router": test_router, "disabled_envs": {"dev", "prod"}},
     {"router": vector_test_router, "disabled_envs": {"dev", "prod"}},
+    {"router": festival_pin_router, "disabled_envs": {"prod"}},
 )
 
 

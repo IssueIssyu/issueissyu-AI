@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.routes import enabled_routers
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
 from app.services.VectorStoreService import VectorStoreService
-from app.services.vector_domains import DomainVectorConfig, VectorDomain
+from app.services.vector_domains import build_vector_domain_configs
 from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
 from app.utils.vector import ensure_pgvector_extension
@@ -48,29 +48,7 @@ async def lifespan(app: FastAPI):
         logger.warning("GEMINI_API_KEY is not configured. VectorStoreService initialization skipped.")
     else:
         try:
-            # 도메인별 임베딩 모델/차원 라우팅 (필요 시 여기 확장)
-            domain_configs = {
-                VectorDomain.COMPLAINT: DomainVectorConfig(
-                    table_name="complaint",
-                    embedding_model=settings.gemini_embedding_model,
-                    embed_dim=settings.vector_embed_dim,
-                ),
-                VectorDomain.FESTIVAL: DomainVectorConfig(
-                    table_name="festival",
-                    embedding_model=settings.gemini_embedding_model,
-                    embed_dim=settings.vector_embed_dim,
-                ),
-                VectorDomain.POLICY: DomainVectorConfig(
-                    table_name="policy",
-                    embedding_model=settings.gemini_embedding_model,
-                    embed_dim=settings.vector_embed_dim,
-                ),
-                VectorDomain.CONTEST: DomainVectorConfig(
-                    table_name="contest",
-                    embedding_model=settings.gemini_embedding_model,
-                    embed_dim=settings.vector_embed_dim,
-                ),
-            }
+            domain_configs = build_vector_domain_configs(settings)
             app.state.vector_store_service = VectorStoreService(
                 api_key=gemini_api_key_secret.get_secret_value(),
                 table_name=settings.vector_table_name,

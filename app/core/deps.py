@@ -22,6 +22,7 @@ from app.services.IssueService import IssueService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.FestivalPinService import FestivalPinService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
@@ -366,3 +367,13 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def get_festival_pin_service() -> FestivalPinService:
+    return FestivalPinService()
+
+
+FestivalPinServiceDep = Annotated[
+    FestivalPinService,
+    Depends(get_festival_pin_service),
+]
