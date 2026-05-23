@@ -93,26 +93,6 @@ class Settings(BaseSettings):
         default="gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_MODEL",
     )
-    rag_enable_rerank: bool = Field(
-        default=True,
-        alias="RAG_ENABLE_RERANK",
-    )
-    rag_vector_query_mode: str = Field(
-        default="hybrid",
-        alias="RAG_VECTOR_QUERY_MODE",
-    )
-    rag_retrieve_top_k: int = Field(
-        default=8,
-        ge=1,
-        le=50,
-        alias="RAG_RETRIEVE_TOP_K",
-    )
-    rag_rerank_top_k: int = Field(
-        default=5,
-        ge=1,
-        le=20,
-        alias="RAG_RERANK_TOP_K",
-    )
     gemini_pin_text_fallback_models: str = Field(
         default="gemini-2.5-flash-lite,gemini-2.0-flash-lite",
         alias="GEMINI_PIN_TEXT_FALLBACK_MODELS",
@@ -182,6 +162,45 @@ class Settings(BaseSettings):
     pdf_korean_font_paths: str | None = Field(
         default=None,
         alias="PDF_KOREAN_FONT_PATHS",
+    )
+    issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
+    issue_confidence_basis_max_chars: int = Field(
+        default=2000,
+        ge=200,
+        le=10000,
+        alias="ISSUE_CONFIDENCE_BASIS_MAX_CHARS",
+    )
+    issue_pin_reliability_pipeline_timeout_seconds: float = Field(
+        default=420.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS",
+    )
+    issue_pin_reliability_skip_rag_planner: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_RELIABILITY_SKIP_RAG_PLANNER",
+    )
+    issue_pin_reliability_gemini_max_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        alias="ISSUE_PIN_RELIABILITY_GEMINI_MAX_ATTEMPTS",
+    )
+    issue_pin_reliability_rag_timeout_seconds: float = Field(
+        default=120.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_RAG_TIMEOUT_SECONDS",
+    )
+    issue_pin_reliability_vlm_timeout_seconds: float = Field(
+        default=180.0,
+        gt=0,
+        alias="ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS",
+    )
+    pin_title_max_length: int = Field(default=100, ge=1, le=200, alias="PIN_TITLE_MAX_LENGTH")
+    pin_content_max_length: int = Field(
+        default=10000,
+        ge=1,
+        le=50000,
+        alias="PIN_CONTENT_MAX_LENGTH",
     )
 
     # 기타

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks
 from sqlalchemy import select
+from sqlalchemy.orm import noload
 from starlette.datastructures import Headers, UploadFile
 
 from app.core.config import settings
@@ -248,6 +249,7 @@ class IssuePinBackgroundRunner:
             result = await session.execute(
                 select(PinImage)
                 .where(PinImage.pin_id == pin_id)
+                .options(noload(PinImage.pin))
                 .order_by(PinImage.is_main.desc(), PinImage.pin_image_id.asc()),
             )
             pin_images = list(result.scalars().all())
