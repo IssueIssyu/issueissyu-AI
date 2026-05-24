@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 _RELIABILITY_PIPELINE_TASKS: set[asyncio.Task[None]] = set()
 
 
+class _StaleReliabilityJobError(RuntimeError):
+    pass
+
+
 class IssuePinBackgroundRunner:
     def __init__(
         self,
@@ -52,10 +56,52 @@ class IssuePinBackgroundRunner:
         self._s3_util = s3_util
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
+        self._latest_generation_by_pin: dict[int, int] = {}
+        self._tasks_by_pin: dict[int, set[asyncio.Task[None]]] = {}
 
     @staticmethod
     def _log_context(job: IssuePinReliabilityJob) -> str:
         return f"issue_pin_id={job.issue_pin_id} pin_id={job.pin_id}"
+
+    def _next_generation(self, pin_id: int) -> int:
+        generation = self._latest_generation_by_pin.get(pin_id, 0) + 1
+        self._latest_generation_by_pin[pin_id] = generation
+        return generation
+
+    def _assert_job_active(self, *, pin_id: int, generation: int) -> None:
+        current = self._latest_generation_by_pin.get(pin_id, 0)
+        if generation != current:
+            raise _StaleReliabilityJobError(
+                f"stale reliability job pin_id={pin_id} generation={generation} current={current}",
+            )
+
+    def _track_task(self, *, pin_id: int, task: asyncio.Task[None]) -> None:
+        tasks = self._tasks_by_pin.setdefault(pin_id, set())
+        tasks.add(task)
+
+    def _untrack_task(self, *, pin_id: int, task: asyncio.Task[None]) -> None:
+        tasks = self._tasks_by_pin.get(pin_id)
+        if tasks is None:
+            return
+        tasks.discard(task)
+        if not tasks:
+            self._tasks_by_pin.pop(pin_id, None)
+
+    def cancel(self, *, pin_id: int) -> bool:
+        generation = self._next_generation(pin_id)
+        tasks = list(self._tasks_by_pin.get(pin_id, set()))
+        cancelled = False
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+                cancelled = True
+        logger.info(
+            "Reliability cancel requested pin_id=%s generation=%s cancelled_tasks=%d",
+            pin_id,
+            generation,
+            len(tasks),
+        )
+        return cancelled
 
     def schedule(
         self,
@@ -63,25 +109,29 @@ class IssuePinBackgroundRunner:
         *,
         background_tasks: BackgroundTasks | None = None,
     ) -> None:
-        ctx = self._log_context(job)
+        generation = self._next_generation(job.pin_id)
+        ctx = f"{self._log_context(job)} generation={generation}"
         if background_tasks is not None:
-            background_tasks.add_task(self.run_reliability_job, job)
+            background_tasks.add_task(self.run_reliability_job, job, generation)
             logger.info("Reliability scheduled (BackgroundTasks) [%s]", ctx)
             return
 
         task = asyncio.create_task(
-            self.run_reliability_job(job),
-            name=f"issue_pin_reliability_{job.issue_pin_id}",
+            self.run_reliability_job(job, generation),
+            name=f"issue_pin_reliability_{job.issue_pin_id}_{generation}",
         )
         _RELIABILITY_PIPELINE_TASKS.add(task)
+        self._track_task(pin_id=job.pin_id, task=task)
         task.add_done_callback(_RELIABILITY_PIPELINE_TASKS.discard)
+        task.add_done_callback(lambda t, pid=job.pin_id: self._untrack_task(pin_id=pid, task=t))
         logger.info("Reliability scheduled (asyncio task) [%s]", ctx)
 
-    async def run_reliability_job(self, job: IssuePinReliabilityJob) -> None:
-        ctx = self._log_context(job)
+    async def run_reliability_job(self, job: IssuePinReliabilityJob, generation: int) -> None:
+        ctx = f"{self._log_context(job)} generation={generation}"
         timeout = settings.issue_pin_reliability_pipeline_timeout_seconds
         pipeline_started = time.monotonic()
         persisted = False
+        aborted = False
         logger.info(
             "Reliability pipeline job start [%s] total_timeout=%.0fs rag_timeout=%.0fs vlm_timeout=%.0fs "
             "skip_planner=%s gemini_max_attempts=%d",
@@ -93,7 +143,11 @@ class IssuePinBackgroundRunner:
             settings.issue_pin_reliability_gemini_max_attempts,
         )
         try:
-            await asyncio.wait_for(self._run_reliability_pipeline(job), timeout=timeout)
+            self._assert_job_active(pin_id=job.pin_id, generation=generation)
+            await asyncio.wait_for(
+                self._run_reliability_pipeline(job, generation),
+                timeout=timeout,
+            )
             persisted = True
             logger.info(
                 "Reliability pipeline job success [%s] elapsed=%.1fs",
@@ -108,13 +162,16 @@ class IssuePinBackgroundRunner:
                 settings.issue_pin_reliability_rag_timeout_seconds,
                 settings.issue_pin_reliability_vlm_timeout_seconds,
             )
+        except _StaleReliabilityJobError:
+            aborted = True
+            logger.info("Reliability pipeline stale-skip [%s]", ctx)
         except asyncio.CancelledError:
+            aborted = True
             logger.warning("Reliability pipeline cancelled [%s]", ctx)
-            raise
         except Exception:
             logger.exception("Reliability pipeline failed [%s]", ctx)
         finally:
-            if not persisted:
+            if not persisted and not aborted:
                 logger.warning(
                     "Reliability pipeline persist failure fallback [%s] score=0.0",
                     ctx,
@@ -127,11 +184,13 @@ class IssuePinBackgroundRunner:
                 time.monotonic() - pipeline_started,
             )
 
-    async def _run_reliability_pipeline(self, job: IssuePinReliabilityJob) -> None:
-        ctx = self._log_context(job)
+    async def _run_reliability_pipeline(self, job: IssuePinReliabilityJob, generation: int) -> None:
+        ctx = f"{self._log_context(job)} generation={generation}"
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         user_text = format_user_text_for_pin(title=job.title, content=job.content)
 
         # --- RAG ---
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         rag_started = time.monotonic()
         logger.info("Reliability stage=RAG start [%s]", ctx)
         try:
@@ -159,6 +218,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- S3 ---
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         s3_started = time.monotonic()
         logger.info("Reliability stage=S3 start [%s]", ctx)
         snapshots = await self._load_snapshots_from_s3(pin_id=job.pin_id, log_context=ctx)
@@ -170,6 +230,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- EXIF ---
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         exif_started = time.monotonic()
         logger.info("Reliability stage=EXIF start [%s] image_count=%d", ctx, len(snapshots))
         images_with_location = await self._build_vlm_inputs_from_snapshots(
@@ -184,6 +245,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- VLM ---
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         vlm_started = time.monotonic()
         retry_opts = self._vlm_retry_options()
         logger.info(
@@ -231,6 +293,7 @@ class IssuePinBackgroundRunner:
             score=score,
             basis_markdown=basis_md,
         )
+        self._assert_job_active(pin_id=job.pin_id, generation=generation)
         logger.info("Reliability stage=PERSIST start [%s] score=%s", ctx, score)
         await self._persist_confidence(
             issue_pin_id=job.issue_pin_id,
