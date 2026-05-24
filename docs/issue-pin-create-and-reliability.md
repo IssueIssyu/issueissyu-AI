@@ -213,6 +213,25 @@ AI 미리보기. **DB 저장 없음.**
 
 ---
 
+### 4.6 `PATCH /issues/pin/{pin_id}`
+
+이슈 핀 수정.
+
+**성공 코드**: `COMMON_200`  
+**응답**: `IssuePinHomeDetailResponse`
+
+**수정 제약**
+- 작성자 본인(`pin.uid == uid`)만 수정 가능 (`COMMON_403`)
+- `issue_pin_state == BEFORE_PROGRESS`일 때만 수정 가능 (`COMMON_422`)
+- 수정 후 신뢰도는 `issue_confidence/confidence_content = NULL`로 초기화되고 재분석이 재스케줄됨
+- 이미지는 전체 교체 방식(기존 `pin_image` 삭제 후 신규 업로드)으로 처리
+
+**신뢰도 파이프라인 처리**
+- 수정 요청 시 기존 `pin_id`의 진행 중 신뢰도 작업 취소를 시도
+- 취소가 불가능한 작업(이미 실행 중 `BackgroundTasks`)은 generation 검증으로 결과 반영을 차단
+
+---
+
 ## 5. 응답 DTO 및 상태 값
 
 ### 5.1 `ReliabilityStatus`
@@ -468,12 +487,14 @@ class IssuePinReliabilityJob:
 ### 12.1 `app/routes/IssueRoute.py`
 
 - `POST /issues/pin` 추가 (`BackgroundTasks` 주입)
+- `PATCH /issues/pin/{pin_id}` 추가 (`multipart/form-data`, 이미지 전체 교체)
 - `GET /issues/pin/{issue_pin_id}` 추가
 - `GET /issues/pin/{pin_id}/reliability` 추가
 
 ### 12.2 `app/services/IssueService.py`
 
 - `create_issue_pin` 전체 구현
+- `update_issue_pin` 추가 (작성자/상태 검증, 이미지 교체, 신뢰도 초기화·재스케줄)
 - `_snapshot_upload_images`, `_upload_pin_images_sync`
 - `_build_issue_pin_home_response`, `get_issue_pin_detail`, `get_issue_pin_reliability`
 - `_derive_reliability_status`, `_derive_image_upload_status`
@@ -505,6 +526,11 @@ class IssuePinReliabilityJob:
 
 - `get_by_issue_pin_id`, `get_by_pin_id` + `selectinload` (pin, images, location, user)
 - `update_confidence`: SQL `UPDATE` (get+flush 대신)
+- `reset_confidence`: 수정 시 신뢰도 초기화
+
+### 12.7-a `app/repositories/PinImageRepo.py`
+
+- `delete_by_pin_id`: 수정 시 이미지 전체 교체를 위한 일괄 삭제
 
 ### 12.8 `app/models/IssuePin.py`
 
@@ -742,7 +768,7 @@ requirements.txt
 | 메서드 | 설명 |
 |--------|------|
 | `schedule(job, background_tasks?)` | job 큐잉 |
-| `run_reliability_job(job)` | 전체 실행 (타임아웃·finally 포함) |
+| `run_reliability_job(job, generation)` | 전체 실행 (타임아웃·취소/무효화·finally 포함) |
 
 ## 부록 B. `issue_confidence_basis` public 함수
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.PinImage import PinImage
@@ -18,3 +18,10 @@ class PinImageRepo(BaseRepo[PinImage]):
             .order_by(PinImage.is_main.desc(), PinImage.pin_image_id.asc()),
         )
         return list(result.scalars().all())
+
+    async def delete_by_pin_id(self, pin_id: int) -> int:
+        result = await self.session.execute(
+            delete(PinImage).where(PinImage.pin_id == pin_id),
+        )
+        await self.session.flush()
+        return int(result.rowcount or 0)
