@@ -4,7 +4,7 @@ from app.core.codes import SuccessCode
 from app.core.deps import CurrentUserIdDep, IssueServiceDep
 from app.core.responses import success_response
 from app.models.enum.ToneType import ToneType
-from app.schemas.IssueDTO import CreateIssuePinRequest
+from app.schemas.IssueDTO import CreateIssuePinRequest, UpdateIssuePinRequest
 
 router = APIRouter(prefix="/issues", tags=["issue"])
 
@@ -83,6 +83,39 @@ async def get_issue_pin_reliability(
     return success_response(
         result=result.model_dump(by_alias=True, exclude_none=False),
         success_code=SuccessCode.ISSUE_PIN_RELIABILITY_GET_SUCCESS,
+    )
+
+
+@router.patch("/pin/{pin_id}")
+async def update_issue_pin(
+    pin_id: int,
+    uid: CurrentUserIdDep,
+    issue_service: IssueServiceDep,
+    background_tasks: BackgroundTasks,
+    title: str = Form(...),
+    content: str = Form(...),
+    tone: ToneType = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    images: list[UploadFile] = File(default=[]),
+):
+    request = UpdateIssuePinRequest(
+        title=title,
+        content=content,
+        tone=tone,
+        latitude=latitude,
+        longitude=longitude,
+    )
+    result = await issue_service.update_issue_pin(
+        uid=uid,
+        pin_id=pin_id,
+        request=request,
+        images=images,
+        background_tasks=background_tasks,
+    )
+    return success_response(
+        result=result.model_dump(by_alias=True, exclude_none=False),
+        success_code=SuccessCode.OK,
     )
 
 

@@ -52,3 +52,15 @@ class IssuePinRepo(BaseRepo[IssuePin]):
         )
         await self.session.flush()
         return (result.rowcount or 0) > 0
+
+    async def reset_confidence(self, issue_pin_id: int) -> bool:
+        result = await self.session.execute(
+            update(IssuePin)
+            .where(IssuePin.issue_pin_id == issue_pin_id)
+            .values(
+                issue_confidence=None,
+                confidence_content=None,
+            ),
+        )
+        await self.session.flush()
+        return (result.rowcount or 0) > 0

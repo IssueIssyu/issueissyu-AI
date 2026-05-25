@@ -22,6 +22,20 @@ from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
 
+
+def _configure_local_logging() -> None:
+    if settings.env != "local":
+        return
+    root_logger = logging.getLogger()
+    if root_logger.level > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.INFO)
+    logger.info("Local logging level configured to INFO")
+
+
+_configure_local_logging()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 

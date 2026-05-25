@@ -205,3 +205,45 @@ class S3Util:
             logger.exception("S3 바이트 다운로드 실패 key=%s err=%s", normalized_key, exc)
             raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
 
+    async def delete_object(self, object_key: str) -> bool:
+        bucket_name = self._ensure_bucket_name()
+        normalized_key = object_key.lstrip("/")
+
+        def _delete() -> bool:
+            try:
+                self.client.delete_object(Bucket=bucket_name, Key=normalized_key)
+                return True
+            except ClientError as exc:
+                error_code = (exc.response or {}).get("Error", {}).get("Code")
+                # 이미 없는 객체는 삭제 성공으로 간주
+                if error_code in {"NoSuchKey", "404"}:
+                    logger.info("S3 삭제 대상 없음 key=%s", normalized_key)
+                    return True
+                logger.exception("S3 객체 삭제 실패 key=%s err=%s", normalized_key, exc)
+                return False
+            except BotoCoreError as exc:
+                logger.exception("S3 객체 삭제 실패 key=%s err=%s", normalized_key, exc)
+                return False
+
+        return await to_thread.run_sync(_delete)
+
+    async def delete_objects_best_effort(self, object_keys: list[str]) -> int:
+        bucket_name = self._ensure_bucket_name()
+        valid_keys = [k.lstrip("/") for k in object_keys if k.strip()]
+        if not valid_keys:
+            return 0
+
+        def _delete_batch() -> int:
+            try:
+                # S3 delete_objects can handle up to 1000 keys per call
+                response = self.client.delete_objects(
+                    Bucket=bucket_name,
+                    Delete={'Objects': [{'Key': k} for k in valid_keys]}
+                )
+                return len(response.get('Deleted', []))
+            except (ClientError, BotoCoreError) as exc:
+                logger.exception("S3 batch delete failed keys=%s err=%s", valid_keys, exc)
+                return 0
+
+        return await to_thread.run_sync(_delete_batch)
+
