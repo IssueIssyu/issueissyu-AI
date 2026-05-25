@@ -29,6 +29,14 @@ class CreateIssuePinRequest(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
+class UpdateIssuePinRequest(BaseModel):
+    title: str
+    content: str
+    tone: ToneType = ToneType.NONE
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+
+
 class ImageWithLocation(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
