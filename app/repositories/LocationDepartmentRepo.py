@@ -59,3 +59,23 @@ class LocationDepartmentRepo(BaseRepo[LocationDepartment]):
         )
         return result.scalar_one_or_none()
 
+    async def list_existing_pair_keys(
+        self,
+        *,
+        location_ids: list[int],
+        department_ids: list[int],
+    ) -> set[tuple[int, int]]:
+        if not location_ids or not department_ids:
+            return set()
+
+        result = await self.session.execute(
+            select(
+                LocationDepartment.location_id,
+                LocationDepartment.department_id,
+            ).where(
+                LocationDepartment.location_id.in_(location_ids),
+                LocationDepartment.department_id.in_(department_ids),
+            ),
+        )
+        return {(int(row[0]), int(row[1])) for row in result.fetchall()}
+

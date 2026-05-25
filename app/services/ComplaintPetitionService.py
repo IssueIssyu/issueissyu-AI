@@ -98,15 +98,18 @@ class ComplaintPetitionService:
         await self.department_repo.flush()
         all_departments = await self.department_repo.get_all_ordered()
         locations = await self.location_repo.get_all_ordered()
+        location_ids = [location.location_id for location in locations]
+        department_ids = [department.department_id for department in all_departments]
+        existing_pairs = await self.location_department_repo.list_existing_pair_keys(
+            location_ids=location_ids,
+            department_ids=department_ids,
+        )
 
         created_pairs = 0
         for location in locations:
             for department in all_departments:
-                existing_pair = await self.location_department_repo.get_by_location_and_department_id(
-                    location_id=location.location_id,
-                    department_id=department.department_id,
-                )
-                if existing_pair is not None:
+                pair_key = (location.location_id, department.department_id)
+                if pair_key in existing_pairs:
                     continue
                 await self.location_department_repo.save(
                     LocationDepartment(
@@ -118,9 +121,11 @@ class ComplaintPetitionService:
                         ),
                         is_active=True,
                     ),
-                    flush_immediately=True,
+                    flush_immediately=False,
                 )
+                existing_pairs.add(pair_key)
                 created_pairs += 1
+        await self.location_department_repo.flush()
 
         return {
             "departments": len(all_departments),
