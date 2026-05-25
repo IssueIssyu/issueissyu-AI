@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from fastapi import BackgroundTasks
+from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import select
 from sqlalchemy.orm import noload
 from starlette.datastructures import Headers, UploadFile
@@ -38,9 +39,15 @@ _RELIABILITY_PIPELINE_TASKS: set[asyncio.Task[None]] = set()
 _LATEST_GENERATION_BY_PIN: dict[int, int] = {}
 _TASKS_BY_PIN: dict[int, set[asyncio.Task[None]]] = {}
 _ACTIVE_JOB_COUNT_BY_PIN: dict[int, int] = {}
+_GENERATION_KEY_PREFIX = "issue_pin:reliability:generation"
+_GENERATION_TTL_SECONDS = 60 * 60 * 24 * 7
 
 
 class _StaleReliabilityJobError(RuntimeError):
+    pass
+
+
+class _GenerationStoreUnavailableError(RuntimeError):
     pass
 
 
@@ -53,24 +60,52 @@ class IssuePinBackgroundRunner:
         s3_util: S3Util,
         vector_store_service: VectorStoreService | None,
         issue_rag_planner_service: IssueRagPlannerService | None,
+        redis_client: AsyncRedis | None = None,
     ) -> None:
         self._vlm_service = vlm_service
         self._exif_location_service = exif_location_service
         self._s3_util = s3_util
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
+        self._redis_client = redis_client
 
     @staticmethod
     def _log_context(job: IssuePinReliabilityJob) -> str:
         return f"issue_pin_id={job.issue_pin_id} pin_id={job.pin_id}"
 
-    def _next_generation(self, pin_id: int) -> int:
+    @staticmethod
+    def _generation_key(pin_id: int) -> str:
+        return f"{_GENERATION_KEY_PREFIX}:{pin_id}"
+
+    async def _next_generation(self, pin_id: int) -> int:
+        if self._redis_client is not None:
+            key = self._generation_key(pin_id)
+            try:
+                generation = int(await self._redis_client.incr(key))
+                await self._redis_client.expire(key, _GENERATION_TTL_SECONDS)
+                return generation
+            except Exception as exc:
+                raise _GenerationStoreUnavailableError(
+                    f"Redis generation incr failed pin_id={pin_id}",
+                ) from exc
         generation = _LATEST_GENERATION_BY_PIN.get(pin_id, 0) + 1
         _LATEST_GENERATION_BY_PIN[pin_id] = generation
         return generation
 
-    def _assert_job_active(self, *, pin_id: int, generation: int) -> None:
-        current = _LATEST_GENERATION_BY_PIN.get(pin_id, 0)
+    async def _current_generation(self, pin_id: int) -> int:
+        if self._redis_client is not None:
+            key = self._generation_key(pin_id)
+            try:
+                current = await self._redis_client.get(key)
+                return int(current) if current is not None else 0
+            except Exception as exc:
+                raise _GenerationStoreUnavailableError(
+                    f"Redis generation read failed pin_id={pin_id}",
+                ) from exc
+        return _LATEST_GENERATION_BY_PIN.get(pin_id, 0)
+
+    async def _assert_job_active(self, *, pin_id: int, generation: int) -> None:
+        current = await self._current_generation(pin_id)
         if generation != current:
             raise _StaleReliabilityJobError(
                 f"stale reliability job pin_id={pin_id} generation={generation} current={current}",
@@ -89,7 +124,8 @@ class IssuePinBackgroundRunner:
         has_active_tasks = bool(tasks)
         if active_count == 0 and not has_active_tasks:
             _ACTIVE_JOB_COUNT_BY_PIN.pop(pin_id, None)
-            _LATEST_GENERATION_BY_PIN.pop(pin_id, None)
+            if self._redis_client is None:
+                _LATEST_GENERATION_BY_PIN.pop(pin_id, None)
 
     def _mark_job_finished(self, *, pin_id: int) -> None:
         active_count = _ACTIVE_JOB_COUNT_BY_PIN.get(pin_id, 0) - 1
@@ -108,8 +144,8 @@ class IssuePinBackgroundRunner:
             _TASKS_BY_PIN.pop(pin_id, None)
         self._maybe_cleanup_pin_state(pin_id=pin_id)
 
-    def cancel(self, *, pin_id: int) -> bool:
-        generation = self._next_generation(pin_id)
+    async def cancel(self, *, pin_id: int) -> bool:
+        generation = await self._next_generation(pin_id)
         tasks = list(_TASKS_BY_PIN.get(pin_id, set()))
         cancelled = False
         for task in tasks:
@@ -124,13 +160,13 @@ class IssuePinBackgroundRunner:
         )
         return cancelled
 
-    def schedule(
+    async def schedule(
         self,
         job: IssuePinReliabilityJob,
         *,
         background_tasks: BackgroundTasks | None = None,
     ) -> None:
-        generation = self._next_generation(job.pin_id)
+        generation = await self._next_generation(job.pin_id)
         self._mark_job_started(pin_id=job.pin_id)
         ctx = f"{self._log_context(job)} generation={generation}"
         if background_tasks is not None:
@@ -165,7 +201,7 @@ class IssuePinBackgroundRunner:
             settings.issue_pin_reliability_gemini_max_attempts,
         )
         try:
-            self._assert_job_active(pin_id=job.pin_id, generation=generation)
+            await self._assert_job_active(pin_id=job.pin_id, generation=generation)
             await asyncio.wait_for(
                 self._run_reliability_pipeline(job, generation),
                 timeout=timeout,
@@ -187,6 +223,9 @@ class IssuePinBackgroundRunner:
         except _StaleReliabilityJobError:
             aborted = True
             logger.info("Reliability pipeline stale-skip [%s]", ctx)
+        except _GenerationStoreUnavailableError:
+            aborted = True
+            logger.exception("Reliability pipeline generation store unavailable [%s]", ctx)
         except asyncio.CancelledError:
             aborted = True
             logger.warning("Reliability pipeline cancelled [%s]", ctx)
@@ -209,11 +248,11 @@ class IssuePinBackgroundRunner:
 
     async def _run_reliability_pipeline(self, job: IssuePinReliabilityJob, generation: int) -> None:
         ctx = f"{self._log_context(job)} generation={generation}"
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         user_text = format_user_text_for_pin(title=job.title, content=job.content)
 
         # --- RAG ---
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         rag_started = time.monotonic()
         logger.info("Reliability stage=RAG start [%s]", ctx)
         try:
@@ -241,7 +280,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- S3 ---
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         s3_started = time.monotonic()
         logger.info("Reliability stage=S3 start [%s]", ctx)
         snapshots = await self._load_snapshots_from_s3(pin_id=job.pin_id, log_context=ctx)
@@ -253,7 +292,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- EXIF ---
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         exif_started = time.monotonic()
         logger.info("Reliability stage=EXIF start [%s] image_count=%d", ctx, len(snapshots))
         images_with_location = await self._build_vlm_inputs_from_snapshots(
@@ -268,7 +307,7 @@ class IssuePinBackgroundRunner:
         )
 
         # --- VLM ---
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         vlm_started = time.monotonic()
         retry_opts = self._vlm_retry_options()
         logger.info(
@@ -316,7 +355,7 @@ class IssuePinBackgroundRunner:
             score=score,
             basis_markdown=basis_md,
         )
-        self._assert_job_active(pin_id=job.pin_id, generation=generation)
+        await self._assert_job_active(pin_id=job.pin_id, generation=generation)
         logger.info("Reliability stage=PERSIST start [%s] score=%s", ctx, score)
         await self._persist_confidence(
             issue_pin_id=job.issue_pin_id,
