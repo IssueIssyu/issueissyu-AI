@@ -47,6 +47,10 @@ class _StaleReliabilityJobError(RuntimeError):
     pass
 
 
+class _GenerationStoreUnavailableError(RuntimeError):
+    pass
+
+
 class IssuePinBackgroundRunner:
     def __init__(
         self,
@@ -75,24 +79,29 @@ class IssuePinBackgroundRunner:
 
     async def _next_generation(self, pin_id: int) -> int:
         if self._redis_client is not None:
+            key = self._generation_key(pin_id)
             try:
-                key = self._generation_key(pin_id)
                 generation = int(await self._redis_client.incr(key))
                 await self._redis_client.expire(key, _GENERATION_TTL_SECONDS)
                 return generation
-            except Exception:
-                logger.exception("Redis generation incr failed pin_id=%s; fallback to in-memory", pin_id)
+            except Exception as exc:
+                raise _GenerationStoreUnavailableError(
+                    f"Redis generation incr failed pin_id={pin_id}",
+                ) from exc
         generation = _LATEST_GENERATION_BY_PIN.get(pin_id, 0) + 1
         _LATEST_GENERATION_BY_PIN[pin_id] = generation
         return generation
 
     async def _current_generation(self, pin_id: int) -> int:
         if self._redis_client is not None:
+            key = self._generation_key(pin_id)
             try:
-                current = await self._redis_client.get(self._generation_key(pin_id))
+                current = await self._redis_client.get(key)
                 return int(current) if current is not None else 0
-            except Exception:
-                logger.exception("Redis generation read failed pin_id=%s; fallback to in-memory", pin_id)
+            except Exception as exc:
+                raise _GenerationStoreUnavailableError(
+                    f"Redis generation read failed pin_id={pin_id}",
+                ) from exc
         return _LATEST_GENERATION_BY_PIN.get(pin_id, 0)
 
     async def _assert_job_active(self, *, pin_id: int, generation: int) -> None:
@@ -214,6 +223,9 @@ class IssuePinBackgroundRunner:
         except _StaleReliabilityJobError:
             aborted = True
             logger.info("Reliability pipeline stale-skip [%s]", ctx)
+        except _GenerationStoreUnavailableError:
+            aborted = True
+            logger.exception("Reliability pipeline generation store unavailable [%s]", ctx)
         except asyncio.CancelledError:
             aborted = True
             logger.warning("Reliability pipeline cancelled [%s]", ctx)
