@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, date
 from email.message import EmailMessage
@@ -13,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 import certifi
 from fastapi import UploadFile
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 
 from app.core.codes import ErrorCode
@@ -46,6 +48,7 @@ _KST = ZoneInfo("Asia/Seoul")
 _S3_PDF_PREFIX = "issue-pdf"
 _DEFAULT_SEED_EMAIL_DOMAIN = "placeholder.local"
 _SAFE_DEPT_RE = re.compile(r"[^0-9a-zA-Z가-힣]+")
+_DEFAULT_TARGET_PETITION = 30
 
 
 @dataclass(slots=True)
@@ -137,17 +140,18 @@ class ComplaintPetitionService:
         if issue_pin is None or issue_pin.pin is None:
             raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
 
-        if enforce_threshold and issue_pin.petition_count < 30:
-            raise_business_exception(
-                ErrorCode.VALIDATION_ERROR,
-                "petition_count가 30 미만이라 자동 생성 대상이 아닙니다.",
-            )
-
         pin = issue_pin.pin
         pin_location = pin.pin_location
         if pin_location is None:
             raise_business_exception(ErrorCode.VALIDATION_ERROR, "핀 위치 정보가 없습니다.")
         location_id = pin_location.location_id
+        if enforce_threshold:
+            target_petition = await self._target_petition_for_location(location_id=location_id)
+            if issue_pin.petition_count < target_petition:
+                raise_business_exception(
+                    ErrorCode.VALIDATION_ERROR,
+                    f"petition_count가 target_petition({target_petition}) 미만이라 자동 생성 대상이 아닙니다.",
+                )
 
         target_generated_on = generated_on or self._today_kst()
         exists = await self.complaint_petition_repo.exists_by_issue_pin_and_generated_on(
@@ -230,7 +234,7 @@ class ComplaintPetitionService:
             status=petition.status,
         )
 
-    async def create_scheduled_petitions(self, *, threshold: int = 30) -> dict[str, int]:
+    async def create_scheduled_petitions(self, *, default_threshold: int = _DEFAULT_TARGET_PETITION) -> dict[str, int]:
         generated_on = self._today_kst()
         offset = 0
         batch_size = 100
@@ -239,8 +243,8 @@ class ComplaintPetitionService:
         fail_count = 0
 
         while True:
-            rows = await self.issue_pin_repo.list_by_petition_count_gte(
-                threshold=threshold,
+            rows = await self.issue_pin_repo.list_by_target_petition(
+                default_threshold=default_threshold,
                 limit=batch_size,
                 offset=offset,
             )
@@ -280,6 +284,7 @@ class ComplaintPetitionService:
         sent_count = 0
         failed_count = 0
         items: list[ComplaintPetitionBulkSendItem] = []
+        send_targets: list[ComplaintPetition] = []
 
         for petition_id in petition_ids:
             petition = by_id.get(petition_id)
@@ -309,7 +314,13 @@ class ComplaintPetitionService:
                     ),
                 )
                 continue
-            send_ok, reason = await self._send_one(petition)
+
+            send_targets.append(petition)
+
+        send_results = await self._send_many_limited(send_targets)
+
+        for petition in send_targets:
+            send_ok, reason = send_results.get(petition.petition_id, (False, "송신 결과를 확인할 수 없습니다."))
             next_status = ComplaintPetitionStatus.SENT if send_ok else ComplaintPetitionStatus.FAILED
             await self.complaint_petition_repo.update_status(
                 petition_id=petition.petition_id,
@@ -340,6 +351,24 @@ class ComplaintPetitionService:
             failed_count=failed_count,
             items=items,
         )
+
+    async def _send_many_limited(
+        self,
+        petitions: Sequence[ComplaintPetition],
+    ) -> dict[int, tuple[bool, str | None]]:
+        if not petitions:
+            return {}
+
+        concurrency = max(1, int(settings.smtp_send_concurrency))
+        semaphore = asyncio.Semaphore(concurrency)
+        results: dict[int, tuple[bool, str | None]] = {}
+
+        async def _run_one(petition: ComplaintPetition) -> None:
+            async with semaphore:
+                results[petition.petition_id] = await self._send_one(petition)
+
+        await asyncio.gather(*(_run_one(petition) for petition in petitions))
+        return results
 
     async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
         recipient = petition.location_department.location_department_email.strip()
@@ -391,29 +420,18 @@ class ComplaintPetitionService:
 
         try:
             tls_context = ComplaintPetitionService._build_smtp_ssl_context()
-            if settings.smtp_use_ssl:
-                with smtplib.SMTP_SSL(
-                    host=smtp_host,
-                    port=settings.smtp_port,
-                    timeout=settings.smtp_timeout_seconds,
-                    context=tls_context,
-                ) as client:
-                    if smtp_username:
-                        client.login(smtp_username, smtp_password)
-                    client.send_message(msg)
-            else:
-                with smtplib.SMTP(
-                    host=smtp_host,
-                    port=settings.smtp_port,
-                    timeout=settings.smtp_timeout_seconds,
-                ) as client:
-                    client.ehlo()
-                    if settings.smtp_use_tls:
-                        client.starttls(context=tls_context)
-                        client.ehlo()
-                    if smtp_username:
-                        client.login(smtp_username, smtp_password)
-                    client.send_message(msg)
+            await run_in_threadpool(
+                ComplaintPetitionService._send_smtp_message_blocking,
+                smtp_host,
+                settings.smtp_port,
+                settings.smtp_timeout_seconds,
+                settings.smtp_use_ssl,
+                settings.smtp_use_tls,
+                smtp_username,
+                smtp_password,
+                msg,
+                tls_context,
+            )
         except Exception as exc:
             logger.exception("SMTP 송신 실패 petition_id=%s", petition.petition_id)
             return False, f"SMTP 송신 실패: {exc}"
@@ -429,6 +447,43 @@ class ComplaintPetitionService:
         return context
 
     @staticmethod
+    def _send_smtp_message_blocking(
+        smtp_host: str,
+        smtp_port: int,
+        smtp_timeout_seconds: float,
+        smtp_use_ssl: bool,
+        smtp_use_tls: bool,
+        smtp_username: str,
+        smtp_password: str,
+        msg: EmailMessage,
+        tls_context: ssl.SSLContext,
+    ) -> None:
+        if smtp_use_ssl:
+            with smtplib.SMTP_SSL(
+                host=smtp_host,
+                port=smtp_port,
+                timeout=smtp_timeout_seconds,
+                context=tls_context,
+            ) as client:
+                if smtp_username:
+                    client.login(smtp_username, smtp_password)
+                client.send_message(msg)
+            return
+
+        with smtplib.SMTP(
+            host=smtp_host,
+            port=smtp_port,
+            timeout=smtp_timeout_seconds,
+        ) as client:
+            client.ehlo()
+            if smtp_use_tls:
+                client.starttls(context=tls_context)
+                client.ehlo()
+            if smtp_username:
+                client.login(smtp_username, smtp_password)
+            client.send_message(msg)
+
+    @staticmethod
     def _build_pretty_attachment_filename(petition: ComplaintPetition) -> str:
         date_text = petition.generated_on.isoformat() if petition.generated_on else "unknown-date"
         category = (
@@ -440,6 +495,14 @@ class ComplaintPetitionService:
         category = re.sub(r"\s+", "", category)
         category = re.sub(r'[\\/:*?"<>|]+', "-", category).strip("-") or "category"
         return f"민원의견서_{date_text}_{category}_issue{petition.issue_pin_id}.pdf"
+
+    async def _target_petition_for_location(self, *, location_id: int) -> int:
+        if location_id <= 0:
+            return _DEFAULT_TARGET_PETITION
+        target = await self.location_repo.get_target_petition_by_location_id(location_id=location_id)
+        if target is None:
+            return _DEFAULT_TARGET_PETITION
+        return max(1, int(target))
 
     async def _load_pin_images(
         self,

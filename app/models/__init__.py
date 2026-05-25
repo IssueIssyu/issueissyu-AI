@@ -5,6 +5,7 @@ from app.models.OAuth import OAuth
 from app.models.EventPin import EventPin
 from app.models.Location import Location
 from app.models.LocationDepartment import LocationDepartment
+from app.models.PopulationDensity import PopulationDensity
 from app.models.RefreshToken import (
     REDIS_HASH_NAME,
     RefreshToken,
@@ -29,6 +30,7 @@ __all__ = [
     "EventPin",
     "Location",
     "LocationDepartment",
+    "PopulationDensity",
     "OAuth",
     "Pin",
     "PinImage",

@@ -63,7 +63,7 @@ class ComplaintPetitionSchedulerService:
                 s3_util=self._s3_util,
             )
             try:
-                result = await service.create_scheduled_petitions(threshold=30)
+                result = await service.create_scheduled_petitions()
                 await session.commit()
                 return result
             except Exception:

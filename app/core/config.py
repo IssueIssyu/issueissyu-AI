@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     smtp_use_ssl: bool = Field(default=False, alias="SMTP_USE_SSL")
     smtp_timeout_seconds: float = Field(default=15.0, gt=0, alias="SMTP_TIMEOUT_SECONDS")
     smtp_skip_cert_verify: bool = Field(default=False, alias="SMTP_SKIP_CERT_VERIFY")
+    smtp_send_concurrency: int = Field(default=5, ge=1, le=50, alias="SMTP_SEND_CONCURRENCY")
 
     redis_local_host: str | None = Field(default=None, alias="REDIS_LOCAL_HOST")
     redis_local_port: int | None = Field(default=6379, alias="REDIS_LOCAL_PORT")
