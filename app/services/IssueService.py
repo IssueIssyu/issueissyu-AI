@@ -509,6 +509,7 @@ class IssueService:
         await self._pin_location_repo.save(pin_location, flush_immediately=True)
 
         await self._pin_image_repo.delete_by_pin_id(pin.pin_id)
+        pin.pin_images = []
         saved_images = await self._upload_pin_images_sync(
             pin_id=pin.pin_id,
             snapshots=image_snapshots,
