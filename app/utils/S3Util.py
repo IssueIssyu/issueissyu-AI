@@ -228,11 +228,22 @@ class S3Util:
         return await to_thread.run_sync(_delete)
 
     async def delete_objects_best_effort(self, object_keys: list[str]) -> int:
-        deleted_count = 0
-        for object_key in object_keys:
-            if not object_key.strip():
-                continue
-            if await self.delete_object(object_key):
-                deleted_count += 1
-        return deleted_count
+        bucket_name = self._ensure_bucket_name()
+        valid_keys = [k.lstrip("/") for k in object_keys if k.strip()]
+        if not valid_keys:
+            return 0
+
+        def _delete_batch() -> int:
+            try:
+                # S3 delete_objects can handle up to 1000 keys per call
+                response = self.client.delete_objects(
+                    Bucket=bucket_name,
+                    Delete={'Objects': [{'Key': k} for k in valid_keys]}
+                )
+                return len(response.get('Deleted', []))
+            except (ClientError, BotoCoreError) as exc:
+                logger.exception("S3 batch delete failed keys=%s err=%s", valid_keys, exc)
+                return 0
+
+        return await to_thread.run_sync(_delete_batch)
 
