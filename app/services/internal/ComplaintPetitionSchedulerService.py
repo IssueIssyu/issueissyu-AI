@@ -18,6 +18,7 @@ from app.utils.S3Util import S3Util
 
 logger = logging.getLogger(__name__)
 _KST = ZoneInfo("Asia/Seoul")
+_SCHEDULE_HOUR_KST = 3
 
 
 class ComplaintPetitionSchedulerService:
@@ -71,7 +72,7 @@ class ComplaintPetitionSchedulerService:
 
     async def _run_loop(self) -> None:
         while True:
-            wait_seconds = self._seconds_until_next_midnight_kst()
+            wait_seconds = self._seconds_until_next_schedule_kst()
             logger.info("민원 자동 생성 스케줄러 대기 %.1fs", wait_seconds)
             await asyncio.sleep(wait_seconds)
             try:
@@ -81,10 +82,15 @@ class ComplaintPetitionSchedulerService:
                 logger.exception("민원 자동 생성 스케줄 실행 실패")
 
     @staticmethod
-    def _seconds_until_next_midnight_kst() -> float:
+    def _seconds_until_next_schedule_kst() -> float:
         now = datetime.now(_KST)
-        tomorrow = now.date() + timedelta(days=1)
-        next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=_KST)
-        delta = next_midnight - now
+        next_run = datetime.combine(
+            now.date(),
+            datetime.min.time(),
+            tzinfo=_KST,
+        ) + timedelta(hours=_SCHEDULE_HOUR_KST)
+        if now >= next_run:
+            next_run += timedelta(days=1)
+        delta = next_run - now
         return max(delta.total_seconds(), 1.0)
 

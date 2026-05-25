@@ -2,16 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, date
+from email.message import EmailMessage
 import io
 import logging
 import re
+import smtplib
+import ssl
 from typing import Sequence
 from zoneinfo import ZoneInfo
 
+import certifi
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 
 from app.core.codes import ErrorCode
+from app.core.config import settings
 from app.core.exceptions import raise_business_exception
 from app.models.ComplaintPetition import ComplaintPetition
 from app.models.Department import Department
@@ -38,7 +43,7 @@ from app.utils.S3Util import S3Util
 logger = logging.getLogger(__name__)
 
 _KST = ZoneInfo("Asia/Seoul")
-_S3_PDF_PREFIX = "complaint-petition"
+_S3_PDF_PREFIX = "issue-pdf"
 _DEFAULT_SEED_EMAIL_DOMAIN = "placeholder.local"
 _SAFE_DEPT_RE = re.compile(r"[^0-9a-zA-Z가-힣]+")
 
@@ -161,6 +166,9 @@ class ComplaintPetitionService:
             pin_content=pin.pin_content,
             images=images,
             photo_address=pin_location.detail_address,
+            submitter_name=(pin.user.user_name if pin.user is not None else None),
+            submitter_address=pin_location.detail_address,
+            submitter_phone=(pin.user.phone if pin.user is not None else None),
         )
         department_name = (generated.department or "").strip()
         if not department_name:
@@ -301,7 +309,7 @@ class ComplaintPetitionService:
                     ),
                 )
                 continue
-            send_ok, reason = self._send_one(petition)
+            send_ok, reason = await self._send_one(petition)
             next_status = ComplaintPetitionStatus.SENT if send_ok else ComplaintPetitionStatus.FAILED
             await self.complaint_petition_repo.update_status(
                 petition_id=petition.petition_id,
@@ -333,13 +341,105 @@ class ComplaintPetitionService:
             items=items,
         )
 
-    @staticmethod
-    def _send_one(petition: ComplaintPetition) -> tuple[bool, str | None]:
-        email = petition.location_department.location_department_email.strip()
-        if not email:
+    async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
+        recipient = petition.location_department.location_department_email.strip()
+        if not recipient:
             return False, "부서 이메일이 비어 있습니다."
-        # 실제 메일 전송 연동 지점.
+
+        smtp_host = (settings.smtp_host or "").strip()
+        smtp_username = (settings.smtp_username or "").strip()
+        smtp_from_email = (settings.smtp_from_email or "").strip() or smtp_username
+        smtp_password = (
+            settings.smtp_password.get_secret_value()
+            if settings.smtp_password is not None
+            else ""
+        )
+        if not smtp_host:
+            return False, "SMTP_HOST 설정이 필요합니다."
+        if not smtp_from_email:
+            return False, "SMTP_FROM_EMAIL 또는 SMTP_USERNAME 설정이 필요합니다."
+        if settings.smtp_use_tls and settings.smtp_use_ssl:
+            return False, "SMTP_USE_TLS와 SMTP_USE_SSL을 동시에 사용할 수 없습니다."
+
+        msg = EmailMessage()
+        msg["Subject"] = petition.email_subject
+        msg["From"] = smtp_from_email
+        msg["To"] = recipient
+        msg.set_content(petition.email_body)
+
+        try:
+            pdf_bytes, content_type = await self.s3_util.download_binary(petition.pdf_s3_key)
+        except Exception as exc:
+            logger.exception("PDF 첨부 다운로드 실패 petition_id=%s", petition.petition_id)
+            return False, f"PDF 다운로드 실패: {exc}"
+
+        if not pdf_bytes:
+            return False, "PDF 데이터가 비어 있습니다."
+
+        subtype = "pdf"
+        if "/" in content_type:
+            candidate = content_type.split("/", maxsplit=1)[1].strip().lower()
+            if candidate:
+                subtype = candidate
+        filename = self._build_pretty_attachment_filename(petition)
+        msg.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype=subtype,
+            filename=filename,
+        )
+
+        try:
+            tls_context = ComplaintPetitionService._build_smtp_ssl_context()
+            if settings.smtp_use_ssl:
+                with smtplib.SMTP_SSL(
+                    host=smtp_host,
+                    port=settings.smtp_port,
+                    timeout=settings.smtp_timeout_seconds,
+                    context=tls_context,
+                ) as client:
+                    if smtp_username:
+                        client.login(smtp_username, smtp_password)
+                    client.send_message(msg)
+            else:
+                with smtplib.SMTP(
+                    host=smtp_host,
+                    port=settings.smtp_port,
+                    timeout=settings.smtp_timeout_seconds,
+                ) as client:
+                    client.ehlo()
+                    if settings.smtp_use_tls:
+                        client.starttls(context=tls_context)
+                        client.ehlo()
+                    if smtp_username:
+                        client.login(smtp_username, smtp_password)
+                    client.send_message(msg)
+        except Exception as exc:
+            logger.exception("SMTP 송신 실패 petition_id=%s", petition.petition_id)
+            return False, f"SMTP 송신 실패: {exc}"
+
         return True, None
+
+    @staticmethod
+    def _build_smtp_ssl_context() -> ssl.SSLContext:
+        context = ssl.create_default_context(cafile=certifi.where())
+        if settings.smtp_skip_cert_verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        return context
+
+    @staticmethod
+    def _build_pretty_attachment_filename(petition: ComplaintPetition) -> str:
+        date_text = petition.generated_on.isoformat() if petition.generated_on else "unknown-date"
+        category = (
+            petition.location_department.department.department_name
+            if petition.location_department is not None and petition.location_department.department is not None
+            else "category"
+        )
+        category = (category or "category").strip()
+        category = re.sub(r"\s+", "", category)
+        category = re.sub(r'[\\/:*?"<>|]+', "-", category).strip("-") or "category"
+        return f"민원의견서_{date_text}_{category}_issue{petition.issue_pin_id}.pdf"
 
     async def _load_pin_images(
         self,

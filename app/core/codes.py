@@ -116,12 +116,11 @@ class SuccessCode(Enum):
         "COMPLAINT_2002",
         "민원 일괄 송신 처리에 성공했습니다.",
     )
-    COMPLAINT_FORCE_GENERATE_SUCCESS = (
-        status.HTTP_201_CREATED,
-        "COMPLAINT_203",
-        "민원 강제 생성에 성공했습니다.",
+    COMPLAINT_SCHEDULER_RUN_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2003",
+        "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
     )
-
     @property
     def http_status(self) -> int:
         return int(self.value[0])

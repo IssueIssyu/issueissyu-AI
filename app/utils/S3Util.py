@@ -247,3 +247,22 @@ class S3Util:
             logger.exception("S3 바이트 다운로드 실패 key=%s err=%s", normalized_key, exc)
             raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
 
+    async def download_binary(self, object_key: str) -> tuple[bytes, str]:
+        bucket_name = self._ensure_bucket_name()
+        normalized_key = object_key.lstrip("/")
+
+        def _download() -> tuple[bytes, str]:
+            response = self.client.get_object(Bucket=bucket_name, Key=normalized_key)
+            body = response["Body"].read()
+            content_type = (response.get("ContentType") or "").split(";")[0].strip().lower()
+            if not content_type:
+                guessed, _ = mimetypes.guess_type(normalized_key)
+                content_type = (guessed or "application/octet-stream").split(";")[0].strip().lower()
+            return body, content_type
+
+        try:
+            return await to_thread.run_sync(_download)
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이너리 다운로드 실패 key=%s err=%s", normalized_key, exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+

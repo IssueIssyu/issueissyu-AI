@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -27,6 +29,7 @@ _DEFAULT_KOREAN_FONT_CANDIDATES: tuple[Path, ...] = (
     Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
     Path("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf"),
 )
+_MACOS_BREW_LIB_PATH = Path("/opt/homebrew/lib")
 
 
 def _korean_font_candidates() -> tuple[Path, ...]:
@@ -110,6 +113,7 @@ class ComplaintEmailPdfService:
 
     @staticmethod
     def _render_weasyprint(html: str) -> bytes:
+        ComplaintEmailPdfService._configure_macos_weasyprint_library_path()
         from weasyprint import HTML
 
         source = ComplaintEmailPdfService._prepare_html(html)
@@ -120,6 +124,21 @@ class ComplaintEmailPdfService:
         if not pdf_bytes:
             raise RuntimeError("WeasyPrint PDF 출력이 비어 있습니다.")
         return pdf_bytes
+
+    @staticmethod
+    def _configure_macos_weasyprint_library_path() -> None:
+        if sys.platform != "darwin":
+            return
+        if not _MACOS_BREW_LIB_PATH.is_dir():
+            return
+
+        current = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
+        parts = [p for p in current.split(":") if p]
+        brew_path = str(_MACOS_BREW_LIB_PATH)
+        if brew_path in parts:
+            return
+        parts.insert(0, brew_path)
+        os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(parts)
 
     @staticmethod
     def _render_playwright(html: str) -> bytes:

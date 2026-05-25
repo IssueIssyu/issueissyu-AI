@@ -62,5 +62,6 @@ class IssuePin(BaseEntity):
     complaint_petitions: Mapped[list[ComplaintPetition]] = relationship(
         "ComplaintPetition",
         foreign_keys="ComplaintPetition.issue_pin_id",
+        back_populates="issue_pin",
         lazy="selectin",
     )

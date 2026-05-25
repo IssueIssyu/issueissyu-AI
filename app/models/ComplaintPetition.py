@@ -60,6 +60,7 @@ class ComplaintPetition(BaseEntity):
     )
     issue_pin: Mapped[IssuePin] = relationship(
         "IssuePin",
+        back_populates="complaint_petitions",
         foreign_keys=[issue_pin_id],
         lazy="selectin",
     )

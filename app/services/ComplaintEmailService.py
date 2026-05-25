@@ -99,6 +99,9 @@ class ComplaintEmailService:
         pin_content: str,
         images: list[ImageWithLocation],
         photo_address: str | None = None,
+        submitter_name: str | None = None,
+        submitter_address: str | None = None,
+        submitter_phone: str | None = None,
     ) -> ComplaintEmailGenerateResult:
         title, content, prepared, pin_text = self._prepare_pin_input(
             pin_title=pin_title,
@@ -128,6 +131,9 @@ class ComplaintEmailService:
         opinion_html = await self._complaint_llm.generate_opinion_html(
             bundle,
             attachment_images=attachment_images,
+            submitter_name=submitter_name,
+            submitter_address=submitter_address,
+            submitter_phone=submitter_phone,
         )
 
         validation = await self._run_validation_vlm(
