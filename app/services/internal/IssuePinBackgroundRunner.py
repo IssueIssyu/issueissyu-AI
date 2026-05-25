@@ -35,6 +35,9 @@ from app.utils.S3Util import S3Util
 logger = logging.getLogger(__name__)
 
 _RELIABILITY_PIPELINE_TASKS: set[asyncio.Task[None]] = set()
+_LATEST_GENERATION_BY_PIN: dict[int, int] = {}
+_TASKS_BY_PIN: dict[int, set[asyncio.Task[None]]] = {}
+_ACTIVE_JOB_COUNT_BY_PIN: dict[int, int] = {}
 
 
 class _StaleReliabilityJobError(RuntimeError):
@@ -56,40 +59,58 @@ class IssuePinBackgroundRunner:
         self._s3_util = s3_util
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
-        self._latest_generation_by_pin: dict[int, int] = {}
-        self._tasks_by_pin: dict[int, set[asyncio.Task[None]]] = {}
 
     @staticmethod
     def _log_context(job: IssuePinReliabilityJob) -> str:
         return f"issue_pin_id={job.issue_pin_id} pin_id={job.pin_id}"
 
     def _next_generation(self, pin_id: int) -> int:
-        generation = self._latest_generation_by_pin.get(pin_id, 0) + 1
-        self._latest_generation_by_pin[pin_id] = generation
+        generation = _LATEST_GENERATION_BY_PIN.get(pin_id, 0) + 1
+        _LATEST_GENERATION_BY_PIN[pin_id] = generation
         return generation
 
     def _assert_job_active(self, *, pin_id: int, generation: int) -> None:
-        current = self._latest_generation_by_pin.get(pin_id, 0)
+        current = _LATEST_GENERATION_BY_PIN.get(pin_id, 0)
         if generation != current:
             raise _StaleReliabilityJobError(
                 f"stale reliability job pin_id={pin_id} generation={generation} current={current}",
             )
 
     def _track_task(self, *, pin_id: int, task: asyncio.Task[None]) -> None:
-        tasks = self._tasks_by_pin.setdefault(pin_id, set())
+        tasks = _TASKS_BY_PIN.setdefault(pin_id, set())
         tasks.add(task)
 
+    def _mark_job_started(self, *, pin_id: int) -> None:
+        _ACTIVE_JOB_COUNT_BY_PIN[pin_id] = _ACTIVE_JOB_COUNT_BY_PIN.get(pin_id, 0) + 1
+
+    def _maybe_cleanup_pin_state(self, *, pin_id: int) -> None:
+        active_count = _ACTIVE_JOB_COUNT_BY_PIN.get(pin_id, 0)
+        tasks = _TASKS_BY_PIN.get(pin_id)
+        has_active_tasks = bool(tasks)
+        if active_count == 0 and not has_active_tasks:
+            _ACTIVE_JOB_COUNT_BY_PIN.pop(pin_id, None)
+            _LATEST_GENERATION_BY_PIN.pop(pin_id, None)
+
+    def _mark_job_finished(self, *, pin_id: int) -> None:
+        active_count = _ACTIVE_JOB_COUNT_BY_PIN.get(pin_id, 0) - 1
+        if active_count <= 0:
+            _ACTIVE_JOB_COUNT_BY_PIN.pop(pin_id, None)
+        else:
+            _ACTIVE_JOB_COUNT_BY_PIN[pin_id] = active_count
+        self._maybe_cleanup_pin_state(pin_id=pin_id)
+
     def _untrack_task(self, *, pin_id: int, task: asyncio.Task[None]) -> None:
-        tasks = self._tasks_by_pin.get(pin_id)
+        tasks = _TASKS_BY_PIN.get(pin_id)
         if tasks is None:
             return
         tasks.discard(task)
         if not tasks:
-            self._tasks_by_pin.pop(pin_id, None)
+            _TASKS_BY_PIN.pop(pin_id, None)
+        self._maybe_cleanup_pin_state(pin_id=pin_id)
 
     def cancel(self, *, pin_id: int) -> bool:
         generation = self._next_generation(pin_id)
-        tasks = list(self._tasks_by_pin.get(pin_id, set()))
+        tasks = list(_TASKS_BY_PIN.get(pin_id, set()))
         cancelled = False
         for task in tasks:
             if not task.done():
@@ -110,6 +131,7 @@ class IssuePinBackgroundRunner:
         background_tasks: BackgroundTasks | None = None,
     ) -> None:
         generation = self._next_generation(job.pin_id)
+        self._mark_job_started(pin_id=job.pin_id)
         ctx = f"{self._log_context(job)} generation={generation}"
         if background_tasks is not None:
             background_tasks.add_task(self.run_reliability_job, job, generation)
@@ -183,6 +205,7 @@ class IssuePinBackgroundRunner:
                 persisted,
                 time.monotonic() - pipeline_started,
             )
+            self._mark_job_finished(pin_id=job.pin_id)
 
     async def _run_reliability_pipeline(self, job: IssuePinReliabilityJob, generation: int) -> None:
         ctx = f"{self._log_context(job)} generation={generation}"

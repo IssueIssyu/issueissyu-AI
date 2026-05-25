@@ -233,17 +233,46 @@ class S3Util:
         if not valid_keys:
             return 0
 
-        def _delete_batch() -> int:
-            try:
-                # S3 delete_objects can handle up to 1000 keys per call
-                response = self.client.delete_objects(
-                    Bucket=bucket_name,
-                    Delete={'Objects': [{'Key': k} for k in valid_keys]}
-                )
-                return len(response.get('Deleted', []))
-            except (ClientError, BotoCoreError) as exc:
-                logger.exception("S3 batch delete failed keys=%s err=%s", valid_keys, exc)
-                return 0
+        chunk_size = 1000
+        deleted_count = 0
 
-        return await to_thread.run_sync(_delete_batch)
+        for i in range(0, len(valid_keys), chunk_size):
+            chunk = valid_keys[i : i + chunk_size]
+
+            def _delete_chunk() -> int:
+                try:
+                    response = self.client.delete_objects(
+                        Bucket=bucket_name,
+                        Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": False},
+                    )
+                    deleted_items = response.get("Deleted", []) or []
+                    errors = response.get("Errors", []) or []
+
+                    tolerated_missing = sum(
+                        1
+                        for err in errors
+                        if err.get("Code") in {"NoSuchKey", "404"}
+                    )
+                    unexpected_errors = [
+                        err for err in errors if err.get("Code") not in {"NoSuchKey", "404"}
+                    ]
+                    for err in unexpected_errors:
+                        logger.warning(
+                            "S3 배치 삭제 일부 실패 key=%s code=%s message=%s",
+                            err.get("Key"),
+                            err.get("Code"),
+                            err.get("Message"),
+                        )
+                    return len(deleted_items) + tolerated_missing
+                except (ClientError, BotoCoreError) as exc:
+                    logger.exception(
+                        "S3 batch delete failed chunk_size=%s err=%s",
+                        len(chunk),
+                        exc,
+                    )
+                    return 0
+
+            deleted_count += await to_thread.run_sync(_delete_chunk)
+
+        return deleted_count
 
