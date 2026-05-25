@@ -1,7 +1,10 @@
+from app.models.ComplaintPetition import ComplaintPetition
+from app.models.Department import Department
 from app.models.DbConnectionCheck import DbConnectionCheck
 from app.models.OAuth import OAuth
 from app.models.EventPin import EventPin
 from app.models.Location import Location
+from app.models.LocationDepartment import LocationDepartment
 from app.models.RefreshToken import (
     REDIS_HASH_NAME,
     RefreshToken,
@@ -16,12 +19,16 @@ from app.models.enum.PinType import PinType
 from app.models.enum.RegionCode import RegionCode
 from app.models.enum.SocialType import SocialType
 from app.models.enum.ToneType import ToneType
+from app.models.enum.UserRole import UserRole
 
 __all__ = [
     "DbConnectionCheck",
+    "ComplaintPetition",
+    "Department",
     "REDIS_HASH_NAME",
     "EventPin",
     "Location",
+    "LocationDepartment",
     "OAuth",
     "Pin",
     "PinImage",
@@ -31,6 +38,7 @@ __all__ = [
     "RefreshToken",
     "SocialType",
     "ToneType",
+    "UserRole",
     "User",
     "refresh_token_doc_key",
     "refresh_token_id",

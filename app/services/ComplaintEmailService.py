@@ -9,6 +9,8 @@ from app.core.codes import ErrorCode
 from app.core.exceptions import BusinessException, raise_business_exception
 from app.schemas.ComplaintEmailDTO import (
     ComplaintEmailGenerateResult,
+    ComplaintEmailRagHit,
+    ComplaintEmailRagPipelineResult,
     ComplaintEmailLlmBundle,
     ComplaintEmailRagRunResult,
     ComplaintEmailValidationResult,
@@ -20,7 +22,15 @@ from app.services.internal.ai.ComplaintEmailVLMService import ComplaintEmailVlmS
 from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.ComplaintEmailOpinionRenderer import ComplaintEmailOpinionRenderer
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
-from app.services.prompts.complaint_email_notification import format_notification_email_body
+from app.services.department_catalog import (
+    CURATED_CATEGORY_NORMALIZED_MAP,
+    CURATED_CATEGORY_NAME_SET,
+    normalize_department_name,
+)
+from app.services.prompts.complaint_email_notification import (
+    format_notification_email_body,
+    format_notification_email_subject,
+)
 from app.services.prompts.issue_pin import format_user_text_for_pin
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.vector_domains import VectorDomain
@@ -66,6 +76,7 @@ class ComplaintEmailService:
         )
         vlm_result = await self._complaint_vlm.analyze(vlm_input, prepared)
         rag_pipeline = await self._retrieve_rag(vlm_result, pin_text)
+        department = self._resolve_department(vlm_result, rag_pipeline)
 
         for row in prepared:
             await row.image.seek(0)
@@ -78,6 +89,7 @@ class ComplaintEmailService:
             vlm_input=vlm_input,
             vlm_output=vlm_result,
             rag=rag_pipeline,
+            department=department,
         )
 
     async def generate_petition_package(
@@ -102,6 +114,7 @@ class ComplaintEmailService:
         )
         vlm_result = await self._complaint_vlm.analyze(vlm_input, prepared)
         rag_pipeline = await self._retrieve_rag(vlm_result, pin_text)
+        department = self._resolve_department(vlm_result, rag_pipeline)
 
         bundle = ComplaintEmailLlmBundle(
             pin_title=title,
@@ -138,7 +151,13 @@ class ComplaintEmailService:
             reliability_score=validation.reliability_score,
             validity=validation.validity,
             risk_note=validation.risk_note,
+            department=department,
         )
+        notification_email_subject = format_notification_email_subject(
+            pin_title=title,
+            department=department,
+        )
+        reliability_basis = self._build_reliability_basis(validation)
 
         for row in prepared:
             await row.image.seek(0)
@@ -148,6 +167,7 @@ class ComplaintEmailService:
             pin_content=content,
             photo_address=photo_address,
             image_count=len(prepared),
+            department=department,
             vlm_input=vlm_input,
             vlm_output=vlm_result,
             rag=rag_pipeline,
@@ -155,8 +175,10 @@ class ComplaintEmailService:
             validation=validation,
             opinion_html=opinion_html,
             opinion_pdf_bytes=opinion_pdf_bytes,
+            notification_email_subject=notification_email_subject,
             notification_email_body=notification_email_body,
             reliability_score=validation.reliability_score,
+            reliability_basis=reliability_basis,
         )
 
     async def _run_validation_vlm(
@@ -252,4 +274,108 @@ class ComplaintEmailService:
         if not domain_name or domain_name == "공통":
             return None
         return MetadataFilters(filters=[MetadataFilter(key="category", value=domain_name)])
+
+    @staticmethod
+    def _resolve_department(
+        vlm_result: ComplaintEmailVlmOutput,
+        rag_pipeline: ComplaintEmailRagPipelineResult,
+    ) -> str | None:
+        domain = ComplaintEmailService._normalize_to_curated_category(vlm_result.domain)
+        if domain is not None:
+            return domain
+
+        weighted_scores: dict[str, float] = {}
+        first_seen: dict[str, int] = {}
+        index = 0
+
+        # rerank 결과를 우선 반영하고, 없으면 retrieval를 보완 반영한다.
+        for hit in rag_pipeline.reranked_hits:
+            index = ComplaintEmailService._accumulate_department_score(
+                hit=hit,
+                weighted_scores=weighted_scores,
+                first_seen=first_seen,
+                index=index,
+                prefer_rerank=True,
+            )
+        for hit in rag_pipeline.retrieval_hits:
+            index = ComplaintEmailService._accumulate_department_score(
+                hit=hit,
+                weighted_scores=weighted_scores,
+                first_seen=first_seen,
+                index=index,
+                prefer_rerank=False,
+            )
+
+        if weighted_scores:
+            ranked = sorted(
+                weighted_scores.items(),
+                key=lambda row: (-row[1], first_seen.get(row[0], 10**9)),
+            )
+            return ranked[0][0]
+
+        return None
+
+    @staticmethod
+    def _accumulate_department_score(
+        *,
+        hit: ComplaintEmailRagHit,
+        weighted_scores: dict[str, float],
+        first_seen: dict[str, int],
+        index: int,
+        prefer_rerank: bool,
+    ) -> int:
+        metadata = hit.metadata if isinstance(hit.metadata, dict) else {}
+        raw = metadata.get("category")
+        if not isinstance(raw, str):
+            return index
+
+        departments = ComplaintEmailService._extract_curated_departments(raw)
+        if not departments:
+            return index
+
+        score = hit.rerank_score if prefer_rerank else hit.retrieval_score
+        weight = float(score) if isinstance(score, (int, float)) else 0.0
+        for department in departments:
+            weighted_scores[department] = weighted_scores.get(department, 0.0) + (1.0 + weight)
+            if department not in first_seen:
+                first_seen[department] = index
+            index += 1
+        return index
+
+    @staticmethod
+    def _extract_curated_departments(raw: str) -> list[str]:
+        text = (raw or "").strip()
+        if not text:
+            return []
+
+        category = ComplaintEmailService._normalize_to_curated_category(text)
+        if category is None:
+            return []
+        return [category]
+
+    @staticmethod
+    def _normalize_to_curated_category(raw: str | None) -> str | None:
+        if not isinstance(raw, str):
+            return None
+        value = raw.strip()
+        if not value:
+            return None
+        key = normalize_department_name(value)
+        canonical = CURATED_CATEGORY_NORMALIZED_MAP.get(key)
+        if canonical is not None:
+            return canonical
+        if value in CURATED_CATEGORY_NAME_SET:
+            return value
+        return None
+
+    @staticmethod
+    def _build_reliability_basis(validation: ComplaintEmailValidationResult) -> str:
+        validity_text = "유효" if validation.validity else "추가 확인 필요"
+        scene = (validation.scene_summary or "").strip() or "장면 요약 없음"
+        risk = (validation.risk_note or "").strip() or "위험 참고 없음"
+        error_code = (validation.error_code or "").strip()
+        detail = f"장면 요약: {scene}\n위험 참고: {risk}\n유효성: {validity_text}"
+        if error_code:
+            return f"{detail}\n검증 코드: {error_code}"
+        return detail
 

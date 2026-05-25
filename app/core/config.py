@@ -117,6 +117,10 @@ class Settings(BaseSettings):
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
     )
+    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
+    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
+    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
+    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
     # True면 lifespan에서 Gemini embed API로 차원 검증
     vector_dim_check: bool = Field(
         default=False,

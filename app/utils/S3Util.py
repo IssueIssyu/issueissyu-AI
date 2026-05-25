@@ -186,6 +186,48 @@ class S3Util:
             "url": self._build_public_file_url(resolved_key),
         }
 
+    async def upload_binary(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str,
+        prefix: str = "uploads",
+        object_key: str | None = None,
+        extra_args: dict[str, object] | None = None,
+    ) -> UploadedImageResult:
+        if not data:
+            raise_file_exception(
+                ErrorCode.FILE_UPLOAD_ERROR,
+                detail="업로드할 데이터가 비어 있습니다.",
+            )
+        bucket_name = self._ensure_bucket_name()
+        resolved_key = object_key or self._build_object_key(filename, prefix)
+        upload_args = dict(extra_args or {})
+        if content_type:
+            upload_args.setdefault("ContentType", content_type)
+        buffer = io.BytesIO(data)
+
+        try:
+            await to_thread.run_sync(
+                lambda: self.client.upload_fileobj(
+                    buffer,
+                    bucket_name,
+                    resolved_key,
+                    ExtraArgs=upload_args,
+                )
+                if upload_args
+                else self.client.upload_fileobj(buffer, bucket_name, resolved_key),
+            )
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이너리 업로드 실패: %s", exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+
+        return {
+            "key": resolved_key,
+            "url": self._build_public_file_url(resolved_key),
+        }
+
     async def download_bytes(self, object_key: str) -> tuple[bytes, str]:
         bucket_name = self._ensure_bucket_name()
         normalized_key = object_key.lstrip("/")

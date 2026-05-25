@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.IssuePin import IssuePin
 from app.models.Pin import Pin
+from app.models.enum.IssuePinState import IssuePinState
 from app.repositories.BaseRepo import BaseRepo
 
 _ISSUE_PIN_LOAD_OPTIONS = (
@@ -49,6 +50,32 @@ class IssuePinRepo(BaseRepo[IssuePin]):
                 issue_confidence=issue_confidence,
                 confidence_content=confidence_content,
             ),
+        )
+        await self.session.flush()
+        return (result.rowcount or 0) > 0
+
+    async def list_by_petition_count_gte(
+        self,
+        *,
+        threshold: int,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[IssuePin]:
+        result = await self.session.execute(
+            select(IssuePin)
+            .where(IssuePin.petition_count >= threshold)
+            .options(*_ISSUE_PIN_LOAD_OPTIONS)
+            .order_by(IssuePin.issue_pin_id.asc())
+            .limit(limit)
+            .offset(offset),
+        )
+        return list(result.scalars().all())
+
+    async def update_state(self, issue_pin_id: int, state: IssuePinState) -> bool:
+        result = await self.session.execute(
+            update(IssuePin)
+            .where(IssuePin.issue_pin_id == issue_pin_id)
+            .values(issue_pin_state=state),
         )
         await self.session.flush()
         return (result.rowcount or 0) > 0

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from sqlalchemy import BigInteger, Enum, ForeignKey, Identity, Integer, String, Float, Text
+from typing import TYPE_CHECKING
+
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
 from app.models.Pin import Pin
 from app.models.enum.IssuePinState import IssuePinState
+
+if TYPE_CHECKING:
+    from app.models.ComplaintPetition import ComplaintPetition
 
 
 class IssuePin(BaseEntity):
@@ -52,5 +57,10 @@ class IssuePin(BaseEntity):
         "Pin",
         foreign_keys=[pin_id],
         back_populates="issue_pin",
+        lazy="selectin",
+    )
+    complaint_petitions: Mapped[list[ComplaintPetition]] = relationship(
+        "ComplaintPetition",
+        foreign_keys="ComplaintPetition.issue_pin_id",
         lazy="selectin",
     )
