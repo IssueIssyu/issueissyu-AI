@@ -418,7 +418,7 @@ class IssueService:
 
         await self._pin_repo.commit()
 
-        self._background_runner.schedule(
+        await self._background_runner.schedule(
             IssuePinReliabilityJob(
                 issue_pin_id=issue_pin.issue_pin_id,
                 pin_id=pin.pin_id,
@@ -515,7 +515,7 @@ class IssueService:
         )
 
         await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
-        self._background_runner.cancel(pin_id=pin.pin_id)
+        await self._background_runner.cancel(pin_id=pin.pin_id)
         await self._pin_repo.commit()
         if old_s3_keys:
             deleted_count = await self._s3_util.delete_objects_best_effort(old_s3_keys)
@@ -526,7 +526,7 @@ class IssueService:
                 len(old_s3_keys),
             )
 
-        self._background_runner.schedule(
+        await self._background_runner.schedule(
             IssuePinReliabilityJob(
                 issue_pin_id=issue_pin.issue_pin_id,
                 pin_id=pin.pin_id,
