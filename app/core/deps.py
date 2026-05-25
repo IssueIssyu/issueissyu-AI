@@ -23,6 +23,7 @@ from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRun
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.FestivalPinService import FestivalPinService
+from app.services.PolicyPinService import PolicyPinService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
@@ -376,4 +377,14 @@ def get_festival_pin_service() -> FestivalPinService:
 FestivalPinServiceDep = Annotated[
     FestivalPinService,
     Depends(get_festival_pin_service),
+]
+
+
+def get_policy_pin_service() -> PolicyPinService:
+    return PolicyPinService()
+
+
+PolicyPinServiceDep = Annotated[
+    PolicyPinService,
+    Depends(get_policy_pin_service),
 ]

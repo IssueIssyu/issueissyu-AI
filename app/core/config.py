@@ -179,6 +179,82 @@ class Settings(BaseSettings):
         description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
     )
 
+    # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
+    policy_news_service_key: SecretStr | None = Field(
+        default=None,
+        alias="POLICY_NEWS_SERVICE_KEY",
+        description="미설정 시 VISITKOREA_SERVICE_KEY 사용",
+    )
+    policy_news_api_base_url: str = Field(
+        default="http://apis.data.go.kr/1371000/policyNewsService",
+        alias="POLICY_NEWS_API_BASE_URL",
+    )
+    policy_news_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        alias="POLICY_NEWS_REQUEST_TIMEOUT_SECONDS",
+    )
+    policy_news_request_interval_seconds: float = Field(
+        default=0.15,
+        ge=0,
+        alias="POLICY_NEWS_REQUEST_INTERVAL_SECONDS",
+    )
+    policy_sync_lookback_days: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        alias="POLICY_SYNC_LOOKBACK_DAYS",
+        description="배치 수집 시 오늘 포함 N일 (API 3일 제한 고려)",
+    )
+    gemini_cardnews_image_model: str = Field(
+        default="gemini-2.5-flash-image",
+        alias="GEMINI_CARDNEWS_IMAGE_MODEL",
+        description="정책 카드뉴스 슬라이드 이미지 생성 모델",
+    )
+    gemini_cardnews_image_fallback_models: str = Field(
+        default="gemini-3-pro-image-preview,imagen-3.0-generate-002",
+        alias="GEMINI_CARDNEWS_IMAGE_FALLBACK_MODELS",
+    )
+    policy_cardnews_pillow_fallback: bool = Field(
+        default=True,
+        alias="POLICY_CARDNEWS_PILLOW_FALLBACK",
+        description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
+    )
+    policy_cardnews_use_template: bool = Field(
+        default=True,
+        alias="POLICY_CARDNEWS_USE_TEMPLATE",
+        description="고정 카드뉴스 템플릿(레퍼런스 형식) 사용",
+    )
+    policy_cardnews_use_image_model: bool = Field(
+        default=False,
+        alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
+        description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
+    )
+    policy_cardnews_font_dir: str | None = Field(
+        default=None,
+        alias="POLICY_CARDNEWS_FONT_DIR",
+        description="Pretendard 등 TTF 폴더 (기본 app/assets/fonts)",
+    )
+    policy_cardnews_mascot_dir: str | None = Field(
+        default="app/assets/mascots",
+        alias="POLICY_CARDNEWS_MASCOT_DIR",
+        description="핀 캐릭터 PNG 폴더. mascots.json files 목록에 있는 PNG만 사용",
+    )
+
+    @field_validator("policy_cardnews_font_dir", mode="before")
+    @classmethod
+    def _empty_string_policy_cardnews_font_dir(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
+    @field_validator("policy_cardnews_mascot_dir", mode="before")
+    @classmethod
+    def _empty_string_policy_cardnews_mascot_dir(cls, value: object) -> object:
+        if value == "":
+            return None
+        return value
+
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod
     def _empty_string_gemini_embed_batch(cls, value: object) -> object:
