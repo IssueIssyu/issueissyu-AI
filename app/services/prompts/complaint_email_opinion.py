@@ -88,7 +88,6 @@ def complaint_opinion_prompt(bundle: ComplaintEmailLlmBundle) -> str:
         [금지]
         - 서울시·서울특별시 등 특정 지자체명
         - 확인되지 않은 사실·법적 확정 판단
-        - 문자열에 리터럴 "\\n" 금지 — 줄바꿈은 실제 엔터
         - wowform 등 워터마크 문구
         
         [입력 JSON]

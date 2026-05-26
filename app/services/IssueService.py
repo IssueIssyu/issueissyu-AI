@@ -34,6 +34,7 @@ from app.schemas.IssueDTO import (
     IssuePinHomeImageItem,
     IssuePinReliabilityResponse,
     ReliabilityStatus,
+    UpdateIssuePinRequest,
 )
 from app.services.internal.issue_confidence_basis import is_failed_reliability_content
 from app.schemas.issue_pin_job import ImageSnapshot, IssuePinReliabilityJob
@@ -93,13 +94,23 @@ class IssueService:
     def _is_pin_updated(*, created_at: datetime, updated_at: datetime | None) -> bool:
         if updated_at is None:
             return False
-        return updated_at > created_at
+        # DB/driver 설정에 따라 naive/aware datetime이 혼재할 수 있어 비교 전에 정규화한다.
+        normalized_created_at = created_at
+        normalized_updated_at = updated_at
+        if normalized_created_at.tzinfo is None:
+            normalized_created_at = normalized_created_at.replace(tzinfo=ZoneInfo("UTC"))
+        if normalized_updated_at.tzinfo is None:
+            normalized_updated_at = normalized_updated_at.replace(tzinfo=ZoneInfo("UTC"))
+        return normalized_updated_at > normalized_created_at
 
     @staticmethod
-    def _user_coordinates_from_request(request: CreateIssuePinRequest) -> str:
+    def _user_coordinates_from_request(request: CreateIssuePinRequest | UpdateIssuePinRequest) -> str:
         return f"{request.latitude:.6f},{request.longitude:.6f}"
 
-    async def _resolve_user_location_address(self, request: CreateIssuePinRequest) -> str | None:
+    async def _resolve_user_location_address(
+        self,
+        request: CreateIssuePinRequest | UpdateIssuePinRequest,
+    ) -> str | None:
         resolved = await self._location_resolve_client.resolve_wgs84(
             latitude=request.latitude,
             longitude=request.longitude,
@@ -108,6 +119,34 @@ class IssueService:
             return None
         address = (resolved.address or "").strip()
         return address or None
+
+    async def _resolve_location_fields(
+        self,
+        request: CreateIssuePinRequest | UpdateIssuePinRequest,
+    ) -> tuple[int, str, str]:
+        resolved = await self._location_resolve_client.resolve_wgs84(
+            latitude=request.latitude,
+            longitude=request.longitude,
+        )
+        if resolved is None:
+            raise_validation_exception(
+                ErrorCode.VALIDATION_ERROR,
+                detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
+            )
+        detail_address = (resolved.address or "").strip()
+        if not detail_address:
+            raise_validation_exception(
+                ErrorCode.VALIDATION_ERROR,
+                detail="위치 주소를 확인할 수 없습니다.",
+            )
+        location_id = resolved.location_id
+        if location_id is None:
+            raise_validation_exception(
+                ErrorCode.VALIDATION_ERROR,
+                detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
+            )
+        trimmed_address = detail_address[:150]
+        return location_id, trimmed_address, trimmed_address
 
     @staticmethod
     def _rag_hits_to_dicts(hits: list[Any]) -> list[dict[str, Any]]:
@@ -258,6 +297,10 @@ class IssueService:
         for index, upload in enumerate(images, start=1):
             raw = await upload.read()
             if not raw:
+                # multipart/form-data 에서 `images=`처럼 빈 필드가 전달되면
+                # filename 없는 0-byte 파트가 들어올 수 있다. 이 경우는 "이미지 없음"으로 처리.
+                if not (upload.filename or "").strip():
+                    continue
                 raise_validation_exception(
                     ErrorCode.VALIDATION_ERROR,
                     detail=f"이미지 파일이 비어 있습니다. (index={index})",
@@ -330,29 +373,7 @@ class IssueService:
         if user is None:
             raise_validation_exception(ErrorCode.USER_NOT_FOUND)
 
-        resolved = await self._location_resolve_client.resolve_wgs84(
-            latitude=request.latitude,
-            longitude=request.longitude,
-        )
-        if resolved is None:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-            )
-        detail_address = (resolved.address or "").strip()
-        if not detail_address:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치 주소를 확인할 수 없습니다.",
-            )
-        detail_address = detail_address[:150]
-        location_id = resolved.location_id
-        if location_id is None:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-            )
-        user_address = detail_address
+        location_id, detail_address, user_address = await self._resolve_location_fields(request)
 
         image_snapshots = await self._snapshot_upload_images(uploads)
         user_gps = self._user_coordinates_from_request(request)
@@ -397,7 +418,7 @@ class IssueService:
 
         await self._pin_repo.commit()
 
-        self._background_runner.schedule(
+        await self._background_runner.schedule(
             IssuePinReliabilityJob(
                 issue_pin_id=issue_pin.issue_pin_id,
                 pin_id=pin.pin_id,
@@ -418,6 +439,115 @@ class IssueService:
             issue_pin=issue_pin,
             pin_location=pin_location,
             pin_user_nickname=user.nickname,
+            pin_images=saved_images,
+            reliability_status=ReliabilityStatus.PENDING,
+            image_upload_status=image_status,
+        )
+
+    async def update_issue_pin(
+        self,
+        *,
+        uid: str,
+        pin_id: int,
+        request: UpdateIssuePinRequest,
+        images: list[UploadFile] | None = None,
+        background_tasks: BackgroundTasks | None = None,
+    ) -> IssuePinHomeDetailResponse:
+        uploads = images or []
+        safe_title, safe_content = self._validate_create_issue_pin_payload(
+            title=request.title,
+            content=request.content,
+            images=uploads,
+        )
+        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
+        if issue_pin is None or issue_pin.pin is None:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+
+        pin = issue_pin.pin
+        if pin.pin_type != PinType.ISSUE:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+        if pin.uid != uid:
+            raise_business_exception(ErrorCode.FORBIDDEN)
+        if issue_pin.issue_pin_state != IssuePinState.BEFORE_PROGRESS:
+            raise_validation_exception(
+                ErrorCode.VALIDATION_ERROR,
+                detail="진행 전 상태(BEFORE_PROGRESS)인 이슈 핀만 수정할 수 있습니다.",
+            )
+
+        location_id, detail_address, user_address = await self._resolve_location_fields(request)
+        image_snapshots = await self._snapshot_upload_images(uploads)
+        user_gps = self._user_coordinates_from_request(request)
+        old_s3_keys = [
+            image.pin_s3_key
+            for image in list(pin.pin_images or [])
+            if (image.pin_s3_key or "").strip()
+        ]
+
+        pin.pin_title = safe_title
+        pin.pin_content = safe_content
+        pin.tone_type = request.tone
+        await self._pin_repo.save(pin, flush_immediately=True)
+
+        pin_location = pin.pin_location
+        if pin_location is None:
+            pin_location = PinLocation(
+                pin_id=pin.pin_id,
+                location_id=location_id,
+                detail_address=detail_address,
+                pin_point=wkt_point_from_wgs84(
+                    latitude=request.latitude,
+                    longitude=request.longitude,
+                ),
+            )
+        else:
+            pin_location.location_id = location_id
+            pin_location.detail_address = detail_address
+            pin_location.pin_point = wkt_point_from_wgs84(
+                latitude=request.latitude,
+                longitude=request.longitude,
+            )
+        await self._pin_location_repo.save(pin_location, flush_immediately=True)
+
+        await self._pin_image_repo.delete_by_pin_id(pin.pin_id)
+        pin.pin_images = []
+        saved_images = await self._upload_pin_images_sync(
+            pin_id=pin.pin_id,
+            snapshots=image_snapshots,
+        )
+
+        await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
+        await self._background_runner.cancel(pin_id=pin.pin_id)
+        await self._pin_repo.commit()
+        if old_s3_keys:
+            deleted_count = await self._s3_util.delete_objects_best_effort(old_s3_keys)
+            logger.info(
+                "issue pin update old image S3 cleanup pin_id=%s deleted=%s requested=%s",
+                pin.pin_id,
+                deleted_count,
+                len(old_s3_keys),
+            )
+
+        await self._background_runner.schedule(
+            IssuePinReliabilityJob(
+                issue_pin_id=issue_pin.issue_pin_id,
+                pin_id=pin.pin_id,
+                title=safe_title,
+                content=safe_content,
+                user_gps=user_gps,
+                user_address=user_address,
+            ),
+            background_tasks=background_tasks,
+        )
+        image_status = (
+            ImageUploadStatus.COMPLETED if image_snapshots else ImageUploadStatus.NONE
+        )
+
+        return await self._build_issue_pin_home_response(
+            uid=uid,
+            pin=pin,
+            issue_pin=issue_pin,
+            pin_location=pin_location,
+            pin_user_nickname=pin.user.nickname if pin.user is not None else None,
             pin_images=saved_images,
             reliability_status=ReliabilityStatus.PENDING,
             image_upload_status=image_status,
@@ -543,13 +673,16 @@ class IssueService:
         self,
         *,
         uid: str,
-        issue_pin_id: int,
+        pin_id: int,
     ) -> IssuePinReliabilityResponse:
-        issue_pin = await self._issue_pin_repo.get_by_issue_pin_id(issue_pin_id)
+        _ = uid
+        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
         if issue_pin is None or issue_pin.pin is None:
             raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
 
         pin = issue_pin.pin
+        if pin.pin_type != PinType.ISSUE:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
         pin_images = list(pin.pin_images or [])
         reliability = self._derive_reliability_status(
             issue_confidence=issue_pin.issue_confidence,

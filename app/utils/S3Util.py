@@ -186,6 +186,48 @@ class S3Util:
             "url": self._build_public_file_url(resolved_key),
         }
 
+    async def upload_binary(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str,
+        prefix: str = "uploads",
+        object_key: str | None = None,
+        extra_args: dict[str, object] | None = None,
+    ) -> UploadedImageResult:
+        if not data:
+            raise_file_exception(
+                ErrorCode.FILE_UPLOAD_ERROR,
+                detail="업로드할 데이터가 비어 있습니다.",
+            )
+        bucket_name = self._ensure_bucket_name()
+        resolved_key = object_key or self._build_object_key(filename, prefix)
+        upload_args = dict(extra_args or {})
+        if content_type:
+            upload_args.setdefault("ContentType", content_type)
+        buffer = io.BytesIO(data)
+
+        try:
+            await to_thread.run_sync(
+                lambda: self.client.upload_fileobj(
+                    buffer,
+                    bucket_name,
+                    resolved_key,
+                    ExtraArgs=upload_args,
+                )
+                if upload_args
+                else self.client.upload_fileobj(buffer, bucket_name, resolved_key),
+            )
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이너리 업로드 실패: %s", exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+
+        return {
+            "key": resolved_key,
+            "url": self._build_public_file_url(resolved_key),
+        }
+
     async def download_bytes(self, object_key: str) -> tuple[bytes, str]:
         bucket_name = self._ensure_bucket_name()
         normalized_key = object_key.lstrip("/")
@@ -204,4 +246,94 @@ class S3Util:
         except (ClientError, BotoCoreError) as exc:
             logger.exception("S3 바이트 다운로드 실패 key=%s err=%s", normalized_key, exc)
             raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+
+    async def download_binary(self, object_key: str) -> tuple[bytes, str]:
+        bucket_name = self._ensure_bucket_name()
+        normalized_key = object_key.lstrip("/")
+
+        def _download() -> tuple[bytes, str]:
+            response = self.client.get_object(Bucket=bucket_name, Key=normalized_key)
+            body = response["Body"].read()
+            content_type = (response.get("ContentType") or "").split(";")[0].strip().lower()
+            if not content_type:
+                guessed, _ = mimetypes.guess_type(normalized_key)
+                content_type = (guessed or "application/octet-stream").split(";")[0].strip().lower()
+            return body, content_type
+
+        try:
+            return await to_thread.run_sync(_download)
+        except (ClientError, BotoCoreError) as exc:
+            logger.exception("S3 바이너리 다운로드 실패 key=%s err=%s", normalized_key, exc)
+            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+
+    async def delete_object(self, object_key: str) -> bool:
+        bucket_name = self._ensure_bucket_name()
+        normalized_key = object_key.lstrip("/")
+
+        def _delete() -> bool:
+            try:
+                self.client.delete_object(Bucket=bucket_name, Key=normalized_key)
+                return True
+            except ClientError as exc:
+                error_code = (exc.response or {}).get("Error", {}).get("Code")
+                # 이미 없는 객체는 삭제 성공으로 간주
+                if error_code in {"NoSuchKey", "404"}:
+                    logger.info("S3 삭제 대상 없음 key=%s", normalized_key)
+                    return True
+                logger.exception("S3 객체 삭제 실패 key=%s err=%s", normalized_key, exc)
+                return False
+            except BotoCoreError as exc:
+                logger.exception("S3 객체 삭제 실패 key=%s err=%s", normalized_key, exc)
+                return False
+
+        return await to_thread.run_sync(_delete)
+
+    async def delete_objects_best_effort(self, object_keys: list[str]) -> int:
+        bucket_name = self._ensure_bucket_name()
+        valid_keys = [k.lstrip("/") for k in object_keys if k.strip()]
+        if not valid_keys:
+            return 0
+
+        chunk_size = 1000
+        deleted_count = 0
+
+        for i in range(0, len(valid_keys), chunk_size):
+            chunk = valid_keys[i : i + chunk_size]
+
+            def _delete_chunk() -> int:
+                try:
+                    response = self.client.delete_objects(
+                        Bucket=bucket_name,
+                        Delete={"Objects": [{"Key": k} for k in chunk], "Quiet": False},
+                    )
+                    deleted_items = response.get("Deleted", []) or []
+                    errors = response.get("Errors", []) or []
+
+                    tolerated_missing = sum(
+                        1
+                        for err in errors
+                        if err.get("Code") in {"NoSuchKey", "404"}
+                    )
+                    unexpected_errors = [
+                        err for err in errors if err.get("Code") not in {"NoSuchKey", "404"}
+                    ]
+                    for err in unexpected_errors:
+                        logger.warning(
+                            "S3 배치 삭제 일부 실패 key=%s code=%s message=%s",
+                            err.get("Key"),
+                            err.get("Code"),
+                            err.get("Message"),
+                        )
+                    return len(deleted_items) + tolerated_missing
+                except (ClientError, BotoCoreError) as exc:
+                    logger.exception(
+                        "S3 batch delete failed chunk_size=%s err=%s",
+                        len(chunk),
+                        exc,
+                    )
+                    return 0
+
+            deleted_count += await to_thread.run_sync(_delete_chunk)
+
+        return deleted_count
 

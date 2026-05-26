@@ -5,7 +5,6 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
@@ -16,13 +15,36 @@ from app.core.responses import success_response
 from app.core.config import settings
 from app.routes import enabled_routers
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
+from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
+from app.services.RagRerankService import RagRerankService
+from app.services.RagRetrievalService import RagRetrievalService
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPetitionSchedulerService
+from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
+from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.ai.gemini_retry import parse_gemini_model_list
+from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.services.vector_domains import build_vector_domain_configs
 from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
 from app.utils.vector import ensure_pgvector_extension
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_local_logging() -> None:
+    if settings.env != "local":
+        return
+    root_logger = logging.getLogger()
+    if root_logger.level > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.INFO)
+    logger.info("Local logging level configured to INFO")
+
+
+_configure_local_logging()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,24 +115,81 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        await run_in_threadpool(ComplaintEmailPdfService.start_playwright_browser)
+        await ComplaintEmailPdfService.start_playwright_browser()
     except Exception as exc:
         logger.warning(
             "Playwright PDF browser startup skipped; PDF fallback may lazy-start: %s",
             exc,
         )
 
+    scheduler = None
+    if (
+        gemini_api_key_secret is not None
+        and getattr(app.state, "vector_store_service", None) is not None
+    ):
+        try:
+            complaint_vlm_service = ComplaintEmailVlmService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model=settings.gemini_vlm_model,
+            )
+            validation_vlm_service = VLMService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model_name=settings.gemini_vlm_model,
+                fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
+            )
+            complaint_llm_service = ComplaintEmailLLMService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model_name=settings.gemini_pin_text_model,
+            )
+            rag_rerank_service = RagRerankService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                embedding_model=settings.gemini_embedding_model,
+                embed_dim=settings.vector_embed_dim,
+                embedding_batch_size=settings.gemini_embedding_batch_size,
+            )
+            rag_retrieval_service = RagRetrievalService(
+                vector_store_service=app.state.vector_store_service,
+                rerank_service=rag_rerank_service,
+                retrieve_top_k=settings.rag_retrieve_top_k,
+                rerank_top_k=settings.rag_rerank_top_k,
+                enable_rerank=settings.rag_enable_rerank,
+                vector_query_mode=settings.rag_vector_query_mode,
+            )
+            complaint_email_service = ComplaintEmailService(
+                complaint_vlm_service=complaint_vlm_service,
+                pin_validation_vlm_service=validation_vlm_service,
+                complaint_llm_service=complaint_llm_service,
+                rag_retrieval_service=rag_retrieval_service,
+            )
+            scheduler = ComplaintPetitionSchedulerService(
+                complaint_email_service=complaint_email_service,
+                s3_util=app.state.s3_util,
+            )
+            scheduler.start()
+            app.state.complaint_scheduler = scheduler
+        except Exception as exc:
+            logger.warning("Complaint scheduler initialization failed: %s", exc)
+
     try:
         yield
     finally:
+        scheduler = getattr(app.state, "complaint_scheduler", None)
+        if scheduler is not None:
+            try:
+                await scheduler.stop()
+            except Exception as exc:
+                logger.warning("Complaint scheduler stop failed: %s", exc)
         try:
-            await run_in_threadpool(ComplaintEmailPdfService.stop_playwright_browser)
+            await ComplaintEmailPdfService.stop_playwright_browser()
         except Exception as exc:
             logger.warning("Playwright PDF browser shutdown failed: %s", exc)
 
         hx = getattr(app.state, "shared_httpx_client", None)
         if hx is not None:
-            await hx.aclose()
+            try:
+                await hx.aclose()
+            except Exception as exc:
+                logger.warning("Shared HTTPX client close failed: %s", exc)
         async_redis_client = getattr(app.state, "async_redis_client", None)
         if async_redis_client is not None:
             await async_redis_client.aclose()

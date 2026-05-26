@@ -40,6 +40,9 @@ class ComplaintEmailLLMService:
         bundle: ComplaintEmailLlmBundle,
         *,
         attachment_images: list[OpinionAttachmentImage] | None = None,
+        submitter_name: str | None = None,
+        submitter_address: str | None = None,
+        submitter_phone: str | None = None,
     ) -> str:
         prompt = complaint_opinion_prompt(bundle)
         raw = await self._generate_json_text(prompt)
@@ -47,6 +50,9 @@ class ComplaintEmailLLMService:
             sections = self._opinion_renderer.parse_sections_json(raw)
         except (json.JSONDecodeError, ValueError) as exc:
             raise BusinessException(ErrorCode.VALIDATION_ERROR, "의견서 JSON 파싱 실패") from exc
+        sections["submitter_name"] = self._as_nullable_text(submitter_name)
+        sections["submitter_address"] = self._as_nullable_text(submitter_address)
+        sections["submitter_phone"] = self._as_nullable_text(submitter_phone)
         return self._opinion_renderer.render(
             bundle,
             sections,
@@ -88,3 +94,9 @@ class ComplaintEmailLLMService:
         if not out:
             raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
         return out
+
+    @staticmethod
+    def _as_nullable_text(value: str | None) -> str:
+        if value is None:
+            return ""
+        return value.strip()

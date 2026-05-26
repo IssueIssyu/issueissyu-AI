@@ -52,6 +52,7 @@ class ComplaintEmailRagRunResult(BaseModel):
     vlm_input: ComplaintEmailVlmInput
     vlm_output: ComplaintEmailVlmOutput
     rag: ComplaintEmailRagPipelineResult
+    department: str | None = None
 
 
 class ComplaintEmailLlmBundle(BaseModel):
@@ -78,6 +79,7 @@ class ComplaintEmailGenerateResult(BaseModel):
     pin_content: str = ""
     photo_address: str | None = None
     image_count: int = 0
+    department: str | None = None
     # 파이프라인 중간 산출
     vlm_input: ComplaintEmailVlmInput | None = None
     vlm_output: ComplaintEmailVlmOutput | None = None
@@ -87,8 +89,10 @@ class ComplaintEmailGenerateResult(BaseModel):
     # 최종 산출물
     opinion_html: str = ""
     opinion_pdf_bytes: bytes = b""
+    notification_email_subject: str = ""
     notification_email_body: str = ""
     reliability_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    reliability_basis: str = ""
 
 
 class ComplaintEmailPinInputApi(BaseModel):
@@ -101,8 +105,11 @@ class ComplaintEmailPinInputApi(BaseModel):
 class ComplaintEmailOutputsApi(BaseModel):
     opinion_html: str
     opinion_pdf_base64: str
+    notification_email_subject: str
     notification_email_body: str
     reliability_score: float = Field(ge=0.0, le=1.0)
+    department: str | None = None
+    reliability_basis: str = ""
 
 
 class ComplaintEmailRagPipelineApi(BaseModel):
@@ -124,6 +131,7 @@ class ComplaintEmailRagApiResponse(BaseModel):
     vlm_input: ComplaintEmailVlmInput
     vlm_output: ComplaintEmailVlmOutput
     rag: ComplaintEmailRagPipelineApi
+    department: str | None = None
 
 
 class ComplaintEmailOutputsOnlyApiResponse(BaseModel):
@@ -145,8 +153,11 @@ class ComplaintEmailOutputsOnlyApiResponse(BaseModel):
             outputs=ComplaintEmailOutputsApi(
                 opinion_html=result.opinion_html,
                 opinion_pdf_base64=base64.b64encode(result.opinion_pdf_bytes).decode("ascii"),
+                notification_email_subject=result.notification_email_subject,
                 notification_email_body=result.notification_email_body,
                 reliability_score=result.reliability_score,
+                department=result.department,
+                reliability_basis=result.reliability_basis,
             ),
         )
 
@@ -166,4 +177,41 @@ def build_rag_api_response(result: ComplaintEmailRagRunResult) -> ComplaintEmail
             retrieval=result.rag.retrieval_hits,
             rerank=result.rag.reranked_hits,
         ),
+        department=result.department,
     )
+
+
+class ComplaintPetitionApplyResponse(BaseModel):
+    petition_id: int
+    issue_pin_id: int
+    location_department_id: int
+    location_id: int
+    department_name: str
+    location_department_email: str
+    generated_on: str
+    pdf_s3_key: str
+    pdf_s3_url: str
+    email_subject: str
+    email_body: str
+    reliability_score: float = Field(ge=0.0, le=1.0)
+    reliability_basis: str
+    status: str
+
+
+class ComplaintPetitionBulkSendRequest(BaseModel):
+    petition_ids: list[int] = Field(default_factory=list)
+
+
+class ComplaintPetitionBulkSendItem(BaseModel):
+    petition_id: int
+    status: str
+    issue_pin_id: int
+    location_department_id: int
+    location_department_email: str
+    reason: str | None = None
+
+
+class ComplaintPetitionBulkSendResponse(BaseModel):
+    sent_count: int = 0
+    failed_count: int = 0
+    items: list[ComplaintPetitionBulkSendItem] = Field(default_factory=list)
