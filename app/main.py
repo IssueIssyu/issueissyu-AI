@@ -16,7 +16,15 @@ from app.core.responses import success_response
 from app.core.config import settings
 from app.routes import enabled_routers
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
+from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
+from app.services.RagRerankService import RagRerankService
+from app.services.RagRetrievalService import RagRetrievalService
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPetitionSchedulerService
+from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
+from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
@@ -136,9 +144,60 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    scheduler = None
+    if (
+        gemini_api_key_secret is not None
+        and getattr(app.state, "vector_store_service", None) is not None
+    ):
+        try:
+            complaint_vlm_service = ComplaintEmailVlmService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model=settings.gemini_vlm_model,
+            )
+            validation_vlm_service = VLMService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model_name=settings.gemini_vlm_model,
+                fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
+            )
+            complaint_llm_service = ComplaintEmailLLMService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                model_name=settings.gemini_pin_text_model,
+            )
+            rag_rerank_service = RagRerankService(
+                api_key=gemini_api_key_secret.get_secret_value(),
+                embedding_model=settings.gemini_embedding_model,
+                embed_dim=settings.vector_embed_dim,
+                embedding_batch_size=settings.gemini_embedding_batch_size,
+            )
+            rag_retrieval_service = RagRetrievalService(
+                vector_store_service=app.state.vector_store_service,
+                rerank_service=rag_rerank_service,
+                retrieve_top_k=settings.rag_retrieve_top_k,
+                rerank_top_k=settings.rag_rerank_top_k,
+                enable_rerank=settings.rag_enable_rerank,
+                vector_query_mode=settings.rag_vector_query_mode,
+            )
+            complaint_email_service = ComplaintEmailService(
+                complaint_vlm_service=complaint_vlm_service,
+                pin_validation_vlm_service=validation_vlm_service,
+                complaint_llm_service=complaint_llm_service,
+                rag_retrieval_service=rag_retrieval_service,
+            )
+            scheduler = ComplaintPetitionSchedulerService(
+                complaint_email_service=complaint_email_service,
+                s3_util=app.state.s3_util,
+            )
+            scheduler.start()
+            app.state.complaint_scheduler = scheduler
+        except Exception as exc:
+            logger.warning("Complaint scheduler initialization failed: %s", exc)
+
     try:
         yield
     finally:
+        scheduler = getattr(app.state, "complaint_scheduler", None)
+        if scheduler is not None:
+            await scheduler.stop()
         try:
             await run_in_threadpool(ComplaintEmailPdfService.stop_playwright_browser)
         except Exception as exc:

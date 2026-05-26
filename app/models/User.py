@@ -4,11 +4,12 @@ from typing import TYPE_CHECKING
 
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.BaseEntity import BaseEntity
 from app.models.PgPointType import PGPointType
+from app.models.enum.UserRole import UserRole
 
 if TYPE_CHECKING:
     from app.models.Location import Location
@@ -25,6 +26,11 @@ class User(BaseEntity):
     user_name: Mapped[str] = mapped_column(String(100), nullable=False)
     user_point: Mapped[tuple[float, float] | None] = mapped_column(PGPointType(), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, native_enum=False, length=32),
+        nullable=False,
+        default=UserRole.USER,
+    )
     event_alarm_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     hot_alarm_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     store_alarm_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
