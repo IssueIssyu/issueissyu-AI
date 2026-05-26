@@ -20,7 +20,8 @@ if command -v dnf >/dev/null 2>&1; then
     libffi \
     harfbuzz \
     fontconfig \
-    freetype
+    freetype \
+    google-noto-sans-cjk-fonts
 elif command -v yum >/dev/null 2>&1; then
   run_as_root yum -y install \
     pango \
@@ -30,7 +31,8 @@ elif command -v yum >/dev/null 2>&1; then
     libffi \
     harfbuzz \
     fontconfig \
-    freetype
+    freetype \
+    google-noto-sans-cjk-fonts
 elif command -v apt-get >/dev/null 2>&1; then
   run_as_root apt-get update -y
   run_as_root apt-get install -y \
@@ -41,7 +43,8 @@ elif command -v apt-get >/dev/null 2>&1; then
     libffi8 \
     libharfbuzz0b \
     fontconfig \
-    libfreetype6
+    libfreetype6 \
+    fonts-nanum
 else
   echo "[EB][pdf-libs] Unsupported package manager. Install libs manually."
   exit 1
