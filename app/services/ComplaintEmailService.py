@@ -143,7 +143,7 @@ class ComplaintEmailService:
 
         try:
             opinion_pdf_bytes = await self._pdf_service.html_to_pdf(opinion_html)
-        except (RuntimeError, ValueError) as exc:
+        except Exception as exc:
             logger.exception("PDF 변환 실패")
             raise BusinessException(
                 ErrorCode.INTERNAL_SERVER_ERROR,
