@@ -93,7 +93,7 @@ class IssuePinRepo(BaseRepo[IssuePin]):
             .limit(limit)
             .offset(offset),
         )
-        issue_pin_ids = [int(row[0]) for row in id_result.fetchall()]
+        issue_pin_ids = list(id_result.scalars().all())
         if not issue_pin_ids:
             return []
 
