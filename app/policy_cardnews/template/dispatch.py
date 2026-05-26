@@ -1,15 +1,20 @@
-# 정책 카드뉴스 고정 템플릿
+﻿# 정책 카드뉴스 고정 템플릿
 
 from __future__ import annotations
 
+import json
+import logging
 import random
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 from PIL import Image, ImageDraw, ImageFont
 
-from app.utils.policy_cardnews_constants import (
+from app.policy_cardnews.constants import (
     CANVAS_HEIGHT,
     CANVAS_WIDTH,
     CARD_INSET,
@@ -21,20 +26,20 @@ from app.utils.policy_cardnews_constants import (
     GAP_SECTION,
     OFFSET_PX,
 )
-from app.utils.policy_cardnews_template_metrics import (
+from app.policy_cardnews.template.metrics import (
     COVER_MASCOT_MIN_H,
     COVER_MASCOT_ZONE_RATIO,
     CTA_MIN_MASCOT_ZONE,
     GAP_MASCOT,
     MIN_MASCOT_ZONE_H,
 )
-from app.utils.policy_cardnews_template_draw import (
+from app.policy_cardnews.template.draw import (
     fill_scale,
     line_height,
     scaled_size,
     wrap_text,
 )
-from app.utils.policy_cardnews_mascot import (
+from app.policy_cardnews.mascot import (
     BRAND_ACCENT,
     BRAND_BLUE,
     INK_BLACK,
@@ -47,10 +52,10 @@ LAYOUT_THREE_COL = "template_three_col"
 LAYOUT_GRID = "template_grid"
 LAYOUT_CTA = "template_cta"
 
-# 2×2 그리드는 캐릭터 미사용 (정보 밀도·중앙 정렬 우선)
+# 2×2 그리드는 캐릭터 미사용
 MASCOT_LAYOUTS = {LAYOUT_COVER, LAYOUT_CTA, LAYOUT_THREE_COL, LAYOUT_NUMBERED}
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _FONT_DIR = _REPO_ROOT / "app" / "assets" / "fonts"
 
 
@@ -82,6 +87,63 @@ TEMPLATE_PALETTES: dict[str, TemplatePalette] = {
 
 TEMPLATE_PALETTE_NAMES = list(TEMPLATE_PALETTES.keys())
 
+_CUSTOM_PALETTES_PATH = _REPO_ROOT / "app" / "assets" / "policy_cardnews_palettes.json"
+
+
+def _parse_rgb_triplet(raw: object, *, field: str, palette_key: str) -> tuple[int, int, int]:
+    if not isinstance(raw, (list, tuple)) or len(raw) != 3:
+        raise ValueError(f"팔레트 '{palette_key}'의 {field}는 [R,G,B] 배열이어야 합니다")
+    values = tuple(int(v) for v in raw)
+    if any(v < 0 or v > 255 for v in values):
+        raise ValueError(f"팔레트 '{palette_key}'의 {field} RGB는 0~255여야 합니다")
+    return values  # type: ignore[return-value]
+
+
+@lru_cache(maxsize=1)
+def load_custom_palettes() -> dict[str, TemplatePalette]:
+    """`app/assets/policy_cardnews_palettes.json`에 정의한 사용자 팔레트."""
+    path = _CUSTOM_PALETTES_PATH
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("policy_cardnews_palettes.json 로드 실패: %s", exc)
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    entries = payload.get("palettes")
+    if not isinstance(entries, dict):
+        return {}
+    out: dict[str, TemplatePalette] = {}
+    for key, spec in entries.items():
+        if not isinstance(key, str) or not isinstance(spec, dict):
+            continue
+        name = key.strip()
+        if not name or name.startswith("_"):
+            continue
+        try:
+            out[name] = TemplatePalette(
+                name=name,
+                outer=_parse_rgb_triplet(spec.get("outer"), field="outer", palette_key=name),
+                offset=_parse_rgb_triplet(spec.get("offset"), field="offset", palette_key=name),
+                accent=_parse_rgb_triplet(spec.get("accent"), field="accent", palette_key=name),
+            )
+        except ValueError as exc:
+            logger.warning("%s", exc)
+    return out
+
+
+def all_template_palettes() -> dict[str, TemplatePalette]:
+    merged = dict(TEMPLATE_PALETTES)
+    merged.update(load_custom_palettes())
+    return merged
+
+
+def template_palette_names() -> list[str]:
+    return list(all_template_palettes().keys())
+
+
 THEME_TO_TEMPLATE_PALETTE: dict[str, str] = {
     "cream_warm": "amber_warm",
     "mint_fresh": "mint_pop",
@@ -106,8 +168,9 @@ class TemplateContext:
 
 
 def resolve_template_palette(name: str) -> TemplatePalette:
+    palettes = all_template_palettes()
     key = (name or "royal_blue").strip()
-    return TEMPLATE_PALETTES.get(key, TEMPLATE_PALETTES["royal_blue"])
+    return palettes.get(key, palettes["royal_blue"])
 
 
 DECK_THEME_NAMES = tuple(THEME_TO_TEMPLATE_PALETTE.keys())
@@ -118,7 +181,7 @@ def _pick_deck_theme_and_palette(
     *,
     rng: random.Random,
 ) -> tuple[str, str]:
-    """카드뉴스 1건(주제)에 쓸 theme·template_palette 한 세트."""
+    # 카드뉴스 1건(주제)에 쓸 theme·template_palette 한 세트
     deck_theme = ""
     for slide in slides:
         candidate = str(slide.get("theme") or "").strip()
@@ -126,14 +189,17 @@ def _pick_deck_theme_and_palette(
             deck_theme = candidate
             break
 
+    palettes = all_template_palettes()
+    palette_names = template_palette_names()
+
     if deck_theme:
         palette = THEME_TO_TEMPLATE_PALETTE[deck_theme]
-        if palette in TEMPLATE_PALETTES:
+        if palette in palettes:
             return deck_theme, palette
 
     palette = str(slides[0].get("template_palette") if slides else "").strip()
-    if palette not in TEMPLATE_PALETTES:
-        palette = rng.choice(TEMPLATE_PALETTE_NAMES)
+    if palette not in palettes:
+        palette = rng.choice(palette_names)
     deck_theme = deck_theme or next(
         (t for t, p in THEME_TO_TEMPLATE_PALETTE.items() if p == palette),
         rng.choice(DECK_THEME_NAMES),
@@ -147,7 +213,7 @@ def apply_deck_template_theme(
     rng: random.Random,
     contentid: str = "",
 ) -> list[dict[str, Any]]:
-    """한 주제(카드뉴스) 안 모든 슬라이드에 동일 theme·palette."""
+    # 한 주제(카드뉴스) 안 모든 슬라이드에 동일 theme·palette
     deck_rng = random.Random(contentid) if contentid else rng
     deck_theme, deck_palette = _pick_deck_theme_and_palette(slides, rng=deck_rng)
     out: list[dict[str, Any]] = []
@@ -157,11 +223,6 @@ def apply_deck_template_theme(
         row["template_palette"] = deck_palette
         out.append(row)
     return out
-
-
-def diversify_template_palettes(slides: list[dict[str, Any]], *, rng: random.Random) -> list[dict[str, Any]]:
-    """하위 호환: 슬라이드마다가 아니라 덱 단위 통일."""
-    return apply_deck_template_theme(slides, rng=rng)
 
 
 def _load_font(size: int, *, bold: bool = False, extra_bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -186,7 +247,7 @@ def _content_and_mascot_bounds(
     *,
     text_end: int | None = None,
 ) -> tuple[int, int, int, int]:
-    """본문 하한·캐릭터 영역을 분리해 겹침 방지. (content_top, content_bottom, mascot_top, mascot_bottom)"""
+    # 본문 하한·캐릭터 영역을 분리해 겹침 방지
     content_top = cy0
     mascot_bottom = cy1 - CONTENT_PAD // 2
     if not has_mascot:
@@ -215,7 +276,6 @@ def _layout_center_mascot_block(
     cx0: int,
     cx1: int,
 ) -> tuple[Image.Image, ImageFont.FreeTypeFont, list[str], int, int, int, int, int, int]:
-    """말풍선+캐릭터를 zone_h 스트립 좌표(0~zone_h)에 배치."""
     speech = (speech or "").strip()[:18]
     max_h = max(380, int(zone_h * 0.98))
     font_size = scaled_size(36, fill_scale(50, zone_h, max_scale=1.55), min_size=30, max_size=44)
@@ -264,7 +324,7 @@ def _estimate_cta_mascot_zone_height(
     zone_bottom: int,
     zone_top_limit: int,
 ) -> int:
-    """캐릭터+말풍선이 들어갈 최소 세로 높이 (_layout_center_mascot_block과 동일)."""
+    # 캐릭터+말풍선이 들어갈 최소 세로 높이
     strip_cap = zone_bottom - zone_top_limit
     probe_h = max(CTA_MIN_MASCOT_ZONE, min(560, strip_cap))
     icon, _font, lines, _mx, my, by0, _by1, _px, _py, _lh = _layout_center_mascot_block(
@@ -278,7 +338,7 @@ def _estimate_cta_mascot_zone_height(
 def _cover_mascot_bounds(
     cy0: int, cy1: int, text_end: int | None = None
 ) -> tuple[int, int, int]:
-    """표지: 캐릭터 영역을 크게 확보. (text_bottom, mascot_top, mascot_bottom)"""
+    # 표지: 캐릭터 영역을 크게
     mascot_bottom = cy1 - CONTENT_PAD // 2
     zone_h = max(COVER_MASCOT_MIN_H, int((cy1 - cy0) * COVER_MASCOT_ZONE_RATIO))
     mascot_top = mascot_bottom - zone_h
@@ -398,7 +458,7 @@ def normalize_to_template_slide(slide: dict[str, Any], *, index: int, total: int
 
 
 def render_template_slide(ctx: TemplateContext) -> Image.Image:
-    from app.utils.policy_cardnews_template_json import (
+    from app.policy_cardnews.template.json_render import (
         render_template_cover,
         render_template_cta,
         render_template_grid,

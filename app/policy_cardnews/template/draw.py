@@ -1,8 +1,4 @@
-"""정책 카드뉴스 템플릿의 반복 그리기 로직(primitives).
-
-템플릿이 늘어날수록 `policy_cardnews_template.py`가 커지는 것을 막기 위해
-반복되는 draw 로직을 분리한다.
-"""
+﻿# 정책 카드뉴스 템플릿의 반복 그리기 로직
 
 from __future__ import annotations
 
@@ -73,7 +69,7 @@ def draw_cta_action_panel(
     measure_text_block_fn: Callable[[ImageDraw.ImageDraw, list[str], ImageFont.FreeTypeFont], int],
     line_height_fn: Callable[[ImageFont.FreeTypeFont, int], int],
 ) -> None:
-    """그리드 타일 리본과 동일한 톤의 CTA 버튼(텍스트 자동 줄바꿈/중앙 정렬)."""
+    # 그리드 타일 리본과 동일한 톤의 CTA 버튼(텍스트 자동 줄바꿈/중앙 정렬)
     draw.rounded_rectangle((x0, y0, x1, y1), radius=radius, fill=fill)
     inner_h = y1 - y0
     font, lines = fit_font_lines_fn(

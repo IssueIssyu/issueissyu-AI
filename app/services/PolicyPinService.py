@@ -25,9 +25,9 @@ from rag.scripts.fetch_policy_news import fetch_policy_documents
 _MAX_HANDOFF_ITEMS = 500
 
 
-async def _enrich_documents_cover_urls(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """OpenAPI에 이미지 URL이 없을 때 원문 페이지에서 표지용 URL을 보충."""
-    from app.utils.policy_news_parse import enrich_cover_image_urls
+async def _enrich_cover_image_urls(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # OpenAPI에 이미지 URL이 없을 때 원문 페이지에서 표지용 URL을 보충
+    from app.utils.policy_news_parse import enrich_cover_image_urls as resolve_cover_image_urls
 
     enriched: list[dict] = []
     for doc in documents:
@@ -35,7 +35,7 @@ async def _enrich_documents_cover_urls(documents: list[dict[str, Any]]) -> list[
         if row.get("image_urls"):
             enriched.append(row)
             continue
-        urls = await enrich_cover_image_urls([], source_url=str(row.get("source_url") or ""))
+        urls = await resolve_cover_image_urls([], source_url=str(row.get("source_url") or ""))
         if urls:
             row["original_image_urls"] = urls[:1]
             row["image_urls"] = urls
@@ -73,7 +73,7 @@ class PolicyPinService:
                 limit=fetch_limit,
             )
 
-        documents = await _enrich_documents_cover_urls(documents)
+        documents = await _enrich_cover_image_urls(documents)
 
         path = self.documents_path()
         if documents:

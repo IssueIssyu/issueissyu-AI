@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 from typing import Any
 
-from app.utils.policy_cardnews_terms import simplify_policy_text
+from app.policy_cardnews.terms import simplify_policy_text
 
 # LLM이 자주 쓰는 의미 없는 채움 문구
 _FILLER_PATTERNS = (

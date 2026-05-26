@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 from pathlib import Path
@@ -11,7 +11,7 @@ from app.services.prompts.policy_cardnews import (
     build_policy_cardnews_image_prompt,
     build_policy_cardnews_slide_prompt,
 )
-from app.utils.policy_cardnews_render import (
+from app.policy_cardnews import (
     parse_cardnews_slides_json,
     render_policy_cardnews_slides,
     save_slide_image_bytes,
@@ -131,7 +131,7 @@ async def generate_cardnews_image_paths(
             if not settings.policy_cardnews_pillow_fallback:
                 raise
             logger.exception(
-                "카드뉴스 이미지 모델 생성 실패 → Pillow 폴백 contentid=%s",
+                "移대뱶?댁뒪 ?대?吏 紐⑤뜽 ?앹꽦 ?ㅽ뙣 ??Pillow ?대갚 contentid=%s",
                 content_id,
             )
             generated = await _generate_with_pillow(

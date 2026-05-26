@@ -220,11 +220,6 @@ class Settings(BaseSettings):
         alias="POLICY_CARDNEWS_PILLOW_FALLBACK",
         description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
     )
-    policy_cardnews_use_template: bool = Field(
-        default=True,
-        alias="POLICY_CARDNEWS_USE_TEMPLATE",
-        description="고정 카드뉴스 템플릿(레퍼런스 형식) 사용",
-    )
     policy_cardnews_use_image_model: bool = Field(
         default=False,
         alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",

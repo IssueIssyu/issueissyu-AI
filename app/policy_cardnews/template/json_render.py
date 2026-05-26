@@ -1,8 +1,4 @@
-"""JSON 기반 정책 카드뉴스 템플릿 렌더러.
-
-레이아웃 수치·타이포 설정은 `app/assets/policy_cardnews_templates/*.json`에 두고,
-Python은 프레임·텍스트·마스코트 배치만 담당한다.
-"""
+﻿# JSON 기반 정책 카드뉴스 템플릿 렌더러
 
 from __future__ import annotations
 
@@ -12,7 +8,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from app.utils.policy_cardnews_constants import (
+from app.policy_cardnews.constants import (
     CANVAS_HEIGHT,
     CANVAS_WIDTH,
     CONTENT_PAD,
@@ -22,8 +18,8 @@ from app.utils.policy_cardnews_constants import (
     GAP_LINE_SM,
     GAP_SECTION,
 )
-from app.utils.policy_cardnews_mascot import BRAND_ACCENT
-from app.utils.policy_cardnews_template_draw import (
+from app.policy_cardnews.mascot import BRAND_ACCENT
+from app.policy_cardnews.template.draw import (
     draw_cta_action_panel,
     draw_frame_base,
     draw_highlighter_title,
@@ -35,10 +31,10 @@ from app.utils.policy_cardnews_template_draw import (
     scaled_size,
     wrap_text,
 )
-from app.utils.policy_cardnews_template_metrics import COVER_TEXT_RATIO_WITH_HERO
-from app.utils.policy_cardnews_visual import paste_rounded_image_fit
+from app.policy_cardnews.template.metrics import COVER_TEXT_RATIO_WITH_HERO
+from app.policy_cardnews.visual import paste_rounded_image_fit
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_DIR = _REPO_ROOT / "app" / "assets" / "policy_cardnews_templates"
 
 INK = (20, 24, 32)
@@ -248,7 +244,7 @@ def _draw_highlight_accent_badge(
 
 def render_template_cover(ctx: Any) -> Image.Image:
     """`template_cover.json` 기반 표지 슬라이드."""
-    from app.utils.policy_cardnews_template import (
+    from app.policy_cardnews.template.dispatch import (
         _cover_mascot_bounds,
         _load_font,
         _paste_mascot_zone,
@@ -290,20 +286,18 @@ def render_template_cover(ctx: Any) -> Image.Image:
     highlight = str(slide.get("highlight") or "").strip()
     speech = str(slide.get("speech") or "").strip()
 
-    use_hero = bool(
-        ctx.use_cover_image
-        and ctx.hero_image is not None
-        and (config.get("hero") or {}).get("enabled", True)
+    hero_cfg = config.get("hero") or {}
+    hero_enabled = bool(hero_cfg.get("enabled", True))
+    use_hero_image = bool(
+        hero_enabled and ctx.use_cover_image and ctx.hero_image is not None
     )
-    has_mascot = ctx.mascot is not None and not use_hero
+    use_mascot_hero = bool(not use_hero_image and ctx.mascot is not None)
+    use_visual_fill = use_hero_image or use_mascot_hero
 
-    if use_hero:
+    if use_visual_fill:
         text_bottom = cy0 + int((cy1 - cy0) * cover_text_ratio_with_hero)
-    elif has_mascot:
-        text_bottom, mascot_top, mascot_bottom = _cover_mascot_bounds(cy0, cy1)
     else:
         text_bottom = cy1 - content_pad // 2
-        mascot_top = mascot_bottom = cy1
 
     text_available = text_bottom - cy0
     parts: list[tuple[str, str]] = []
@@ -369,7 +363,7 @@ def render_template_cover(ctx: Any) -> Image.Image:
             )
             for line in lines:
                 lh = line_height(font, GAP_LINE_SM)
-                if has_mascot and y + lh > text_bottom:
+                if use_visual_fill and y + lh > text_bottom:
                     break
                 lw = int(draw.textlength(line, font=font))
                 draw.text((cx - lw // 2, y), line, font=font, fill=INK_BODY)
@@ -388,7 +382,7 @@ def render_template_cover(ctx: Any) -> Image.Image:
             )
             for line in lines:
                 lh = line_height(font, GAP_LINE_MD)
-                if has_mascot and y + lh > text_bottom:
+                if use_visual_fill and y + lh > text_bottom:
                     break
                 lw = int(draw.textlength(line, font=font))
                 draw.text((cx - lw // 2, y), line, font=font, fill=INK)
@@ -407,7 +401,7 @@ def render_template_cover(ctx: Any) -> Image.Image:
             )
             for line in lines:
                 tape_h = line_height(font, 6) + highlight_cfg["tape_extra_h"]
-                if has_mascot and y + tape_h > text_bottom:
+                if use_visual_fill and y + tape_h > text_bottom:
                     break
                 if highlight_cfg["type"] == "highlight_bar":
                     y = draw_highlighter_title(
@@ -438,24 +432,23 @@ def render_template_cover(ctx: Any) -> Image.Image:
                         tape_extra_h=highlight_cfg["tape_extra_h"],
                     )
 
-    if use_hero and ctx.hero_image is not None:
-        hero_cfg = config.get("hero") or {}
+    img_y0 = y + GAP_SECTION
+    img_y1 = cy1 - content_pad // 2
+
+    if use_hero_image and ctx.hero_image is not None:
         radius = int(hero_cfg.get("corner_radius", 28))
         box_inset = int(hero_cfg.get("box_inset", INSET_PANEL))
-        img_y0 = y + GAP_SECTION
-        img_y1 = cy1 - content_pad // 2
         img_box = (cx0 + box_inset, img_y0, cx1 - box_inset, img_y1)
         canvas = paste_rounded_image_fit(canvas, ctx.hero_image, box=img_box, radius=radius)
         return canvas.convert("RGB")
 
-    if has_mascot and ctx.mascot is not None:
-        _, mascot_top, mascot_bottom = _cover_mascot_bounds(cy0, cy1, text_end=y)
+    if use_mascot_hero and ctx.mascot is not None:
         return _paste_mascot_zone(
             canvas,
             ctx.mascot,
             speech,
-            zone_top=mascot_top,
-            zone_bottom=mascot_bottom,
+            zone_top=img_y0,
+            zone_bottom=img_y1,
             align="center",
         )
     return canvas.convert("RGB")
@@ -543,7 +536,7 @@ def render_template_cta(ctx: Any) -> Image.Image:
     """`template_cta.json` 기반 마무리(CTA) 슬라이드."""
     from types import SimpleNamespace
 
-    from app.utils.policy_cardnews_template import (
+    from app.policy_cardnews.template.dispatch import (
         _estimate_cta_mascot_zone_height,
         _load_font,
         _paste_mascot_zone,
@@ -777,7 +770,7 @@ def render_template_cta(ctx: Any) -> Image.Image:
 
 def render_template_numbered(ctx: Any) -> Image.Image:
     """`template_numbered.json` 기반 번호 목록 슬라이드."""
-    from app.utils.policy_cardnews_template import (
+    from app.policy_cardnews.template.dispatch import (
         _content_and_mascot_bounds,
         _load_font,
         _paste_mascot_zone,
@@ -897,7 +890,7 @@ def render_template_numbered(ctx: Any) -> Image.Image:
 
 def render_template_three_col(ctx: Any) -> Image.Image:
     """`template_three_col.json` 기반 3열 슬라이드."""
-    from app.utils.policy_cardnews_template import (
+    from app.policy_cardnews.template.dispatch import (
         _content_and_mascot_bounds,
         _load_font,
         _paste_mascot_zone,
@@ -1049,7 +1042,7 @@ def render_template_grid(ctx: Any) -> Image.Image:
 
     eyebrow = str(slide.get("eyebrow") or "").strip()
     headline = str(slide.get("headline") or defaults.get("headline", "이렇게 확인하세요")).strip()
-    from app.utils.policy_cardnews_template import _load_font
+    from app.policy_cardnews.template.dispatch import _load_font
 
     y = _draw_slide_header(
         draw,
