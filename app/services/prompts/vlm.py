@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-# 프롬프트·response_json_schema에서 동일 분류를 쓰기 위한 단일 정의
+# 프롬프트·response_schema에서 동일 분류를 쓰기 위한 단일 정의
 VLM_CATEGORY_TYPES: tuple[str, ...] = (
     "불법주정차",
     "불법쓰레기투기",
@@ -419,13 +419,3 @@ def build_vlm_prompt(
           }}
         }}
     """.strip()
-
-
-__all__ = [
-    "VLM_CATEGORY_TYPES",
-    "VLM_ADMIN_DOMAINS",
-    "VLM_ERROR_CODES",
-    "VLM_PRIVACY_NOTES",
-    "VLM_LOCATION_VERIFICATION_STATUSES",
-    "build_vlm_prompt",
-]

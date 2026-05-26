@@ -109,7 +109,7 @@ class IssueRagPlannerService:
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=ISSUE_QUERY_REWRITE_SCHEMA,
+            response_schema=ISSUE_QUERY_REWRITE_SCHEMA,
         )
         response = await self._generate_with_retry(contents=prompt, config=config)
         text = (response.text or "").strip()

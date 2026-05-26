@@ -7,7 +7,6 @@ from starlette import status
 
 
 class ErrorCode(Enum):
-    """에러 코드 정의 (HTTP 상태, 문자열 코드, 기본 메시지)"""
 
     # Common
     BAD_REQUEST = (status.HTTP_400_BAD_REQUEST, "COMMON_400", "잘못된 요청입니다.")
@@ -72,7 +71,6 @@ class ErrorCode(Enum):
 
 
 class SuccessCode(Enum):
-    """성공 코드 정의 (HTTP 상태, 문자열 코드, 기본 메시지)"""
 
     # Common
     OK = (status.HTTP_200_OK, "COMMON_200", "Success")
@@ -98,6 +96,31 @@ class SuccessCode(Enum):
         "이슈 핀 신뢰도 조회에 성공했습니다.",
     )
 
+    COMPLAINT_EMAIL_GENERATE_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "COMPLAINT_201",
+        "청원 이메일 패키지 생성에 성공했습니다.",
+    )
+    COMPLAINT_APPLY_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "COMPLAINT_202",
+        "민원 신청 자동 생성에 성공했습니다.",
+    )
+    COMPLAINT_BOOTSTRAP_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2001",
+        "민원 부서/지역 매핑 시드에 성공했습니다.",
+    )
+    COMPLAINT_BULK_SEND_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2002",
+        "민원 일괄 송신 처리에 성공했습니다.",
+    )
+    COMPLAINT_SCHEDULER_RUN_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2003",
+        "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
+    )
     @property
     def http_status(self) -> int:
         return int(self.value[0])

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.LocationDepartment import LocationDepartment
     from app.models.PinLocation import PinLocation
     from app.models.User import User
 
@@ -38,5 +39,11 @@ class Location(Base):
         "PinLocation",
         back_populates="location",
         foreign_keys="PinLocation.location_id",
+        lazy="selectin",
+    )
+    location_departments: Mapped[list[LocationDepartment]] = relationship(
+        "LocationDepartment",
+        back_populates="location",
+        foreign_keys="LocationDepartment.location_id",
         lazy="selectin",
     )

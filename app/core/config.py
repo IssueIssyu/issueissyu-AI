@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote_plus
 
@@ -54,6 +55,18 @@ class Settings(BaseSettings):
     aws_secret_key: SecretStr | None = Field(default=None, alias="AWS_SECRET_KEY")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
+
+    # SMTP (민원 이메일 실제 송신)
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: SecretStr | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from_email: str | None = Field(default=None, alias="SMTP_FROM_EMAIL")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_use_ssl: bool = Field(default=False, alias="SMTP_USE_SSL")
+    smtp_timeout_seconds: float = Field(default=15.0, gt=0, alias="SMTP_TIMEOUT_SECONDS")
+    smtp_skip_cert_verify: bool = Field(default=False, alias="SMTP_SKIP_CERT_VERIFY")
+    smtp_send_concurrency: int = Field(default=5, ge=1, le=50, alias="SMTP_SEND_CONCURRENCY")
 
     redis_local_host: str | None = Field(default=None, alias="REDIS_LOCAL_HOST")
     redis_local_port: int | None = Field(default=6379, alias="REDIS_LOCAL_PORT")
@@ -116,6 +129,10 @@ class Settings(BaseSettings):
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
     )
+    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
+    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
+    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
+    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
     # True면 lifespan에서 Gemini embed API로 차원 검증
     vector_dim_check: bool = Field(
         default=False,
@@ -150,6 +167,18 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("pdf_korean_font_paths", mode="before")
+    @classmethod
+    def _empty_pdf_korean_font_paths_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    # 의견서 PDF @font-face (쉼표 구분). 미설정 시 Linux 일반 경로만 자동 탐색.
+    pdf_korean_font_paths: str | None = Field(
+        default=None,
+        alias="PDF_KOREAN_FONT_PATHS",
+    )
     issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
     issue_confidence_basis_max_chars: int = Field(
         default=2000,
@@ -192,6 +221,13 @@ class Settings(BaseSettings):
 
     # 기타
     debug: bool = Field(default=True, alias="DEBUG")
+
+    @property
+    def pdf_korean_font_path_list(self) -> list[Path]:
+        raw = (self.pdf_korean_font_paths or "").strip()
+        if not raw:
+            return []
+        return [Path(part.strip()) for part in raw.split(",") if part.strip()]
 
     def _selected_db_values(
         self,
