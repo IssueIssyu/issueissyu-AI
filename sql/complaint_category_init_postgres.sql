@@ -1,10 +1,12 @@
 BEGIN;
 
--- complaint_petition.location_department_id FK 잠시 해제 (테이블 재생성 대비)
+-- complaint_petition FK 잠시 해제 (테이블 재생성 대비)
 DO $$
 BEGIN
     IF to_regclass('public.complaint_petition') IS NOT NULL THEN
         EXECUTE 'ALTER TABLE complaint_petition DROP CONSTRAINT IF EXISTS fk_complaint_petition_location_department';
+        -- 인라인 REFERENCES로 생성된 경우의 자동 이름도 드롭
+        EXECUTE 'ALTER TABLE complaint_petition DROP CONSTRAINT IF EXISTS complaint_petition_location_department_id_fkey';
     END IF;
 END $$;
 
