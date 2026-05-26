@@ -27,7 +27,7 @@ if command -v dnf >/dev/null 2>&1; then
     fontconfig \
     freetype \
     gcc \
-    pkg-config \
+    pkgconfig \
     python3-devel \
     google-noto-sans-cjk-fonts
 elif command -v yum >/dev/null 2>&1; then
