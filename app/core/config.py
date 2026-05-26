@@ -189,14 +189,6 @@ class Settings(BaseSettings):
         ge=1,
         alias="FESTIVAL_SYNC_TRANSFORM_LIMIT",
         description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
-    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
-    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
-    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
-    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
-    # True면 lifespan에서 Gemini embed API로 차원 검증
-    vector_dim_check: bool = Field(
-        default=False,
-        alias="VECTOR_DIM_CHECK",
     )
 
     @field_validator("gemini_embedding_batch_size", mode="before")

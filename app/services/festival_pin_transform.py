@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from app.core.config import settings
@@ -15,6 +16,7 @@ FESTIVAL_DOCUMENTS_PATH = (
 FESTIVAL_HANDOFF_PATH = (
     Path(__file__).resolve().parents[2] / "rag" / "output" / "festival_pins_for_db.jsonl"
 )
+_FESTIVAL_TRANSFORM_CONCURRENCY = 5
 
 
 def build_handoff_row(source: dict, *, instagram_content: str) -> dict:
@@ -81,27 +83,35 @@ async def transform_documents_jsonl(
             f"원문 JSONL 없음: {src}. 먼저 GET /festival-pins/search 또는 fetch 스크립트를 실행하세요.",
         )
 
+    rows = [row for row in iter_jsonl(src) if isinstance(row, dict)]
+
     llm = build_llm_service(model=model)
     results: list[dict] = []
     errors: list[dict] = []
+    semaphore = asyncio.Semaphore(_FESTIVAL_TRANSFORM_CONCURRENCY)
 
-    for row in iter_jsonl(src):
-        if not isinstance(row, dict):
-            continue
-        if limit is not None and len(results) >= limit:
-            break
-
+    async def _transform_row(row: dict) -> tuple[dict | None, dict | None]:
         content_id = str(row.get("contentid") or "").strip()
-        try:
-            results.append(await transform_one_row(llm, row))
-        except Exception as exc:
-            errors.append(
-                {
+        async with semaphore:
+            try:
+                return await transform_one_row(llm, row), None
+            except Exception as exc:
+                return None, {
                     "contentid": content_id,
                     "pin_title": row.get("pin_title"),
                     "error": str(exc),
                 }
-            )
+
+    idx = 0
+    while idx < len(rows) and (limit is None or len(results) < limit):
+        batch = rows[idx : idx + _FESTIVAL_TRANSFORM_CONCURRENCY]
+        idx += len(batch)
+        for ok_row, err_row in await asyncio.gather(*(_transform_row(row) for row in batch)):
+            if ok_row is not None:
+                if limit is None or len(results) < limit:
+                    results.append(ok_row)
+            elif err_row is not None:
+                errors.append(err_row)
 
     write_jsonl(dst, results)
     pins = [FestivalPinDTO.model_validate(item) for item in results]
