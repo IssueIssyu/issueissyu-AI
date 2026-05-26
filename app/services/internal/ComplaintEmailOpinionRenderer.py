@@ -175,7 +175,6 @@ def _strip_forbidden_phrases(text: str) -> str:
 
 def _normalize_plain_text(text: str) -> str:
     normalized = str(text or "")
-    for _ in range(3):
-        normalized = normalized.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\\r", "\n")
-    normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r'\\+(?:r\\n|[rn])', '\n', normalized)
+    normalized = normalized.replace('\r\n', '\n').replace('\r', '\n')
     return _strip_forbidden_phrases(normalized)
