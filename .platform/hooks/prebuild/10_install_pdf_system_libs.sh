@@ -64,7 +64,7 @@ elif command -v apt-get >/dev/null 2>&1; then
     libharfbuzz0b \
     fontconfig \
     libfreetype6 \
-    gcc \
+    build-essential \
     pkg-config \
     python3-dev \
     fonts-nanum
