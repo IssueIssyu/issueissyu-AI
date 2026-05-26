@@ -169,7 +169,7 @@ class ComplaintEmailPdfService:
             if not font_path.is_file():
                 continue
             uri = font_path.resolve().as_uri()
-            logger.info("PDF Korean font: %s", font_path)
+            logger.debug("PDF Korean font: %s", font_path)
             return f"""
                 <style>
                 @font-face {{

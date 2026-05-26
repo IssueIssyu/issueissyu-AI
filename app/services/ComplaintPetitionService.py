@@ -543,13 +543,19 @@ class ComplaintPetitionService:
         *,
         fallback_address: str | None,
     ) -> list[ImageWithLocation]:
-        rows: list[ImageWithLocation] = []
         sorted_images = sorted(
             pin_images,
             key=lambda item: (not item.is_main, item.pin_image_id),
         )
-        for pin_image in sorted_images:
-            data, content_type = await self.s3_util.download_bytes(pin_image.pin_s3_key)
+        if not sorted_images:
+            raise_business_exception(ErrorCode.VALIDATION_ERROR, "민원 생성을 위한 이미지가 없습니다.")
+
+        downloads = await asyncio.gather(
+            *(self.s3_util.download_bytes(img.pin_s3_key) for img in sorted_images),
+        )
+
+        rows: list[ImageWithLocation] = []
+        for pin_image, (data, content_type) in zip(sorted_images, downloads):
             upload = UploadFile(
                 file=io.BytesIO(data),
                 filename=pin_image.pin_s3_key.rsplit("/", maxsplit=1)[-1] or "image.jpg",
@@ -561,8 +567,6 @@ class ComplaintPetitionService:
                     address=fallback_address,
                 ),
             )
-        if not rows:
-            raise_business_exception(ErrorCode.VALIDATION_ERROR, "민원 생성을 위한 이미지가 없습니다.")
         return rows
 
     @staticmethod
