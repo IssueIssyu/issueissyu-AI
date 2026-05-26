@@ -21,6 +21,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.clients.VisitKoreaClient import VisitKoreaClient
+from app.utils.festival_date_filter import validate_yyyymmdd
 from app.utils.visitkorea_facilities import (
     extract_stay_available,
     extract_pet_friendly,
@@ -91,13 +92,6 @@ def tourapi_total_count(payload: dict[str, Any]) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return 0
-
-
-def validate_yyyymmdd(value: str, *, label: str) -> str:
-    text = (value or "").strip()
-    if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
-    return text
 
 
 def collect_intro_text(intro_payload: dict[str, Any]) -> str:

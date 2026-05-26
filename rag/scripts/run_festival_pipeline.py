@@ -24,7 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from app.core.config import settings
 from app.services.FestivalPinService import FestivalPinService
-from rag.scripts.fetch_visitkorea import validate_yyyymmdd
+from app.utils.festival_date_filter import validate_yyyymmdd
 
 logger = logging.getLogger(__name__)
 
