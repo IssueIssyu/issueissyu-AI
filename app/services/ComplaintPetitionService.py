@@ -393,7 +393,9 @@ class ComplaintPetitionService:
 
     async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
         if petition.location_department is None:
-            return False, "부서 매핑 정보가 없습니다."
+    async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
+        if petition.location_department is None:
+            return False, "부서 매핑 정보(location_department)가 존재하지 않습니다."
         recipient = petition.location_department.location_department_email.strip()
         if not recipient:
             return False, "부서 이메일이 비어 있습니다."
