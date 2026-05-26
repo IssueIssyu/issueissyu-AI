@@ -70,15 +70,15 @@ async def create_issue_pin(
     )
 
 
-@router.get("/pin/{issue_pin_id}/reliability")
+@router.get("/pin/{pin_id}/reliability")
 async def get_issue_pin_reliability(
-    issue_pin_id: int,
+    pin_id: int,
     uid: CurrentUserIdDep,
     issue_service: IssueServiceDep,
 ):
     result = await issue_service.get_issue_pin_reliability(
         uid=uid,
-        issue_pin_id=issue_pin_id,
+        pin_id=pin_id,
     )
     return success_response(
         result=result.model_dump(by_alias=True, exclude_none=False),

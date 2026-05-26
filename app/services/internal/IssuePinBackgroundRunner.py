@@ -390,7 +390,7 @@ class IssuePinBackgroundRunner:
     ) -> dict:
         call_kwargs = {**retry_opts, "log_context": log_context}
         if images:
-            return await self._vlm_service.analyze_image(
+            return await self._vlm_service.analyze_reliability_image(
                 user_text=user_text,
                 images=images,
                 user_location=user_gps,

@@ -52,7 +52,7 @@
 1. **미리보기**: `POST /issues/pin/ai` → AI가 제안한 `title` / `content`
 2. **편집**: 프론트에서 사용자가 문구 수정
 3. **게시**: `POST /issues/pin` → 최종 문구·좌표·(선택) 이미지 저장
-4. **폴링**: `GET /issues/pin/{id}/reliability` 또는 상세 API로 신뢰도 완료 확인
+4. **폴링**: `GET /issues/pin/{pin_id}/reliability` 또는 상세 API로 신뢰도 완료 확인
 
 ### 2.2 서버가 하지 않는 일
 
@@ -197,7 +197,7 @@ AI 미리보기. **DB 저장 없음.**
 
 ---
 
-### 4.5 `GET /issues/pin/{issue_pin_id}/reliability`
+### 4.5 `GET /issues/pin/{pin_id}/reliability`
 
 신뢰도 전용 폴링.
 
@@ -469,7 +469,7 @@ class IssuePinReliabilityJob:
 
 - `POST /issues/pin` 추가 (`BackgroundTasks` 주입)
 - `GET /issues/pin/{issue_pin_id}` 추가
-- `GET /issues/pin/{issue_pin_id}/reliability` 추가
+- `GET /issues/pin/{pin_id}/reliability` 추가
 
 ### 12.2 `app/services/IssueService.py`
 
@@ -503,7 +503,7 @@ class IssuePinReliabilityJob:
 
 ### 12.7 `app/repositories/IssuePinRepo.py`
 
-- `get_by_issue_pin_id` + `selectinload` (pin, images, location, user)
+- `get_by_issue_pin_id`, `get_by_pin_id` + `selectinload` (pin, images, location, user)
 - `update_confidence`: SQL `UPDATE` (get+flush 대신)
 
 ### 12.8 `app/models/IssuePin.py`
@@ -633,7 +633,7 @@ class IssuePinReliabilityJob:
 
 - [ ] `POST /issues/pin/ai` → 편집 → `POST /issues/pin` 2단계
 - [ ] 게시 응답 `reliabilityStatus === 'pending'` 이면 신뢰도 폴링
-- [ ] `GET .../reliability` 또는 상세에서 `issueConfidence`, `confidenceContent` 표시
+- [ ] `GET /issues/pin/{pin_id}/reliability` 또는 상세에서 `issueConfidence`, `confidenceContent` 표시
 - [ ] `confidenceContent` 줄바꿈 (`\n`) 렌더링
 - [ ] `reliabilityStatus === 'failed'` 시 재시도 안내 UI
 - [ ] 이미지 0장 게시 지원
