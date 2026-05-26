@@ -196,7 +196,10 @@ async def lifespan(app: FastAPI):
     finally:
         scheduler = getattr(app.state, "complaint_scheduler", None)
         if scheduler is not None:
-            await scheduler.stop()
+            try:
+                await scheduler.stop()
+            except Exception as exc:
+                logger.warning("Complaint scheduler stop failed: %s", exc)
         try:
             await ComplaintEmailPdfService.stop_playwright_browser()
         except Exception as exc:
@@ -204,7 +207,10 @@ async def lifespan(app: FastAPI):
 
         hx = getattr(app.state, "shared_httpx_client", None)
         if hx is not None:
-            await hx.aclose()
+            try:
+                await hx.aclose()
+            except Exception as exc:
+                logger.warning("Shared HTTPX client close failed: %s", exc)
         async_redis_client = getattr(app.state, "async_redis_client", None)
         if async_redis_client is not None:
             await async_redis_client.aclose()
