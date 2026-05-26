@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _TEMPLATE_BASE = Path(__file__).resolve().parent.parent / "templates"
-_CHROMIUM_LAUNCH_ARGS = ("--no-sandbox", "--disable-setuid-sandbox")
+_CHROMIUM_LAUNCH_ARGS = ("--no-sandbox", "--disable-setuid-sandbox", "--allow-file-access-from-files")
 _playwright: Playwright | None = None
 _browser: Browser | None = None
 _pw_lock = asyncio.Lock()

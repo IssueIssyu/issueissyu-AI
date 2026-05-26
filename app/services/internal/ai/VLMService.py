@@ -328,7 +328,7 @@ class VLMService:
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=VLM_RESPONSE_SCHEMA,
+            response_schema=VLM_RESPONSE_SCHEMA,
         )
 
         response = await self._generate_with_retry(
@@ -373,7 +373,7 @@ class VLMService:
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=RELIABILITY_TEXT_RESPONSE_SCHEMA,
+            response_schema=RELIABILITY_TEXT_RESPONSE_SCHEMA,
         )
         response = await self._generate_with_retry(
             contents=[prompt],
@@ -448,7 +448,7 @@ class VLMService:
         )
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=RELIABILITY_IMAGE_RESPONSE_SCHEMA,
+            response_schema=RELIABILITY_IMAGE_RESPONSE_SCHEMA,
         )
         response = await self._generate_with_retry(
             contents=[*image_parts, prompt],
