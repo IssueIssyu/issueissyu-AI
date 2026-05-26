@@ -292,14 +292,15 @@ class ComplaintEmailService:
 
         weighted_scores: dict[str, float] = {}
         first_seen: dict[str, int] = {}
+        seen_texts: set[str] = set()
         index = 0
 
-        # rerank 결과를 우선 반영하고, 없으면 retrieval를 보완 반영한다.
         for hit in rag_pipeline.reranked_hits:
             index = ComplaintEmailService._accumulate_department_score(
                 hit=hit,
                 weighted_scores=weighted_scores,
                 first_seen=first_seen,
+                seen_texts=seen_texts,
                 index=index,
                 prefer_rerank=True,
             )
@@ -308,6 +309,7 @@ class ComplaintEmailService:
                 hit=hit,
                 weighted_scores=weighted_scores,
                 first_seen=first_seen,
+                seen_texts=seen_texts,
                 index=index,
                 prefer_rerank=False,
             )
@@ -327,9 +329,15 @@ class ComplaintEmailService:
         hit: ComplaintEmailRagHit,
         weighted_scores: dict[str, float],
         first_seen: dict[str, int],
+        seen_texts: set[str],
         index: int,
         prefer_rerank: bool,
     ) -> int:
+        hit_key = hit.text.strip()
+        if hit_key in seen_texts:
+            return index
+        seen_texts.add(hit_key)
+
         metadata = hit.metadata if isinstance(hit.metadata, dict) else {}
         raw = metadata.get("category")
         if not isinstance(raw, str):

@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.ComplaintPetition import ComplaintPetition
 from app.models.LocationDepartment import LocationDepartment
+from app.models.enum.ComplaintPetitionStatus import ComplaintPetitionStatus
 from app.repositories.BaseRepo import BaseRepo
 
 
@@ -26,6 +27,15 @@ class ComplaintPetitionRepo(BaseRepo[ComplaintPetition]):
                 ComplaintPetition.issue_pin_id == issue_pin_id,
                 ComplaintPetition.generated_on == generated_on,
             ),
+        )
+        return result.scalar_one_or_none() is not None
+
+    async def has_active_petition(self, *, issue_pin_id: int) -> bool:
+        result = await self.session.execute(
+            select(ComplaintPetition.petition_id).where(
+                ComplaintPetition.issue_pin_id == issue_pin_id,
+                ComplaintPetition.status != ComplaintPetitionStatus.FAILED.value,
+            ).limit(1),
         )
         return result.scalar_one_or_none() is not None
 

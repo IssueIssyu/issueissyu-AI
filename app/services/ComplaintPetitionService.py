@@ -158,6 +158,15 @@ class ComplaintPetitionService:
                     f"petition_count가 target_petition({target_petition}) 미만이라 자동 생성 대상이 아닙니다.",
                 )
 
+        has_active = await self.complaint_petition_repo.has_active_petition(
+            issue_pin_id=issue_pin_id,
+        )
+        if has_active:
+            raise_business_exception(
+                ErrorCode.VALIDATION_ERROR,
+                "해당 이슈핀에 이미 처리 중인 민원이 존재합니다.",
+            )
+
         target_generated_on = generated_on or self._today_kst()
         exists = await self.complaint_petition_repo.exists_by_issue_pin_and_generated_on(
             issue_pin_id=issue_pin_id,
@@ -268,7 +277,7 @@ class ComplaintPetitionService:
                     success_count += 1
                 except Exception as exc:
                     message = str(exc)
-                    if "오늘 이미 생성" in message:
+                    if "이미 처리 중인 민원" in message or "오늘 이미 생성" in message:
                         skip_count += 1
                         continue
                     fail_count += 1
@@ -393,9 +402,7 @@ class ComplaintPetitionService:
 
     async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
         if petition.location_department is None:
-    async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
-        if petition.location_department is None:
-            return False, "부서 매핑 정보(location_department)가 존재하지 않습니다."
+            return False, "부서 매핑 정보가 없습니다."
         recipient = petition.location_department.location_department_email.strip()
         if not recipient:
             return False, "부서 이메일이 비어 있습니다."
