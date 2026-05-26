@@ -190,6 +190,13 @@ class Settings(BaseSettings):
         alias="FESTIVAL_SYNC_TRANSFORM_LIMIT",
         description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
     )
+    festival_transform_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_TRANSFORM_CONCURRENCY",
+        description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
+    )
 
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod

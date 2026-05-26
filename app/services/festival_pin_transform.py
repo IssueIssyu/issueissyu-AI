@@ -16,7 +16,6 @@ FESTIVAL_DOCUMENTS_PATH = (
 FESTIVAL_HANDOFF_PATH = (
     Path(__file__).resolve().parents[2] / "rag" / "output" / "festival_pins_for_db.jsonl"
 )
-_FESTIVAL_TRANSFORM_CONCURRENCY = 5
 
 
 def build_handoff_row(source: dict, *, instagram_content: str) -> dict:
@@ -88,7 +87,8 @@ async def transform_documents_jsonl(
     llm = build_llm_service(model=model)
     results: list[dict] = []
     errors: list[dict] = []
-    semaphore = asyncio.Semaphore(_FESTIVAL_TRANSFORM_CONCURRENCY)
+    concurrency = settings.festival_transform_concurrency
+    semaphore = asyncio.Semaphore(concurrency)
 
     async def _transform_row(row: dict) -> tuple[dict | None, dict | None]:
         content_id = str(row.get("contentid") or "").strip()
@@ -104,7 +104,11 @@ async def transform_documents_jsonl(
 
     idx = 0
     while idx < len(rows) and (limit is None or len(results) < limit):
-        batch = rows[idx : idx + _FESTIVAL_TRANSFORM_CONCURRENCY]
+        batch_size = concurrency
+        if limit is not None:
+            batch_size = min(batch_size, limit - len(results))
+        batch_size = min(batch_size, len(rows) - idx)
+        batch = rows[idx : idx + batch_size]
         idx += len(batch)
         for ok_row, err_row in await asyncio.gather(*(_transform_row(row) for row in batch)):
             if ok_row is not None:
