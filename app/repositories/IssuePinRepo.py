@@ -21,7 +21,9 @@ class IssuePinRepo(BaseRepo[IssuePin]):
 
     async def get_by_pin_id(self, pin_id: int) -> IssuePin | None:
         result = await self.session.execute(
-            select(IssuePin).where(IssuePin.pin_id == pin_id),
+            select(IssuePin)
+            .where(IssuePin.pin_id == pin_id)
+            .options(*_ISSUE_PIN_LOAD_OPTIONS),
         )
         return result.scalar_one_or_none()
 
@@ -46,6 +48,18 @@ class IssuePinRepo(BaseRepo[IssuePin]):
             .values(
                 issue_confidence=issue_confidence,
                 confidence_content=confidence_content,
+            ),
+        )
+        await self.session.flush()
+        return (result.rowcount or 0) > 0
+
+    async def reset_confidence(self, issue_pin_id: int) -> bool:
+        result = await self.session.execute(
+            update(IssuePin)
+            .where(IssuePin.issue_pin_id == issue_pin_id)
+            .values(
+                issue_confidence=None,
+                confidence_content=None,
             ),
         )
         await self.session.flush()

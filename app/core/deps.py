@@ -289,12 +289,14 @@ def get_issue_pin_background_runner(
     issue_rag_planner_service: IssueRagPlannerServiceDep,
 ) -> IssuePinBackgroundRunner:
     vector_store_service = getattr(request.app.state, "vector_store_service", None)
+    redis_client = getattr(request.app.state, "async_redis_client", None)
     return IssuePinBackgroundRunner(
         vlm_service=vlm_service,
         exif_location_service=exif_location_service,
         s3_util=s3_util,
         vector_store_service=vector_store_service,
         issue_rag_planner_service=issue_rag_planner_service,
+        redis_client=redis_client,
     )
 
 
