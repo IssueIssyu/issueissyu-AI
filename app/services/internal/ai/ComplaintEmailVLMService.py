@@ -188,7 +188,7 @@ class ComplaintEmailVlmService:
 
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_json_schema=self._catalog.response_json_schema(),
+            response_schema=self._catalog.response_json_schema(),
         )
 
         try:

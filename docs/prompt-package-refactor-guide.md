@@ -185,7 +185,7 @@ app/services/
 1. 업로드 이미지별 MIME/바이트 검증
 2. 이미지별 사진 메타 주소 문자열 정규화 (`coerce_photo_address`)
 3. `build_vlm_prompt(...)` 호출
-4. Gemini JSON schema 강제 응답 (`response_json_schema=VLM_RESPONSE_SCHEMA`)
+4. Gemini JSON schema 강제 응답 (`response_schema=VLM_RESPONSE_SCHEMA`)
 5. 파싱/정규화 (`_normalize`)
    - validity/에러코드 보정
    - location_verification 기본값 보정

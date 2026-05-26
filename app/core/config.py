@@ -56,6 +56,18 @@ class Settings(BaseSettings):
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
 
+    # SMTP (민원 이메일 실제 송신)
+    smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str | None = Field(default=None, alias="SMTP_USERNAME")
+    smtp_password: SecretStr | None = Field(default=None, alias="SMTP_PASSWORD")
+    smtp_from_email: str | None = Field(default=None, alias="SMTP_FROM_EMAIL")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_use_ssl: bool = Field(default=False, alias="SMTP_USE_SSL")
+    smtp_timeout_seconds: float = Field(default=15.0, gt=0, alias="SMTP_TIMEOUT_SECONDS")
+    smtp_skip_cert_verify: bool = Field(default=False, alias="SMTP_SKIP_CERT_VERIFY")
+    smtp_send_concurrency: int = Field(default=5, ge=1, le=50, alias="SMTP_SEND_CONCURRENCY")
+
     redis_local_host: str | None = Field(default=None, alias="REDIS_LOCAL_HOST")
     redis_local_port: int | None = Field(default=6379, alias="REDIS_LOCAL_PORT")
 
@@ -221,6 +233,12 @@ class Settings(BaseSettings):
         description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
     )
     policy_cardnews_use_image_model: bool = Field(
+    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
+    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
+    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
+    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
+    # True면 lifespan에서 Gemini embed API로 차원 검증
+    vector_dim_check: bool = Field(
         default=False,
         alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
         description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
