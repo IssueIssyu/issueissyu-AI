@@ -85,6 +85,7 @@ class IssuePinRepo(BaseRepo[IssuePin]):
             .join(PinLocation, PinLocation.pin_id == IssuePin.pin_id)
             .outerjoin(PopulationDensity, PopulationDensity.location_id == PinLocation.location_id)
             .where(
+                IssuePin.issue_pin_state == IssuePinState.BEFORE_PROGRESS,
                 IssuePin.petition_count
                 >= func.coalesce(PopulationDensity.target_petition, default_threshold),
             )

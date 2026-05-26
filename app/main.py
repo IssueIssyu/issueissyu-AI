@@ -5,7 +5,6 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
-from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from app import models  # noqa: F401
@@ -137,7 +136,7 @@ async def lifespan(app: FastAPI):
     )
 
     try:
-        await run_in_threadpool(ComplaintEmailPdfService.start_playwright_browser)
+        await ComplaintEmailPdfService.start_playwright_browser()
     except Exception as exc:
         logger.warning(
             "Playwright PDF browser startup skipped; PDF fallback may lazy-start: %s",
@@ -199,7 +198,7 @@ async def lifespan(app: FastAPI):
         if scheduler is not None:
             await scheduler.stop()
         try:
-            await run_in_threadpool(ComplaintEmailPdfService.stop_playwright_browser)
+            await ComplaintEmailPdfService.stop_playwright_browser()
         except Exception as exc:
             logger.warning("Playwright PDF browser shutdown failed: %s", exc)
 

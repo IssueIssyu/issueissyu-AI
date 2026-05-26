@@ -98,6 +98,5 @@ class ComplaintEmailLLMService:
     @staticmethod
     def _as_nullable_text(value: str | None) -> str:
         if value is None:
-            return "null"
-        text = value.strip()
-        return text if text else "null"
+            return ""
+        return value.strip()

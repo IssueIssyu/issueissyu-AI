@@ -246,6 +246,7 @@ class ComplaintPetitionService:
         success_count = 0
         skip_count = 0
         fail_count = 0
+        session = self.issue_pin_repo.session
 
         while True:
             rows = await self.issue_pin_repo.list_by_target_petition(
@@ -258,11 +259,12 @@ class ComplaintPetitionService:
             offset += len(rows)
             for issue_pin in rows:
                 try:
-                    await self.create_petition_for_issue_pin(
-                        issue_pin_id=issue_pin.issue_pin_id,
-                        generated_on=generated_on,
-                        enforce_threshold=False,
-                    )
+                    async with session.begin_nested():
+                        await self.create_petition_for_issue_pin(
+                            issue_pin_id=issue_pin.issue_pin_id,
+                            generated_on=generated_on,
+                            enforce_threshold=False,
+                        )
                     success_count += 1
                 except Exception as exc:
                     message = str(exc)
@@ -323,22 +325,34 @@ class ComplaintPetitionService:
             send_targets.append(petition)
 
         send_results = await self._send_many_limited(send_targets)
+        session = self.issue_pin_repo.session
 
         for petition in send_targets:
             send_ok, reason = send_results.get(petition.petition_id, (False, "송신 결과를 확인할 수 없습니다."))
             next_status = ComplaintPetitionStatus.SENT if send_ok else ComplaintPetitionStatus.FAILED
-            await self.complaint_petition_repo.update_status(
-                petition_id=petition.petition_id,
-                status=next_status.value,
-            )
-            if send_ok:
-                sent_count += 1
-                await self.issue_pin_repo.update_state(
-                    petition.issue_pin_id,
-                    IssuePinState.IN_PROGRESS,
-                )
-            else:
+            try:
+                async with session.begin_nested():
+                    await self.complaint_petition_repo.update_status(
+                        petition_id=petition.petition_id,
+                        status=next_status.value,
+                    )
+                    if send_ok:
+                        await self.issue_pin_repo.update_state(
+                            petition.issue_pin_id,
+                            IssuePinState.IN_PROGRESS,
+                        )
+                if send_ok:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+            except Exception as exc:
                 failed_count += 1
+                next_status = ComplaintPetitionStatus.FAILED
+                reason = f"DB 상태 업데이트 실패: {exc}"
+                logger.exception(
+                    "민원 송신 후 DB 업데이트 실패 petition_id=%s",
+                    petition.petition_id,
+                )
 
             items.append(
                 ComplaintPetitionBulkSendItem(
