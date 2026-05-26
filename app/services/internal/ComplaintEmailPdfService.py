@@ -27,8 +27,8 @@ _DEFAULT_KOREAN_FONT_CANDIDATES: tuple[Path, ...] = (
     Path("/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf"),
     Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
     Path("/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf"),
-    Path("/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Regular.ttc"),
     Path("/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJKkr-Regular.otf"),
+    Path("/usr/share/fonts/google-noto-sans-cjk-fonts/NotoSansCJK-Regular.ttc"),
 )
 _MACOS_BREW_LIB_PATH = Path("/opt/homebrew/lib")
 
