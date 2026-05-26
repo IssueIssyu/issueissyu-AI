@@ -12,7 +12,11 @@ from app.core.exceptions import raise_business_exception
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
 from app.repositories.CommunityRepo import CommunityRepo
+from app.repositories.ComplaintPetitionRepo import ComplaintPetitionRepo
+from app.repositories.DepartmentRepo import DepartmentRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
+from app.repositories.LocationDepartmentRepo import LocationDepartmentRepo
+from app.repositories.LocationRepo import LocationRepo
 from app.repositories.PinLikeRepo import PinLikeRepo
 from app.repositories.PinImageRepo import PinImageRepo
 from app.repositories.PinLocationRepo import PinLocationRepo
@@ -21,7 +25,13 @@ from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
+from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.ComplaintPetitionService import ComplaintPetitionService
+from app.services.RagRerankService import RagRerankService
+from app.services.RagRetrievalService import RagRetrievalService
+from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
@@ -30,6 +40,7 @@ from app.services.internal.geo.ImageExifLocationResolveService import ImageExifL
 from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 from app.utils.S3Util import S3Util
+from app.models.enum.UserRole import UserRole
 
 
 DbSessionDep = Annotated[AsyncSession, Depends(get_async_db_session)]
@@ -185,6 +196,115 @@ def get_community_repo(session: DbSessionDep) -> CommunityRepo:
 CommunityRepoDep = Annotated[CommunityRepo, Depends(get_community_repo)]
 
 
+def get_department_repo(session: DbSessionDep) -> DepartmentRepo:
+    return DepartmentRepo(session)
+
+
+DepartmentRepoDep = Annotated[DepartmentRepo, Depends(get_department_repo)]
+
+
+def get_location_repo(session: DbSessionDep) -> LocationRepo:
+    return LocationRepo(session)
+
+
+LocationRepoDep = Annotated[LocationRepo, Depends(get_location_repo)]
+
+
+def get_location_department_repo(session: DbSessionDep) -> LocationDepartmentRepo:
+    return LocationDepartmentRepo(session)
+
+
+LocationDepartmentRepoDep = Annotated[LocationDepartmentRepo, Depends(get_location_department_repo)]
+
+
+def get_complaint_petition_repo(session: DbSessionDep) -> ComplaintPetitionRepo:
+    return ComplaintPetitionRepo(session)
+
+
+ComplaintPetitionRepoDep = Annotated[ComplaintPetitionRepo, Depends(get_complaint_petition_repo)]
+
+
+def get_complaint_email_vlm_service() -> ComplaintEmailVlmService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return ComplaintEmailVlmService(
+        api_key=api_key_secret.get_secret_value(),
+        model=settings.gemini_vlm_model,
+    )
+
+
+ComplaintEmailVlmServiceDep = Annotated[
+    ComplaintEmailVlmService,
+    Depends(get_complaint_email_vlm_service),
+]
+
+
+def get_complaint_email_llm_service() -> ComplaintEmailLLMService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return ComplaintEmailLLMService(
+        api_key=api_key_secret.get_secret_value(),
+        model_name=settings.gemini_pin_text_model,
+    )
+
+
+ComplaintEmailLLMServiceDep = Annotated[
+    ComplaintEmailLLMService,
+    Depends(get_complaint_email_llm_service),
+]
+
+
+def get_rag_rerank_service() -> RagRerankService:
+    api_key_secret = settings.gemini_api_key
+    if api_key_secret is None:
+        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
+    return RagRerankService(
+        api_key=api_key_secret.get_secret_value(),
+        embedding_model=settings.gemini_embedding_model,
+        embed_dim=settings.vector_embed_dim,
+        embedding_batch_size=settings.gemini_embedding_batch_size,
+    )
+
+
+RagRerankServiceDep = Annotated[RagRerankService, Depends(get_rag_rerank_service)]
+
+
+def get_rag_retrieval_service(
+    vector_store_service: VectorStoreServiceDep,
+    rag_rerank_service: RagRerankServiceDep,
+) -> RagRetrievalService:
+    return RagRetrievalService(
+        vector_store_service=vector_store_service,
+        rerank_service=rag_rerank_service,
+        retrieve_top_k=settings.rag_retrieve_top_k,
+        rerank_top_k=settings.rag_rerank_top_k,
+        enable_rerank=settings.rag_enable_rerank,
+        vector_query_mode=settings.rag_vector_query_mode,
+    )
+
+
+RagRetrievalServiceDep = Annotated[RagRetrievalService, Depends(get_rag_retrieval_service)]
+
+
+def get_complaint_email_service(
+    complaint_vlm_service: ComplaintEmailVlmServiceDep,
+    pin_validation_vlm_service: VLMServiceDep,
+    complaint_llm_service: ComplaintEmailLLMServiceDep,
+    rag_retrieval_service: RagRetrievalServiceDep,
+) -> ComplaintEmailService:
+    return ComplaintEmailService(
+        complaint_vlm_service=complaint_vlm_service,
+        pin_validation_vlm_service=pin_validation_vlm_service,
+        complaint_llm_service=complaint_llm_service,
+        rag_retrieval_service=rag_retrieval_service,
+    )
+
+
+ComplaintEmailServiceDep = Annotated[ComplaintEmailService, Depends(get_complaint_email_service)]
+
+
 def get_s3_util(request: Request) -> S3Util:
     s3_util = getattr(request.app.state, "s3_util", None)
     if s3_util is None:
@@ -193,6 +313,31 @@ def get_s3_util(request: Request) -> S3Util:
 
 
 S3UtilDep = Annotated[S3Util, Depends(get_s3_util)]
+
+
+def get_complaint_petition_service(
+    complaint_email_service: ComplaintEmailServiceDep,
+    issue_pin_repo: IssuePinRepoDep,
+    location_department_repo: LocationDepartmentRepoDep,
+    complaint_petition_repo: ComplaintPetitionRepoDep,
+    department_repo: DepartmentRepoDep,
+    location_repo: LocationRepoDep,
+    user_repo: UserRepoDep,
+    s3_util: S3UtilDep,
+) -> ComplaintPetitionService:
+    return ComplaintPetitionService(
+        complaint_email_service=complaint_email_service,
+        issue_pin_repo=issue_pin_repo,
+        location_department_repo=location_department_repo,
+        complaint_petition_repo=complaint_petition_repo,
+        department_repo=department_repo,
+        location_repo=location_repo,
+        user_repo=user_repo,
+        s3_util=s3_util,
+    )
+
+
+ComplaintPetitionServiceDep = Annotated[ComplaintPetitionService, Depends(get_complaint_petition_service)]
 
 
 def get_issue_pin_background_runner(
@@ -282,3 +427,24 @@ async def get_current_user(
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin_uid(
+    uid: CurrentUserIdDep,
+    user_repo: UserRepoDep,
+) -> str:
+    user = await user_repo.get_by_uid(uid)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+    if user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="ADMIN role required",
+        )
+    return uid
+
+
+AdminUserIdDep = Annotated[str, Depends(require_admin_uid)]
