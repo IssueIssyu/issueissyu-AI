@@ -268,14 +268,15 @@ class ComplaintPetitionService:
             offset += len(rows)
             for issue_pin in rows:
                 try:
-                    async with session.begin_nested():
-                        await self.create_petition_for_issue_pin(
-                            issue_pin_id=issue_pin.issue_pin_id,
-                            generated_on=generated_on,
-                            enforce_threshold=False,
-                        )
+                    await self.create_petition_for_issue_pin(
+                        issue_pin_id=issue_pin.issue_pin_id,
+                        generated_on=generated_on,
+                        enforce_threshold=False,
+                    )
+                    await session.commit()
                     success_count += 1
                 except Exception as exc:
+                    await session.rollback()
                     message = str(exc)
                     if "이미 처리 중인 민원" in message or "오늘 이미 생성" in message:
                         skip_count += 1

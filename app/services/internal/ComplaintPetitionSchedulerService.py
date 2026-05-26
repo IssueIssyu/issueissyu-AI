@@ -62,13 +62,7 @@ class ComplaintPetitionSchedulerService:
                 user_repo=UserRepo(session),
                 s3_util=self._s3_util,
             )
-            try:
-                result = await service.create_scheduled_petitions()
-                await session.commit()
-                return result
-            except Exception:
-                await session.rollback()
-                raise
+            return await service.create_scheduled_petitions()
 
     async def _run_loop(self) -> None:
         while True:
