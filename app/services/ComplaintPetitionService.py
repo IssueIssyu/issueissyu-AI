@@ -287,7 +287,7 @@ class ComplaintPetitionService:
                         exc,
                     )
 
-        await session.commit()
+        await self.commit()
         return {
             "generated_on": int(generated_on.strftime("%Y%m%d")),
             "success_count": success_count,
