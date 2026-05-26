@@ -424,6 +424,7 @@ class VLMService:
             upload = row.image
             addr = row.address
             image_bytes = await upload.read()
+            await upload.seek(0)
             if not image_bytes:
                 raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")
             mime = resolve_upload_image_mime(upload)
