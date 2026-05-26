@@ -22,7 +22,17 @@ if ! "${PYTHON_BIN}" -m pip show playwright >/dev/null 2>&1; then
   "${PYTHON_BIN}" -m pip install --no-cache-dir playwright
 fi
 
-echo "[EB][playwright] Installing chromium browser..."
-"${PYTHON_BIN}" -m playwright install chromium
+echo "[EB][playwright] Installing Chromium system dependencies (root)..."
+"${PYTHON_BIN}" -m playwright install-deps chromium
+
+WEBAPP_USER="webapp"
+if ! id "${WEBAPP_USER}" >/dev/null 2>&1; then
+  echo "[EB][playwright] ${WEBAPP_USER} user not found, installing as current user..."
+  "${PYTHON_BIN}" -m playwright install chromium
+else
+  echo "[EB][playwright] Installing Chromium browser as ${WEBAPP_USER}..."
+  sudo -u "${WEBAPP_USER}" "${PYTHON_BIN}" -m playwright install chromium
+fi
+
 echo "[EB][playwright] Chromium install complete."
 
