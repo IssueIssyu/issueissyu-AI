@@ -287,7 +287,7 @@ class ComplaintEmailService:
         rag_pipeline: ComplaintEmailRagPipelineResult,
     ) -> str | None:
         domain = ComplaintEmailService._normalize_to_curated_category(vlm_result.domain)
-        if domain is not None:
+        if domain is not None and domain != "공통":
             return domain
 
         weighted_scores: dict[str, float] = {}
@@ -319,7 +319,7 @@ class ComplaintEmailService:
             )
             return ranked[0][0]
 
-        return None
+        return domain
 
     @staticmethod
     def _accumulate_department_score(

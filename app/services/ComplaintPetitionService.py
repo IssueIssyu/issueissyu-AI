@@ -310,13 +310,14 @@ class ComplaintPetitionService:
                 continue
             if petition.status != ComplaintPetitionStatus.CREATED.value:
                 failed_count += 1
+                ld = petition.location_department
                 items.append(
                     ComplaintPetitionBulkSendItem(
                         petition_id=petition.petition_id,
                         status=petition.status,
                         issue_pin_id=petition.issue_pin_id,
                         location_department_id=petition.location_department_id,
-                        location_department_email=petition.location_department.location_department_email,
+                        location_department_email=ld.location_department_email if ld is not None else "",
                         reason="CREATED 상태만 송신할 수 있습니다.",
                     ),
                 )
@@ -354,13 +355,14 @@ class ComplaintPetitionService:
                     petition.petition_id,
                 )
 
+            ld = petition.location_department
             items.append(
                 ComplaintPetitionBulkSendItem(
                     petition_id=petition.petition_id,
                     status=next_status.value,
                     issue_pin_id=petition.issue_pin_id,
                     location_department_id=petition.location_department_id,
-                    location_department_email=petition.location_department.location_department_email,
+                    location_department_email=ld.location_department_email if ld is not None else "",
                     reason=reason,
                 ),
             )
@@ -390,6 +392,8 @@ class ComplaintPetitionService:
         return results
 
     async def _send_one(self, petition: ComplaintPetition) -> tuple[bool, str | None]:
+        if petition.location_department is None:
+            return False, "부서 매핑 정보가 없습니다."
         recipient = petition.location_department.location_department_email.strip()
         if not recipient:
             return False, "부서 이메일이 비어 있습니다."

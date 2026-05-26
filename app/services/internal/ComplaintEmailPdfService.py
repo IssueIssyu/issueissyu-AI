@@ -85,7 +85,10 @@ class ComplaintEmailPdfService:
     async def _ensure_browser() -> Browser:
         if _browser is not None and _browser.is_connected():
             return _browser
-        await ComplaintEmailPdfService._start_playwright_unlocked()
+        async with _pw_lock:
+            if _browser is not None and _browser.is_connected():
+                return _browser
+            await ComplaintEmailPdfService._start_playwright_unlocked()
         if _browser is None:
             raise RuntimeError("Playwright Chromium을 시작할 수 없습니다.")
         return _browser
@@ -144,18 +147,17 @@ class ComplaintEmailPdfService:
         if not source:
             raise ValueError("PDF로 변환할 HTML이 비어 있습니다.")
 
-        async with _pw_lock:
-            browser = await ComplaintEmailPdfService._ensure_browser()
-            page = await browser.new_page()
-            try:
-                await page.set_content(source, wait_until="load")
-                pdf_bytes = await page.pdf(
-                    format="A4",
-                    print_background=True,
-                    margin={"top": "18mm", "right": "20mm", "bottom": "18mm", "left": "20mm"},
-                )
-            finally:
-                await page.close()
+        browser = await ComplaintEmailPdfService._ensure_browser()
+        page = await browser.new_page()
+        try:
+            await page.set_content(source, wait_until="load")
+            pdf_bytes = await page.pdf(
+                format="A4",
+                print_background=True,
+                margin={"top": "18mm", "right": "20mm", "bottom": "18mm", "left": "20mm"},
+            )
+        finally:
+            await page.close()
 
         if not pdf_bytes:
             raise RuntimeError("Playwright PDF 출력이 비어 있습니다.")
