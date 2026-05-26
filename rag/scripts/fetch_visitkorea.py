@@ -50,11 +50,17 @@ def tourapi_to_latlng(
 
 
 def tourapi_header(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("header") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("header") or {}
+    return {}
 
 
 def tourapi_body(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("body") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("body") or {}
+    return {}
 
 
 def tourapi_result_ok(payload: dict[str, Any]) -> tuple[bool, str]:
