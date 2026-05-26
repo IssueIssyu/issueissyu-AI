@@ -13,11 +13,12 @@ import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, UnidentifiedImageError
 
 from app.core.config import settings
+from app.utils.policy_cardnews_constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from app.utils.policy_cardnews_copy import (
     compact_cardnews_slides,
     normalize_slide_copy,
     polish_korean_text,
-    should_render_slide,
+    is_slide_empty,
 )
 from app.utils.policy_cardnews_mascot import (
     BRAND_ACCENT,
@@ -46,9 +47,6 @@ logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_FONT_DIR = _REPO_ROOT / "app" / "assets" / "fonts"
-
-CANVAS_WIDTH = 1080
-CANVAS_HEIGHT = 1350
 MARGIN = 56
 PANEL_RADIUS = 36
 BLOCK_RADIUS = 24
@@ -280,11 +278,27 @@ def _normalize_layout_type(item: dict[str, Any], *, index: int, total: int) -> s
     layout = str(item.get("layout_type") or "").strip()
     if layout in VALID_LAYOUTS:
         return layout
+    parsed_items = _parse_items(item.get("items"))
+    n_items = len(parsed_items)
+    # render loop의 mascot/cover 분기에서 의도한 레이아웃이 선택됩니다.
+    if settings.policy_cardnews_use_template:
+        if index == 1:
+            return "template_cover"
+        if index == total:
+            return "template_cta"
+        if n_items == 3:
+            return "template_three_col"
+        if n_items == 4:
+            return "template_grid"
+        # 0~2개 또는 그 외: 텍스트 기반 numbered
+        return "template_numbered"
+
+    # 레거시(비템플릿) 모드: 중간은 info_blocks만 지원
     if index == 1:
         return LAYOUT_COVER
     if index == total:
         return LAYOUT_CTA
-    if _parse_items(item.get("items")):
+    if n_items > 0:
         return LAYOUT_INFO
     return LAYOUT_COVER
 
@@ -652,11 +666,25 @@ def _draw_panel_shadow(canvas: Image.Image, box: tuple[int, int, int, int], *, r
     return Image.alpha_composite(canvas.convert("RGBA"), layer)
 
 
-async def _download_image(url: str, *, timeout: float = 20.0) -> Image.Image | None:
+async def _download_image(
+    url: str,
+    *,
+    timeout: float = 20.0,
+    referer: str = "",
+) -> Image.Image | None:
     if not url.startswith(("http://", "https://")):
         return None
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+    }
+    if referer:
+        headers["Referer"] = referer
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True, headers=headers) as client:
             response = await client.get(url)
             response.raise_for_status()
             with Image.open(BytesIO(response.content)) as img:
@@ -666,7 +694,12 @@ async def _download_image(url: str, *, timeout: float = 20.0) -> Image.Image | N
         return None
 
 
-async def _download_images(urls: list[str], *, timeout: float = 20.0) -> list[Image.Image]:
+async def _download_images(
+    urls: list[str],
+    *,
+    timeout: float = 20.0,
+    referer: str = "",
+) -> list[Image.Image]:
     images: list[Image.Image] = []
     seen: set[str] = set()
     for url in urls:
@@ -674,7 +707,7 @@ async def _download_images(urls: list[str], *, timeout: float = 20.0) -> list[Im
         if not url or url in seen:
             continue
         seen.add(url)
-        img = await _download_image(url, timeout=timeout)
+        img = await _download_image(url, timeout=timeout, referer=referer)
         if img is not None:
             images.append(img)
     return images
@@ -1307,7 +1340,11 @@ def _render_slide_image(*, ctx: SlideRenderContext, background: Image.Image) -> 
             source_url=ctx.source_url,
             palette=resolve_template_palette(str(slide.get("template_palette") or "royal_blue")),
             hero_image=ctx.hero_image,
-            use_cover_image=bool(ctx.hero_image) and slide_no == 1,
+            use_cover_image=(
+                slide_no == 1
+                and ctx.hero_image is not None
+                and bool(slide.get("use_image", True))
+            ),
         )
         return render_template_slide(tmpl_ctx)
 
@@ -1345,10 +1382,16 @@ async def render_policy_cardnews_slides(
     target_dir = output_dir / contentid
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    urls = [u for u in (image_urls or []) if str(u).strip()]
+    from app.utils.policy_news_parse import enrich_cover_image_urls, merge_policy_image_urls
+
+    urls = merge_policy_image_urls(
+        original_image_urls=image_urls,
+        cardnews_image_urls=None,
+    )
     if background_image_url and background_image_url not in urls:
         urls.insert(0, background_image_url)
-    photos = await _download_images(urls[:8])
+    urls = await enrich_cover_image_urls(urls, source_url=source_url)
+    photos = await _download_images(urls[:8], referer=source_url or "https://www.korea.kr")
 
     rng = random.Random()
     prepared = [_normalize_slide_copy(s) for s in slides]
@@ -1363,7 +1406,7 @@ async def render_policy_cardnews_slides(
 
     prepared = enrich_cardnews_terminology(prepared, pin_content=pin_content)
     prepared = [_normalize_slide_copy(s) for s in prepared]
-    slides_to_render = [s for s in prepared if should_render_slide(s)]
+    slides_to_render = [s for s in prepared if not is_slide_empty(s)]
     if not slides_to_render:
         raise ValueError("렌더링할 카드뉴스 슬라이드가 없습니다 (내용 부족)")
 
@@ -1389,10 +1432,12 @@ async def render_policy_cardnews_slides(
 
         theme = THEMES.get(_resolve_theme_name(str(slide.get("theme") or "snow_clean")), THEMES["snow_clean"])
         variation = pick_slide_variation(rng, layout=layout)
+        if is_cover and photos:
+            slide["use_image"] = True
         use_image = bool(slide.get("use_image", True)) and bool(photos)
         cover_photo = photos[0] if photos else None
         hero = cover_photo if is_cover else (photos[index % len(photos)] if photos else None)
-        use_cover_image = is_cover and cover_photo is not None
+        use_cover_image = is_cover and cover_photo is not None and bool(slide.get("use_image", True))
 
         mascot_name = ""
         mascot = None

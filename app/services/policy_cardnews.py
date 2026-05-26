@@ -101,11 +101,16 @@ async def generate_cardnews_image_paths(
     target_dir = output_dir or POLICY_CARDNEWS_OUTPUT_DIR
     pin_title = str(row.get("pin_title") or "")
     minister = str(row.get("minister") or "")
-    image_urls = list(row.get("original_image_urls") or row.get("image_urls") or [])
-    cardnews_urls = [str(u).strip() for u in (row.get("cardnews_image_urls") or []) if str(u).strip()]
-    for url in cardnews_urls:
-        if url.startswith(("http://", "https://")) and url not in image_urls:
-            image_urls.append(url)
+    from app.utils.policy_news_parse import enrich_cover_image_urls, merge_policy_image_urls
+
+    source_url = str(row.get("source_url") or "")
+    image_urls = merge_policy_image_urls(
+        original_image_urls=row.get("original_image_urls"),
+        cardnews_image_urls=row.get("cardnews_image_urls"),
+    )
+    if not image_urls:
+        image_urls = [str(u).strip() for u in (row.get("image_urls") or []) if str(u).strip()]
+    image_urls = await enrich_cover_image_urls(image_urls, source_url=source_url)
     if image_urls and slides:
         first = dict(slides[0])
         first["use_image"] = True
@@ -135,7 +140,7 @@ async def generate_cardnews_image_paths(
                 slides=slides,
                 output_dir=target_dir,
                 image_urls=image_urls,
-                source_url=str(row.get("source_url") or ""),
+                source_url=source_url,
                 pin_content=easy_read_content or str(row.get("pin_content") or ""),
             )
     else:
@@ -145,7 +150,7 @@ async def generate_cardnews_image_paths(
             slides=slides,
             output_dir=target_dir,
             image_urls=image_urls,
-            source_url=str(row.get("source_url") or ""),
+            source_url=source_url,
             pin_content=easy_read_content or str(row.get("pin_content") or ""),
         )
 

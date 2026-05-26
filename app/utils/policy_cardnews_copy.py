@@ -210,17 +210,19 @@ def compact_cardnews_slides(slides: list[dict[str, Any]]) -> list[dict[str, Any]
     return result
 
 
-def should_render_slide(slide: dict[str, Any]) -> bool:
+def is_slide_empty(slide: dict[str, Any]) -> bool:
     layout = str(slide.get("layout_type") or "")
     score = slide_content_score(slide)
     if layout in {"cover_big_typo", "template_cover"}:
-        return bool(
+        return not bool(
             str(slide.get("headline") or "").strip()
             or str(slide.get("highlight") or "").strip()
             or str(slide.get("body") or "").strip()
         )
     if layout in {"cta", "template_cta"}:
-        return bool(str(slide.get("cta") or "").strip()) or bool(str(slide.get("headline") or "").strip())
+        return not (
+            bool(str(slide.get("cta") or "").strip()) or bool(str(slide.get("headline") or "").strip())
+        )
     if layout in {"info_blocks", "template_numbered", "template_three_col", "template_grid"}:
-        return score >= 50 or len(slide.get("items") or []) >= 3
-    return score >= 40
+        return score < 50 and len(slide.get("items") or []) < 3
+    return score < 40

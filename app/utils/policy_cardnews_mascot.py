@@ -61,7 +61,7 @@ def _read_manifest_filenames(directory: Path) -> list[str]:
     if isinstance(payload, list):
         return [str(name).strip() for name in payload if str(name).strip()]
     if isinstance(payload, dict):
-        raw = payload.get("files") or payload.get("include") or []
+        raw = payload.get("files") or []
         if isinstance(raw, list):
             return [str(name).strip() for name in raw if str(name).strip()]
     logger.warning("mascots.json 형식 오류 — files 배열이 필요합니다.")
@@ -134,8 +134,6 @@ def pick_mascot(rng: random.Random) -> tuple[str, Image.Image] | None:
 
 def pick_pin_mascot(
     rng: random.Random,
-    *,
-    prefer: str = "기본핀.png",
 ) -> tuple[str, Image.Image] | None:
     # 마무리 등 — app/assets/mascots (mascots.json) 핀 캐릭터만 사용
     allowed = allowed_mascot_names()
@@ -143,10 +141,6 @@ def pick_pin_mascot(
     if not mascots:
         logger.warning("mascots.json 핀 캐릭터 없음 — 마무리 캐릭터 생략")
         return None
-    by_name = {name: img for name, img in mascots}
-    if prefer in by_name:
-        logger.info("카드뉴스 핀 캐릭터(마무리): %s", prefer)
-        return prefer, by_name[prefer].copy()
     name, image = mascots[rng.randrange(len(mascots))]
     logger.info("카드뉴스 핀 캐릭터(마무리): %s", name)
     return name, image.copy()

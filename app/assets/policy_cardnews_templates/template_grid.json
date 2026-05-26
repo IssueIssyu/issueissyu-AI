@@ -1,0 +1,24 @@
+{
+  "name": "template_grid",
+  "canvas": { "width": 1080, "height": 1350 },
+  "frame": { "card_inset": 36, "content_pad": 36, "offset_px": 12 },
+  "defaults": {
+    "headline": "이렇게 확인하세요",
+    "label_prefix": "포인트"
+  },
+  "layout": {
+    "max_items": 4,
+    "gap_tile": 18,
+    "tile_min_h": 120,
+    "tile_pad": 24,
+    "panel_radius": 14,
+    "ribbon_ratio": 0.28,
+    "ribbon_min_h": 52
+  },
+  "fonts": {
+    "label_start": 42,
+    "label_min": 30,
+    "body_start": 44,
+    "body_min": 30
+  }
+}

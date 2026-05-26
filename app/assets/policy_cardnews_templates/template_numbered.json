@@ -1,0 +1,30 @@
+{
+  "name": "template_numbered",
+  "canvas": { "width": 1080, "height": 1350 },
+  "frame": { "card_inset": 36, "content_pad": 36, "offset_px": 12 },
+  "defaults": {
+    "eyebrow": "한 장 요약",
+    "speech": "핵심만!",
+    "speech_max_len": 18
+  },
+  "layout": {
+    "max_items": 4,
+    "mascot_max_items": 3,
+    "panel_inset": 22,
+    "gap_row": 14,
+    "row_min_h": 48,
+    "scale_base_per_row": 64,
+    "scale_max": 1.65,
+    "separator_width": 2,
+    "separator_inset_left": 56,
+    "max_wrap_lines": 3
+  },
+  "fonts": {
+    "row_title_start": 36,
+    "row_title_min": 28,
+    "row_title_max": 48,
+    "num_start": 30,
+    "num_min": 24,
+    "num_max": 38
+  }
+}
