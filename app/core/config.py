@@ -232,17 +232,20 @@ class Settings(BaseSettings):
         alias="POLICY_CARDNEWS_PILLOW_FALLBACK",
         description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
     )
+    policy_cardnews_use_template: bool = Field(
+        default=True,
+        alias="POLICY_CARDNEWS_USE_TEMPLATE",
+        description="고정 카드뉴스 템플릿(레퍼런스 형식) 사용",
+    )
     policy_cardnews_use_image_model: bool = Field(
-    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
-    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
-    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
-    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
-    # True면 lifespan에서 Gemini embed API로 차원 검증
-    vector_dim_check: bool = Field(
         default=False,
         alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
         description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
     )
+    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
+    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
+    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
+    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
     policy_cardnews_font_dir: str | None = Field(
         default=None,
         alias="POLICY_CARDNEWS_FONT_DIR",

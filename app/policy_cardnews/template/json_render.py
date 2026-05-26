@@ -32,7 +32,7 @@ from app.policy_cardnews.template.draw import (
     wrap_text,
 )
 from app.policy_cardnews.template.metrics import COVER_TEXT_RATIO_WITH_HERO
-from app.policy_cardnews.visual import paste_rounded_image_fit
+from app.policy_cardnews.visual import paste_rounded_image_cover, paste_rounded_image_fit
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE_DIR = _REPO_ROOT / "app" / "assets" / "policy_cardnews_templates"
@@ -198,16 +198,24 @@ def _fonts_cfg(config: dict[str, Any]) -> dict[str, int]:
     return {
         "eyebrow_start": int(fonts.get("eyebrow_start", 34)),
         "eyebrow_min": int(fonts.get("eyebrow_min", 26)),
+        "eyebrow_max_lines": int(fonts.get("eyebrow_max_lines", 2)),
         "headline_start": int(fonts.get("headline_start", 80)),
         "headline_min": int(fonts.get("headline_min", 52)),
+        "headline_max_lines": int(fonts.get("headline_max_lines", 2)),
         "highlight_start": int(fonts.get("highlight_start", 76)),
         "highlight_min": int(fonts.get("highlight_min", 48)),
+        "highlight_max_lines": int(fonts.get("highlight_max_lines", 2)),
     }
 
 
 def _highlight_cfg(config: dict[str, Any]) -> dict[str, Any]:
     hl = config.get("highlight") or {}
     layout = config.get("layout") or {}
+    text_fill_raw = hl.get("text_fill")
+    if isinstance(text_fill_raw, (list, tuple)) and len(text_fill_raw) == 3:
+        text_fill = tuple(int(v) for v in text_fill_raw)
+    else:
+        text_fill = INK
     return {
         "type": str(hl.get("type", "accent_badge")),
         "radius": int(hl.get("radius", layout.get("highlight_badge_radius", 8))),
@@ -215,6 +223,7 @@ def _highlight_cfg(config: dict[str, Any]) -> dict[str, Any]:
         "pad_y": int(hl.get("pad_y", layout.get("highlight_badge_pad_y", 5))),
         "tape_extra_h": int(hl.get("tape_extra_h", 14)),
         "line_gap": int(hl.get("line_gap", GAP_LINE_MD)),
+        "text_fill": text_fill,
     }
 
 
@@ -226,6 +235,7 @@ def _draw_highlight_accent_badge(
     line: str,
     font: ImageFont.FreeTypeFont,
     accent_fill: tuple[int, int, int],
+    text_fill: tuple[int, int, int] = INK,
     radius: int,
     pad_x: int,
     pad_y: int,
@@ -238,14 +248,13 @@ def _draw_highlight_accent_badge(
         radius=radius,
         fill=accent_fill,
     )
-    draw.text((cx - lw // 2, y + pad_y), line, font=font, fill=BRAND_ACCENT)
+    draw.text((cx - lw // 2, y + pad_y), line, font=font, fill=text_fill)
     return y + tape_h + GAP_LINE_LG
 
 
 def render_template_cover(ctx: Any) -> Image.Image:
     """`template_cover.json` 기반 표지 슬라이드."""
     from app.policy_cardnews.template.dispatch import (
-        _cover_mascot_bounds,
         _load_font,
         _paste_mascot_zone,
     )
@@ -308,101 +317,84 @@ def render_template_cover(ctx: Any) -> Image.Image:
     if highlight and highlight != headline:
         parts.append(("highlight", highlight))
 
-    base_used = 0
     probe = ImageDraw.Draw(Image.new("RGB", (10, 10)))
-    for kind, text in parts:
-        if kind == "eyebrow":
-            f, lines = fit_font_lines(
-                probe,
-                text,
-                cw - 24,
-                start_size=fonts["eyebrow_start"],
-                min_size=fonts["eyebrow_min"],
-                max_lines=2,
-                load_font_fn=_load_font,
-                bold=True,
-            )
-        elif kind == "headline":
-            f, lines = fit_font_lines(
-                probe,
-                text,
-                cw - 32,
-                start_size=fonts["headline_start"],
-                min_size=fonts["headline_min"],
-                max_lines=2,
-                load_font_fn=_load_font,
-                extra_bold=True,
-            )
-        else:
-            f, lines = fit_font_lines(
-                probe,
-                text,
-                cw - 32,
-                start_size=fonts["highlight_start"],
-                min_size=fonts["highlight_min"],
-                max_lines=2,
-                load_font_fn=_load_font,
-                extra_bold=True,
-            )
-        base_used += measure_text_block(lines, f, line_gap=GAP_LINE_SM) + GAP_BLOCK
 
-    scale = fill_scale(base_used, text_available)
-    y = cy0 + max(GAP_BLOCK, int((text_available - base_used * scale) * 0.10))
-
-    for kind, text in parts:
+    def _fit_block(kind: str, text: str, scale: float) -> tuple[Any, list[str], int]:
         if kind == "eyebrow":
+            max_lines = fonts["eyebrow_max_lines"]
             font, lines = fit_font_lines(
-                draw,
+                probe,
                 text,
                 cw - 32,
                 start_size=scaled_size(fonts["eyebrow_start"], scale),
                 min_size=fonts["eyebrow_min"],
-                max_lines=2,
+                max_lines=max_lines,
                 load_font_fn=_load_font,
                 bold=True,
             )
+            block_h = measure_text_block(lines, font, line_gap=GAP_LINE_SM) + GAP_LINE_LG
+            return font, lines, block_h
+        if kind == "headline":
+            max_lines = fonts["headline_max_lines"]
+            font, lines = fit_font_lines(
+                probe,
+                text,
+                cw - 40,
+                start_size=scaled_size(fonts["headline_start"], scale),
+                min_size=fonts["headline_min"],
+                max_lines=max_lines,
+                load_font_fn=_load_font,
+                extra_bold=True,
+            )
+            block_h = measure_text_block(lines, font, line_gap=GAP_LINE_MD) + GAP_LINE_LG
+            return font, lines, block_h
+        max_lines = fonts["highlight_max_lines"]
+        font, lines = fit_font_lines(
+            probe,
+            text,
+            cw - 40,
+            start_size=scaled_size(fonts["highlight_start"], scale),
+            min_size=fonts["highlight_min"],
+            max_lines=max_lines,
+            load_font_fn=_load_font,
+            extra_bold=True,
+        )
+        tape_h = line_height(font, 6) + highlight_cfg["tape_extra_h"]
+        block_h = len(lines) * (tape_h + GAP_LINE_LG) if lines else 0
+        return font, lines, block_h
+
+    scale = fill_scale(1, text_available, max_scale=1.78)
+    blocks: list[tuple[str, str, Any, list[str], int]] = []
+    for _ in range(28):
+        total = GAP_BLOCK
+        blocks = []
+        for kind, text in parts:
+            font, lines, block_h = _fit_block(kind, text, scale)
+            blocks.append((kind, text, font, lines, block_h))
+            total += block_h
+        if total <= text_available:
+            break
+        scale = max(1.0, scale * (text_available / total) * 0.96)
+
+    y = cy0 + max(GAP_BLOCK, int((text_available - total) * 0.08))
+
+    for kind, text, font, lines, block_h in blocks:
+        if kind == "eyebrow":
             for line in lines:
                 lh = line_height(font, GAP_LINE_SM)
-                if use_visual_fill and y + lh > text_bottom:
-                    break
                 lw = int(draw.textlength(line, font=font))
                 draw.text((cx - lw // 2, y), line, font=font, fill=INK_BODY)
                 y += lh
             y += GAP_LINE_LG
         elif kind == "headline":
-            font, lines = fit_font_lines(
-                draw,
-                text,
-                cw - 40,
-                start_size=scaled_size(fonts["headline_start"], scale),
-                min_size=fonts["headline_min"],
-                max_lines=2,
-                load_font_fn=_load_font,
-                extra_bold=True,
-            )
             for line in lines:
                 lh = line_height(font, GAP_LINE_MD)
-                if use_visual_fill and y + lh > text_bottom:
-                    break
                 lw = int(draw.textlength(line, font=font))
                 draw.text((cx - lw // 2, y), line, font=font, fill=INK)
                 y += lh
             y += GAP_LINE_LG
         else:
-            font, lines = fit_font_lines(
-                draw,
-                text,
-                cw - 40,
-                start_size=scaled_size(fonts["highlight_start"], scale),
-                min_size=fonts["highlight_min"],
-                max_lines=2,
-                load_font_fn=_load_font,
-                extra_bold=True,
-            )
             for line in lines:
-                tape_h = line_height(font, 6) + highlight_cfg["tape_extra_h"]
-                if use_visual_fill and y + tape_h > text_bottom:
-                    break
                 if highlight_cfg["type"] == "highlight_bar":
                     y = draw_highlighter_title(
                         draw,
@@ -425,7 +417,8 @@ def render_template_cover(ctx: Any) -> Image.Image:
                         y=y,
                         line=line,
                         font=font,
-                        accent_fill=tuple(palette.accent),
+                        accent_fill=tuple(palette.offset),
+                        text_fill=highlight_cfg["text_fill"],
                         radius=highlight_cfg["radius"],
                         pad_x=highlight_cfg["pad_x"],
                         pad_y=highlight_cfg["pad_y"],
@@ -439,7 +432,11 @@ def render_template_cover(ctx: Any) -> Image.Image:
         radius = int(hero_cfg.get("corner_radius", 28))
         box_inset = int(hero_cfg.get("box_inset", INSET_PANEL))
         img_box = (cx0 + box_inset, img_y0, cx1 - box_inset, img_y1)
-        canvas = paste_rounded_image_fit(canvas, ctx.hero_image, box=img_box, radius=radius)
+        fill_mode = str(hero_cfg.get("fill_mode") or "contain").strip().lower()
+        if fill_mode == "cover":
+            canvas = paste_rounded_image_cover(canvas, ctx.hero_image, box=img_box, radius=radius)
+        else:
+            canvas = paste_rounded_image_fit(canvas, ctx.hero_image, box=img_box, radius=radius)
         return canvas.convert("RGB")
 
     if use_mascot_hero and ctx.mascot is not None:

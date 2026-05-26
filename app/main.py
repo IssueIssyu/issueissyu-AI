@@ -1,5 +1,7 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
+import sys
 from typing import Any
 
 import httpx
@@ -43,7 +45,27 @@ def _configure_local_logging() -> None:
     logger.info("Local logging level configured to INFO")
 
 
+def _configure_windows_event_loop_for_subprocess() -> None:
+    """
+    Windows에서 asyncio subprocess_exec가 NotImplementedError가 나는 경우가 있습니다.
+    Playwright(Chromium) 같은 컴포넌트가 subprocess를 띄우기 때문에
+    이벤트 루프 정책을 Proactor로 맞춰줍니다.
+    """
+    if sys.platform != "win32":
+        return
+
+    try:
+        policy = asyncio.get_event_loop_policy()
+        if policy.__class__.__name__ == "WindowsSelectorEventLoopPolicy":
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+            logger.info("Windows event loop policy switched to Proactor for subprocess support.")
+    except Exception:
+        # 정책 변경 실패해도 서버 자체는 계속 동작해야 합니다.
+        logger.debug("Windows event loop policy switch failed", exc_info=True)
+
+
 _configure_local_logging()
+_configure_windows_event_loop_for_subprocess()
 
 
 @asynccontextmanager

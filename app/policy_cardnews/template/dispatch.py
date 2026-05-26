@@ -276,8 +276,9 @@ def _layout_center_mascot_block(
     cx0: int,
     cx1: int,
 ) -> tuple[Image.Image, ImageFont.FreeTypeFont, list[str], int, int, int, int, int, int]:
-    speech = (speech or "").strip()[:18]
-    max_h = max(380, int(zone_h * 0.98))
+    speech = (speech or "").strip()[:12]
+    # 마스코트 높이 상한 — zone_h 의 60 % 또는 절대치 320px 중 작은 값
+    max_h = min(320, max(160, int(zone_h * 0.60)))
     font_size = scaled_size(36, fill_scale(50, zone_h, max_scale=1.55), min_size=30, max_size=44)
     font = _load_font(font_size, bold=True)
     icon = mascot.copy()
@@ -380,7 +381,11 @@ def _paste_mascot_zone(
         return canvas
     zone_h = zone_bottom - zone_top
     large_center = align == "center"
-    max_h = max(380 if large_center else 280, int(zone_h * (0.98 if large_center else 0.92)))
+    # 절대 상한 설정 — 영역을 가득 채우지 않도록
+    if large_center:
+        max_h = min(340, max(160, int(zone_h * 0.62)))
+    else:
+        max_h = min(280, max(140, int(zone_h * 0.55)))
     font_size = scaled_size(36, fill_scale(50, zone_h, max_scale=1.55), min_size=30, max_size=44)
     font = _load_font(font_size, bold=True)
     frame = _card_frame()

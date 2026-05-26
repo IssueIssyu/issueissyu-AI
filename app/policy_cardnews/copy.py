@@ -76,7 +76,7 @@ def normalize_slide_copy(slide: dict[str, Any]) -> dict[str, Any]:
     speech = row["speech"]
 
     if highlight and headline and highlight == headline:
-        if layout == "cover_big_typo":
+        if layout in {"cover_big_typo", "template_cover"}:
             headline = ""
         else:
             highlight = ""
@@ -107,30 +107,54 @@ def normalize_slide_copy(slide: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+_SPEECH_MAX_CHARS = 10
+
+
+def _trim_speech(text: str, max_chars: int = _SPEECH_MAX_CHARS) -> str:
+    """말풍선에 들어갈 짧은 문구 — 단어 경계에서 자름."""
+    value = (text or "").strip()
+    if not value:
+        return ""
+    # 이미 짧으면 그대로
+    if len(value) <= max_chars:
+        return value
+    # 띄어쓰기 기준으로 잘라낸 뒤 말줄임
+    trimmed = value[:max_chars].rstrip()
+    # 마지막 조사/어미가 붙다 잘리는 것 방지: 공백 이전으로 후퇴
+    if " " in value[:max_chars]:
+        trimmed = value[:max_chars].rsplit(" ", 1)[0]
+    return trimmed.rstrip(".,!?") + "!"
+
+
 def derive_speech(slide: dict[str, Any], *, layout: str) -> str:
     explicit = polish_korean_text(str(slide.get("speech") or ""))
     if explicit:
-        return explicit[:18]
+        # 8자 이내 단어·구만 사용 (긴 문장은 말풍선에 부적합)
+        if len(explicit) <= _SPEECH_MAX_CHARS:
+            return explicit
+        # 길면 비워서 말풍선 자체를 생략
+        explicit = ""
 
     if layout in {"cta", "template_cta"}:
         cta = polish_korean_text(str(slide.get("cta") or ""))
-        if cta:
-            return f"{cta}!"[:18]
+        if cta and len(cta) <= _SPEECH_MAX_CHARS:
+            return cta.rstrip(".!") + "!"
 
     for candidate in (
         slide.get("highlight"),
         slide.get("headline"),
-        slide.get("body"),
     ):
         text = polish_korean_text(str(candidate or ""))
-        if text and not is_filler_text(text) and len(text) <= 18:
-            if layout in {"cover_big_typo", "template_cover", "cta", "template_cta"}:
-                return f"{text.rstrip('.!')}!"[:18]
+        if text and not is_filler_text(text):
+            if len(text) <= _SPEECH_MAX_CHARS:
+                if layout in {"cover_big_typo", "template_cover", "cta", "template_cta"}:
+                    return text.rstrip(".!") + "!"
+            # 너무 길면 건너뜀 (말풍선 잘림 방지)
 
     if layout in {"cover_big_typo", "template_cover"}:
-        return "이거 꼭 봐!"
+        return "꼭 확인해요!"
     if layout in {"cta", "template_cta"}:
-        return "원문 확인해!"
+        return "원문 확인!"
     return ""
 
 

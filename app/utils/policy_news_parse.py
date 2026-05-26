@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta
@@ -232,21 +233,38 @@ async def fetch_cover_image_urls_from_source(
     url = (source_url or "").strip()
     if not url.startswith(("http://", "https://")):
         return []
-    try:
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            headers=_COVER_FETCH_HEADERS,
-        ) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-            html = response.text
-    except httpx.HTTPError as exc:
-        logger.warning("원문 페이지 이미지 URL 수집 실패: %s (%s)", url, exc)
-        return []
+    headers = dict(_COVER_FETCH_HEADERS)
+    # korea.kr은 WAF로 인해 Referer가 없으면 연결이 막히는 케이스가 있습니다.
+    # (특히 actuallyView.do류 URL)
+    headers["Referer"] = url
 
-    base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-    return extract_cover_image_urls_from_html(html, base_url=base or url)
+    last_exc: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            async with httpx.AsyncClient(
+                timeout=timeout,
+                follow_redirects=True,
+                headers=headers,
+            ) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                html = response.text
+            base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+            return extract_cover_image_urls_from_html(html, base_url=base or url)
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            logger.warning(
+                "원문 페이지 이미지 URL 수집 실패 (attempt %d/3): %s (%s)",
+                attempt,
+                url,
+                exc,
+            )
+            await asyncio.sleep(min(2.0, attempt * 0.7))
+
+    logger.warning("원문 페이지 이미지 URL 수집 최종 실패: %s (%s)", url, last_exc)
+    return []
+
+    
 
 
 async def enrich_cover_image_urls(
