@@ -23,7 +23,45 @@ if ! "${PYTHON_BIN}" -m pip show playwright >/dev/null 2>&1; then
 fi
 
 echo "[EB][playwright] Installing Chromium system dependencies (root)..."
-"${PYTHON_BIN}" -m playwright install-deps chromium
+if command -v dnf >/dev/null 2>&1; then
+  dnf -y install \
+    atk \
+    at-spi2-atk \
+    cups-libs \
+    libdrm \
+    libXcomposite \
+    libXdamage \
+    libXfixes \
+    libXrandr \
+    mesa-libgbm \
+    pango \
+    cairo \
+    alsa-lib \
+    libxkbcommon \
+    nss \
+    nspr \
+    xorg-x11-libs
+elif command -v yum >/dev/null 2>&1; then
+  yum -y install \
+    atk \
+    at-spi2-atk \
+    cups-libs \
+    libdrm \
+    libXcomposite \
+    libXdamage \
+    libXfixes \
+    libXrandr \
+    mesa-libgbm \
+    pango \
+    cairo \
+    alsa-lib \
+    libxkbcommon \
+    nss \
+    nspr \
+    xorg-x11-libs
+else
+  "${PYTHON_BIN}" -m playwright install-deps chromium
+fi
 
 WEBAPP_USER="webapp"
 if ! id "${WEBAPP_USER}" >/dev/null 2>&1; then
