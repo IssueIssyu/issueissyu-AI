@@ -4,7 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
-from app.utils.policy_cardnews_render import parse_cardnews_slides_json, render_policy_cardnews_slides
+from app.policy_cardnews import parse_cardnews_slides_json, render_policy_cardnews_slides
 
 SAMPLE = [
     {
