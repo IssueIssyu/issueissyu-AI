@@ -483,7 +483,7 @@ class IssueService:
         *,
         pin_id: int,
         plan: _UpdatePinImagePlan,
-    ) -> list[PinImage]:
+    ) -> tuple[list[PinImage], list[str]]:
         new_rows, new_s3_keys = await self._upload_new_pin_images_with_is_main(
             pin_id=pin_id,
             new_specs=plan.new,
@@ -513,7 +513,7 @@ class IssueService:
 
         saved_images = [row for row, _ in plan.kept]
         saved_images.extend(new_rows)
-        return saved_images
+        return saved_images, new_s3_keys
 
     @staticmethod
     def _user_gps_from_pin_location(pin_location: PinLocation | None) -> str:
@@ -689,31 +689,39 @@ class IssueService:
             photos=uploads,
         )
 
-        if safe_title != pin.pin_title or safe_content != pin.pin_content:
-            pin.pin_title = safe_title
-            pin.pin_content = safe_content
-            await self._pin_repo.save(pin, flush_immediately=True)
-
+        uploaded_keys: list[str] = []
         saved_images: list[PinImage]
-        if image_plan.images_unchanged:
-            saved_images = existing_images
-        else:
-            saved_images = await self._sync_pin_images_after_update(
-                pin_id=pin.pin_id,
-                plan=image_plan,
-            )
+        try:
+            if safe_title != pin.pin_title or safe_content != pin.pin_content:
+                pin.pin_title = safe_title
+                pin.pin_content = safe_content
+                await self._pin_repo.save(pin, flush_immediately=True)
+
+            if image_plan.images_unchanged:
+                saved_images = existing_images
+            else:
+                saved_images, uploaded_keys = await self._sync_pin_images_after_update(
+                    pin_id=pin.pin_id,
+                    plan=image_plan,
+                )
+
+            await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
+            await self._background_runner.cancel(pin_id=pin.pin_id)
+            await self._pin_repo.commit()
+        except BusinessException:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            raise
+        except Exception:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            logger.exception("issue pin update failed pin_id=%s", pin.pin_id)
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
         user_gps = self._user_gps_from_pin_location(pin_location)
         user_address = (pin_location.detail_address or "").strip() or None
-
-        await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
-        await self._background_runner.cancel(pin_id=pin.pin_id)
-        try:
-            await self._pin_repo.commit()
-        except Exception:
-            await self._pin_repo.rollback()
-            logger.exception("issue pin update commit failed pin_id=%s", pin.pin_id)
-            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
         if image_plan.removed_s3_keys:
             deleted_count = await self._s3_util.delete_objects_best_effort(
