@@ -8,7 +8,6 @@ from typing import Any
 
 from PIL import Image
 
-from app.policy_cardnews.constants import CANVAS_HEIGHT, CANVAS_WIDTH
 from app.policy_cardnews.copy import (
     compact_cardnews_slides,
     is_slide_empty,
@@ -54,7 +53,7 @@ def _normalize_slide_copy(slide: dict[str, Any]) -> dict[str, Any]:
     return normalize_slide_copy(slide)
 
 
-def _render_slide_image(*, ctx: SlideRenderContext, background: Image.Image) -> Image.Image:
+def _render_slide_image(*, ctx: SlideRenderContext) -> Image.Image:
     slide_no = int(ctx.slide.get("slide") or 1)
     slide = normalize_to_template_slide(ctx.slide, index=slide_no, total=ctx.slide_total)
     palette = resolve_template_palette(str(slide.get("template_palette") or "royal_blue"))
@@ -158,7 +157,6 @@ async def render_policy_cardnews_slides(
             if mascot_pick:
                 mascot_name, mascot = mascot_pick[0], mascot_pick[1]
 
-        palette = resolve_template_palette(str(slide.get("template_palette") or "royal_blue"))
         ctx = SlideRenderContext(
             slide=slide,
             minister=minister,
@@ -168,9 +166,8 @@ async def render_policy_cardnews_slides(
             slide_total=slide_total,
             source_url=source_url,
         )
-        background = Image.new("RGB", (CANVAS_WIDTH, CANVAS_HEIGHT), palette.outer)
         out_path = target_dir / f"slide_{slide_no:02d}.png"
-        image = _render_slide_image(ctx=ctx, background=background)
+        image = _render_slide_image(ctx=ctx)
         image.save(out_path, format="PNG")
         saved_paths.append(_to_handoff_path(out_path))
 
