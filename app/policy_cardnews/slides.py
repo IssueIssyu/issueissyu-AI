@@ -108,4 +108,8 @@ def parse_cardnews_slides_json(raw: str) -> list[dict[str, Any]]:
                 "use_image": bool(item.get("use_image", True)),
             }
         )
-    return slides[:3]
+
+    # 최대 3장까지 사용하되, 첫 장과 마지막 CTA 슬라이드는 항상 보존
+    if len(slides) > 3:
+        return slides[:2] + [slides[-1]]
+    return slides
