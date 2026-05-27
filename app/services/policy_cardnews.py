@@ -1,20 +1,20 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from pathlib import Path
 from typing import Any
 
 from app.core.config import settings
+from app.policy_cardnews import (
+    parse_cardnews_slides_json,
+    render_policy_cardnews_slides,
+    save_slide_image_bytes,
+)
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.PolicyCardnewsImageService import PolicyCardnewsImageService
 from app.services.prompts.policy_cardnews import (
     build_policy_cardnews_image_prompt,
     build_policy_cardnews_slide_prompt,
-)
-from app.policy_cardnews import (
-    parse_cardnews_slides_json,
-    render_policy_cardnews_slides,
-    save_slide_image_bytes,
 )
 
 logger = logging.getLogger(__name__)
