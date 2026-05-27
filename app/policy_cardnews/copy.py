@@ -219,7 +219,12 @@ def compact_cardnews_slides(slides: list[dict[str, Any]]) -> list[dict[str, Any]
         if score < 20:
             continue
         if score < min_middle_score and merged:
-            merged[-1] = _merge_slides(merged[-1], slide)
+            # 표지(cover_big_typo)나 CTA(cta)는 병합 대상으로 사용하지 않고 그대로 유지
+            last_layout = str(merged[-1].get("layout_type") or "")
+            if last_layout not in {"cover_big_typo", "cta"}:
+                merged[-1] = _merge_slides(merged[-1], slide)
+            else:
+                merged.append(slide)
             continue
         merged.append(slide)
 
