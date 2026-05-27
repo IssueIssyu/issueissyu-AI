@@ -392,6 +392,14 @@ class IssueService:
         if request.pin_image_urls is None:
             kept_specs = [(img, img.is_main) for img in existing_images]
         else:
+            url_to_image: dict[str, PinImage] = {}
+            for img in existing_images:
+                if img.pin_id != pin_id:
+                    raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+                normalized_url = (img.pin_s3_url or "").strip()
+                if normalized_url:
+                    url_to_image[normalized_url] = img
+
             seen_urls: set[str] = set()
             seen_ids: set[int] = set()
             for item in request.pin_image_urls:
@@ -399,7 +407,7 @@ class IssueService:
                 if not url or url in seen_urls:
                     raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
                 seen_urls.add(url)
-                row = await self._pin_image_repo.get_by_pin_id_and_url(pin_id, url)
+                row = url_to_image.get(url)
                 if row is None:
                     raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
                 if row.pin_image_id in seen_ids:
