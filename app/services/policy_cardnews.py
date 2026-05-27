@@ -131,7 +131,7 @@ async def generate_cardnews_image_paths(
             if not settings.policy_cardnews_pillow_fallback:
                 raise
             logger.exception(
-                "移대뱶?댁뒪 ?대?吏 紐⑤뜽 ?앹꽦 ?ㅽ뙣 ??Pillow ?대갚 contentid=%s",
+                "카드뉴스 이미지 모델 생성 실패로 Pillow 폴백 contentid=%s",
                 content_id,
             )
             generated = await _generate_with_pillow(
