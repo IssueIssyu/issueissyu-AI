@@ -515,6 +515,47 @@ class IssueService:
         saved_images.extend(new_rows)
         return saved_images, new_s3_keys
 
+    async def _cleanup_removed_pin_images_best_effort(
+        self,
+        *,
+        pin_id: int,
+        removed_s3_keys: tuple[str, ...],
+    ) -> None:
+        """commit 성공 후 제거된 핀 이미지 S3 객체를 best-effort로 삭제한다.
+
+        DB 커밋 이후에만 호출해야 한다. 실패해도 API 응답은 성공으로 유지하고
+        로그만 남긴다(고아 객체는 운영 모니터링·별도 배치 정리 대상).
+        """
+        if not removed_s3_keys:
+            return
+        requested = len(removed_s3_keys)
+        try:
+            deleted_count = await self._s3_util.delete_objects_best_effort(
+                list(removed_s3_keys),
+            )
+        except Exception:
+            logger.exception(
+                "issue pin update removed image S3 cleanup failed pin_id=%s requested=%s",
+                pin_id,
+                requested,
+            )
+            return
+
+        if deleted_count < requested:
+            logger.warning(
+                "issue pin update removed image S3 cleanup incomplete pin_id=%s deleted=%s requested=%s",
+                pin_id,
+                deleted_count,
+                requested,
+            )
+        else:
+            logger.info(
+                "issue pin update removed image S3 cleanup pin_id=%s deleted=%s requested=%s",
+                pin_id,
+                deleted_count,
+                requested,
+            )
+
     @staticmethod
     def _user_gps_from_pin_location(pin_location: PinLocation | None) -> str:
         if pin_location is None:
@@ -705,6 +746,9 @@ class IssueService:
                     plan=image_plan,
                 )
 
+            user_gps = self._user_gps_from_pin_location(pin_location)
+            user_address = (pin_location.detail_address or "").strip() or None
+
             await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
             await self._background_runner.cancel(pin_id=pin.pin_id)
             await self._pin_repo.commit()
@@ -720,19 +764,10 @@ class IssueService:
             logger.exception("issue pin update failed pin_id=%s", pin.pin_id)
             raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
-        user_gps = self._user_gps_from_pin_location(pin_location)
-        user_address = (pin_location.detail_address or "").strip() or None
-
-        if image_plan.removed_s3_keys:
-            deleted_count = await self._s3_util.delete_objects_best_effort(
-                list(image_plan.removed_s3_keys),
-            )
-            logger.info(
-                "issue pin update removed image S3 cleanup pin_id=%s deleted=%s requested=%s",
-                pin.pin_id,
-                deleted_count,
-                len(image_plan.removed_s3_keys),
-            )
+        await self._cleanup_removed_pin_images_best_effort(
+            pin_id=pin.pin_id,
+            removed_s3_keys=image_plan.removed_s3_keys,
+        )
 
         await self._background_runner.schedule(
             IssuePinReliabilityJob(
