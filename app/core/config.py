@@ -195,7 +195,7 @@ class Settings(BaseSettings):
     policy_news_service_key: SecretStr | None = Field(
         default=None,
         alias="POLICY_NEWS_SERVICE_KEY",
-        description="미설정 시 VISITKOREA_SERVICE_KEY 사용",
+        description="정책뉴스 전용 API 키 (서비스별 독립 키, 필수)",
     )
     policy_news_api_base_url: str = Field(
         default="http://apis.data.go.kr/1371000/policyNewsService",
