@@ -458,17 +458,24 @@ class IssueService:
             return [], []
 
         uploaded_keys: list[str] = []
+
+        async def upload_and_track(snap: ImageSnapshot) -> dict[str, str]:
+            uploaded = await self._upload_snapshot_to_s3(snap)
+            uploaded_keys.append(uploaded["key"])
+            return uploaded
+
         try:
             uploaded_list = await asyncio.gather(
-                *[self._upload_snapshot_to_s3(snap) for snap, _ in new_specs],
+                *[upload_and_track(snap) for snap, _ in new_specs],
             )
         except Exception:
-            logger.exception("issue pin update image S3 upload failed pin_id=%s", pin_id)
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            logger.exception("issue pin image S3 upload failed pin_id=%s", pin_id)
             raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
 
         saved: list[PinImage] = []
         for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
-            uploaded_keys.append(uploaded["key"])
             pin_image = PinImage(
                 pin_id=pin_id,
                 pin_s3_key=uploaded["key"],
