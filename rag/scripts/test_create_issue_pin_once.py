@@ -35,11 +35,10 @@ async def _run(
     longitude: float,
 ) -> None:
     from app.core.config import settings
-    from app.models.enum.ToneType import ToneType
     from app.repositories.IssuePinRepo import IssuePinRepo
     from app.repositories.PinRepo import PinRepo
     from app.repositories.UserRepo import UserRepo
-    from app.schemas.IssueDTO import CreateIssuePinRequest
+    from app.schemas.IssueDTO import CreateIssuePinMultipartRequest, PinImageIsMainItem
     from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
     from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
     from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
@@ -64,12 +63,12 @@ async def _run(
         headers=Headers({"content-type": mime}),
     )
 
-    request = CreateIssuePinRequest(
-        title=title,
-        content=content,
-        tone=ToneType.SITUATION_DESCRIPTION,
-        latitude=latitude,
-        longitude=longitude,
+    request = CreateIssuePinMultipartRequest(
+        lat=latitude,
+        lng=longitude,
+        pin_title=title,
+        pin_content=content,
+        pin_images=[PinImageIsMainItem(is_main=True)],
     )
 
     pin_repo = MagicMock(spec=PinRepo)
@@ -117,17 +116,23 @@ async def _run(
 
         service = IssueService(
             vector_store_service=vector_store,
-            vlm_service=vlm,
-            image_exif_location_resolve_service=exif_service,
+            issue_rag_planner_service=MagicMock(),
+            location_resolve_client=location_resolve,
             issue_pin_llm_service=pin_llm,
             pin_repo=pin_repo,
             issue_pin_repo=issue_pin_repo,
+            pin_location_repo=MagicMock(),
+            pin_image_repo=MagicMock(),
+            pin_like_repo=MagicMock(),
+            community_repo=MagicMock(),
             user_repo=user_repo,
+            s3_util=MagicMock(),
+            background_runner=MagicMock(),
         )
 
         result = await service.create_issue_pin(
             uid="script-test-user",
-            images=[upload],
+            photos=[upload],
             request=request,
         )
         print(result.model_dump_json(indent=2, ensure_ascii=False))

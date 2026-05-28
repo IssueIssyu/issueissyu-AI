@@ -71,9 +71,9 @@ def _normalize_string_list(value: object) -> list[str]:
 @dataclass(slots=True)
 class IssueRagPlannerService:
     api_key: str
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-2.5-flash-lite"
     client: genai.Client = field(init=False, repr=False)
-    fallback_models: tuple[str, ...] = ("gemini-2.5-flash-lite", "gemini-2.0-flash-lite")
+    fallback_models: tuple[str, ...] = ("gemini-2.5-flash",)
 
     def __post_init__(self) -> None:
         self.client = genai.Client(api_key=self.api_key)

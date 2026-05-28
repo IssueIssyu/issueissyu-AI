@@ -106,8 +106,17 @@ class Settings(BaseSettings):
         alias="GEMINI_PIN_TEXT_MODEL",
     )
     gemini_pin_text_fallback_models: str = Field(
-        default="gemini-2.5-flash-lite,gemini-2.0-flash-lite",
+        default="gemini-2.5-flash-lite,gemini-2.5-flash",
         alias="GEMINI_PIN_TEXT_FALLBACK_MODELS",
+    )
+    # RAG 질의 재작성(Planner) — 짧은 JSON 작업이므로 flash-lite 계열 권장
+    gemini_rag_planner_model: str = Field(
+        default="gemini-2.5-flash-lite",
+        alias="GEMINI_RAG_PLANNER_MODEL",
+    )
+    gemini_rag_planner_fallback_models: str = Field(
+        default="gemini-2.5-flash",
+        alias="GEMINI_RAG_PLANNER_FALLBACK_MODELS",
     )
     gemini_embedding_model: str = Field(
         default="gemini-embedding-2",
@@ -192,7 +201,7 @@ class Settings(BaseSettings):
         alias="ISSUE_PIN_RELIABILITY_PIPELINE_TIMEOUT_SECONDS",
     )
     issue_pin_reliability_skip_rag_planner: bool = Field(
-        default=True,
+        default=False,
         alias="ISSUE_PIN_RELIABILITY_SKIP_RAG_PLANNER",
     )
     issue_pin_reliability_gemini_max_attempts: int = Field(

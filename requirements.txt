@@ -33,6 +33,7 @@ freetype-py==2.5.1
 frozenlist==1.8.0
 fsspec==2026.4.0
 GeoAlchemy2==0.18.0
+shapely==2.1.2
 google-ai-generativelanguage==0.6.15
 google-api-core==2.30.3
 google-api-python-client==2.194.0
