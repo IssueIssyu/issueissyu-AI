@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -203,14 +202,6 @@ class IssueService:
             )
         return rows
 
-    _COORDINATE_LEAK_PATTERN = re.compile(
-        r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+",
-    )
-
-    @staticmethod
-    def _contains_coordinate_leak(text: str) -> bool:
-        return bool(IssueService._COORDINATE_LEAK_PATTERN.search(text))
-
     @staticmethod
     def _sanitize_single_query(value: object) -> str | None:
         if not isinstance(value, str):
@@ -223,43 +214,8 @@ class IssueService:
         return text
 
     @staticmethod
-    def _normalize_location_text(text: str) -> str:
-        return re.sub(r"\s+", "", text.strip())
-
-    @staticmethod
-    def _title_contains_address_leak(title: str, user_location: str | None) -> bool:
-        if not user_location or user_location.strip() in {"", "주소 확인 불가"}:
-            return False
-
-        loc = user_location.strip()
-        if IssueService._normalize_location_text(loc) in IssueService._normalize_location_text(title):
-            return True
-        if re.search(r"\d+-\d+", title):
-            return True
-
-        parts = [part for part in re.split(r"\s+", loc) if len(part) >= 2]
-        hits = sum(1 for part in parts if part in title)
-        return hits >= 2
-
-    @staticmethod
-    def _sanitize_generated_title(
-        *,
-        generated_title: str,
-        fallback_title: str,
-        user_location: str | None = None,
-    ) -> str:
-        candidate = generated_title.strip().rstrip(" .,!?:;")
-        if (
-            not candidate
-            or IssueService._contains_coordinate_leak(candidate)
-            or IssueService._title_contains_address_leak(candidate, user_location)
-        ):
-            candidate = fallback_title.strip()
-            if IssueService._title_contains_address_leak(candidate, user_location):
-                candidate = ""
-        max_len = min(settings.pin_title_max_length, 42)
-        if len(candidate) > max_len:
-            candidate = candidate[:max_len].rstrip()
+    def _sanitize_generated_title(*, generated_title: str, fallback_title: str) -> str:
+        candidate = generated_title.strip() or fallback_title.strip()
         return candidate or "민원 제보"
 
     async def issue_pin_ai_make(
@@ -326,7 +282,6 @@ class IssueService:
         generated_title = self._sanitize_generated_title(
             generated_title=pin_copy["title"],
             fallback_title=safe_title,
-            user_location=user_location if user_location != "주소 확인 불가" else None,
         )
 
         return IssueAnalysisResult(
