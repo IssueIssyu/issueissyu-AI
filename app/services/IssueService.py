@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -202,6 +203,14 @@ class IssueService:
             )
         return rows
 
+    _COORDINATE_LEAK_PATTERN = re.compile(
+        r"-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+",
+    )
+
+    @staticmethod
+    def _contains_coordinate_leak(text: str) -> bool:
+        return bool(IssueService._COORDINATE_LEAK_PATTERN.search(text))
+
     @staticmethod
     def _sanitize_single_query(value: object) -> str | None:
         if not isinstance(value, str):
@@ -214,19 +223,44 @@ class IssueService:
         return text
 
     @staticmethod
-    def _tune_title(*, original_title: str, rewritten: dict[str, Any]) -> str:
-        primary = rewritten.get("primary_query")
-        keyword = rewritten.get("keyword_query")
-        candidate = (
-            IssueService._sanitize_single_query(primary)
-            or IssueService._sanitize_single_query(keyword)
-            or original_title.strip()
-        )
-        # 제목은 짧고 선명하게: 불필요한 접미 구두점 제거 + 길이 제한
-        tuned = candidate.strip().rstrip(" .,!?:;")
-        if len(tuned) > 42:
-            tuned = tuned[:42].rstrip()
-        return tuned or "민원 제보"
+    def _normalize_location_text(text: str) -> str:
+        return re.sub(r"\s+", "", text.strip())
+
+    @staticmethod
+    def _title_contains_address_leak(title: str, user_location: str | None) -> bool:
+        if not user_location or user_location.strip() in {"", "주소 확인 불가"}:
+            return False
+
+        loc = user_location.strip()
+        if IssueService._normalize_location_text(loc) in IssueService._normalize_location_text(title):
+            return True
+        if re.search(r"\d+-\d+", title):
+            return True
+
+        parts = [part for part in re.split(r"\s+", loc) if len(part) >= 2]
+        hits = sum(1 for part in parts if part in title)
+        return hits >= 2
+
+    @staticmethod
+    def _sanitize_generated_title(
+        *,
+        generated_title: str,
+        fallback_title: str,
+        user_location: str | None = None,
+    ) -> str:
+        candidate = generated_title.strip().rstrip(" .,!?:;")
+        if (
+            not candidate
+            or IssueService._contains_coordinate_leak(candidate)
+            or IssueService._title_contains_address_leak(candidate, user_location)
+        ):
+            candidate = fallback_title.strip()
+            if IssueService._title_contains_address_leak(candidate, user_location):
+                candidate = ""
+        max_len = min(settings.pin_title_max_length, 42)
+        if len(candidate) > max_len:
+            candidate = candidate[:max_len].rstrip()
+        return candidate or "민원 제보"
 
     async def issue_pin_ai_make(
         self,
@@ -241,12 +275,11 @@ class IssueService:
         user_location = await self._resolve_user_location_address(request)
         if user_location is None:
             user_location = "주소 확인 불가"
-        user_coordinates = self._user_coordinates_from_request(request)
 
         rewritten = await self._issue_rag_planner_service.rewrite_queries(
             title=safe_title,
             content=safe_content,
-            user_location=user_coordinates,
+            user_location=user_location,
         )
         filters = None
         primary_query = self._sanitize_single_query(rewritten.get("primary_query"))
@@ -289,15 +322,16 @@ class IssueService:
             "rag_hits": rag_payload,
         }
         pin_prompt = build_issue_pin_prompt_from_pipeline_bundle(bundle)
-        pin_body = await self._issue_pin_llm_service.generate_pin_text(prompt=pin_prompt)
-        tuned_title = self._tune_title(
-            original_title=request.title,
-            rewritten=rewritten,
+        pin_copy = await self._issue_pin_llm_service.generate_pin_copy(prompt=pin_prompt)
+        generated_title = self._sanitize_generated_title(
+            generated_title=pin_copy["title"],
+            fallback_title=safe_title,
+            user_location=user_location if user_location != "주소 확인 불가" else None,
         )
 
         return IssueAnalysisResult(
-            title=tuned_title,
-            content=pin_body,
+            title=generated_title,
+            content=pin_copy["content"],
         )
 
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:
