@@ -466,6 +466,7 @@ class IssueService:
             return [], []
 
         uploaded_keys: list[str] = []
+        success = False
 
         async def upload_and_track(snap: ImageSnapshot) -> dict[str, str]:
             uploaded = await self._upload_snapshot_to_s3(snap)
@@ -475,23 +476,38 @@ class IssueService:
         try:
             uploaded_list = await asyncio.gather(
                 *[upload_and_track(snap) for snap, _ in new_specs],
+                return_exceptions=True,
             )
-        except Exception:
-            if uploaded_keys:
-                await self._s3_util.delete_objects_best_effort(uploaded_keys)
-            logger.exception("issue pin image S3 upload failed pin_id=%s", pin_id)
-            raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            failures = [
+                result for result in uploaded_list if isinstance(result, BaseException)
+            ]
+            if failures:
+                first_failure = failures[0]
+                if not isinstance(first_failure, Exception):
+                    raise first_failure
+                logger.error(
+                    "issue pin image S3 upload failed pin_id=%s",
+                    pin_id,
+                    exc_info=first_failure,
+                )
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
 
-        saved: list[PinImage] = []
-        for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
-            pin_image = PinImage(
-                pin_id=pin_id,
-                pin_s3_key=uploaded["key"],
-                pin_s3_url=uploaded["url"],
-                is_main=is_main,
-            )
-            saved.append(pin_image)
-        return saved, uploaded_keys
+            saved: list[PinImage] = []
+            for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
+                pin_image = PinImage(
+                    pin_id=pin_id,
+                    pin_s3_key=uploaded["key"],
+                    pin_s3_url=uploaded["url"],
+                    is_main=is_main,
+                )
+                saved.append(pin_image)
+            success = True
+            return saved, uploaded_keys
+        finally:
+            if not success and uploaded_keys:
+                await asyncio.shield(
+                    self._s3_util.delete_objects_best_effort(uploaded_keys),
+                )
 
     async def _sync_pin_images_after_update(
         self,
