@@ -18,6 +18,53 @@ FESTIVAL_HANDOFF_PATH = (
 )
 
 
+def _row_content_id(row: dict) -> str:
+    return str(row.get("contentid") or "").strip()
+
+
+def _row_raw_content(row: dict) -> str:
+    return (row.get("pin_content_raw") or row.get("pin_content") or row.get("text") or "").strip()
+
+
+def _normalize_raw_for_compare(text: str) -> str:
+    # 재수집 시 공백/줄바꿈 차이로 불필요 재가공되는 것을 줄인다.
+    return " ".join((text or "").split()).strip()
+
+
+def _load_existing_handoff_by_contentid(path: Path) -> dict[str, dict]:
+    if not path.is_file():
+        return {}
+    out: dict[str, dict] = {}
+    for row in iter_jsonl(path):
+        if not isinstance(row, dict):
+            continue
+        content_id = _row_content_id(row)
+        if not content_id:
+            continue
+        out[content_id] = row
+    return out
+
+
+def _reuse_transformed_row_if_unchanged(
+    *,
+    source_row: dict,
+    existing_row: dict | None,
+) -> dict | None:
+    if existing_row is None:
+        return None
+    raw_content = _row_raw_content(source_row)
+    if not raw_content:
+        return None
+    source_norm = _normalize_raw_for_compare(raw_content)
+    existing_raw = str(existing_row.get("pin_content_raw") or "").strip()
+    existing_norm = _normalize_raw_for_compare(existing_raw)
+    existing_generated = str(existing_row.get("pin_content") or "").strip()
+    if existing_norm != source_norm or not existing_generated:
+        return None
+    source_with_raw = {**source_row, "pin_content_raw": raw_content}
+    return build_handoff_row(source_with_raw, instagram_content=existing_generated)
+
+
 def build_handoff_row(source: dict, *, instagram_content: str) -> dict:
     raw = (source.get("pin_content_raw") or source.get("pin_content") or "").strip()
     return {
@@ -50,7 +97,7 @@ def build_llm_service(*, model: str | None = None) -> IssuePinLLMService:
 
 
 async def transform_one_row(llm: IssuePinLLMService, row: dict) -> dict:
-    raw_content = (row.get("pin_content") or row.get("text") or "").strip()
+    raw_content = _row_raw_content(row)
     if not raw_content:
         raise ValueError("pin_content가 비어 있음")
 
@@ -83,39 +130,55 @@ async def transform_documents_jsonl(
         )
 
     rows = [row for row in iter_jsonl(src) if isinstance(row, dict)]
+    existing_by_content_id = _load_existing_handoff_by_contentid(dst)
 
-    llm = build_llm_service(model=model)
     results: list[dict] = []
     errors: list[dict] = []
-    concurrency = settings.festival_transform_concurrency
-    semaphore = asyncio.Semaphore(concurrency)
+    pending_rows: list[dict] = []
 
-    async def _transform_row(row: dict) -> tuple[dict | None, dict | None]:
-        content_id = str(row.get("contentid") or "").strip()
-        async with semaphore:
-            try:
-                return await transform_one_row(llm, row), None
-            except Exception as exc:
-                return None, {
-                    "contentid": content_id,
-                    "pin_title": row.get("pin_title"),
-                    "error": str(exc),
-                }
+    for row in rows:
+        if limit is not None and len(results) >= limit:
+            break
+        reused = _reuse_transformed_row_if_unchanged(
+            source_row=row,
+            existing_row=existing_by_content_id.get(_row_content_id(row)),
+        )
+        if reused is not None:
+            results.append(reused)
+            continue
+        pending_rows.append(row)
 
-    idx = 0
-    while idx < len(rows) and (limit is None or len(results) < limit):
-        batch_size = concurrency
-        if limit is not None:
-            batch_size = min(batch_size, limit - len(results))
-        batch_size = min(batch_size, len(rows) - idx)
-        batch = rows[idx : idx + batch_size]
-        idx += len(batch)
-        for ok_row, err_row in await asyncio.gather(*(_transform_row(row) for row in batch)):
-            if ok_row is not None:
-                if limit is None or len(results) < limit:
-                    results.append(ok_row)
-            elif err_row is not None:
-                errors.append(err_row)
+    if pending_rows:
+        llm = build_llm_service(model=model)
+        concurrency = settings.festival_transform_concurrency
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _transform_row(row: dict) -> tuple[dict | None, dict | None]:
+            content_id = _row_content_id(row)
+            async with semaphore:
+                try:
+                    return await transform_one_row(llm, row), None
+                except Exception as exc:
+                    return None, {
+                        "contentid": content_id,
+                        "pin_title": row.get("pin_title"),
+                        "error": str(exc),
+                    }
+
+        idx = 0
+        while idx < len(pending_rows) and (limit is None or len(results) < limit):
+            batch_size = concurrency
+            if limit is not None:
+                batch_size = min(batch_size, limit - len(results))
+            batch_size = min(batch_size, len(pending_rows) - idx)
+            batch = pending_rows[idx : idx + batch_size]
+            idx += len(batch)
+            for ok_row, err_row in await asyncio.gather(*(_transform_row(row) for row in batch)):
+                if ok_row is not None:
+                    if limit is None or len(results) < limit:
+                        results.append(ok_row)
+                elif err_row is not None:
+                    errors.append(err_row)
 
     write_jsonl(dst, results)
     pins = [FestivalPinDTO.model_validate(item) for item in results]
