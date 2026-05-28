@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import mimetypes
+from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -11,13 +13,18 @@ from fastapi import BackgroundTasks, UploadFile
 
 from app.core.config import settings
 from app.core.codes import ErrorCode
-from app.core.exceptions import raise_business_exception, raise_file_exception, raise_validation_exception
+from app.core.exceptions import (
+    BusinessException,
+    raise_business_exception,
+    raise_validation_exception,
+)
 from app.models.IssuePin import IssuePin
 from app.models.Pin import Pin
 from app.models.PinImage import PinImage
 from app.models.PinLocation import PinLocation
 from app.models.enum.IssuePinState import IssuePinState
 from app.models.enum.PinType import PinType
+from app.models.enum.ToneType import ToneType
 from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.PinLikeRepo import PinLikeRepo
@@ -27,6 +34,7 @@ from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.utils.S3Util import S3Util
 from app.schemas.IssueDTO import (
+    CreateIssuePinMultipartRequest,
     CreateIssuePinRequest,
     ImageUploadStatus,
     IssueAnalysisResult,
@@ -34,7 +42,7 @@ from app.schemas.IssueDTO import (
     IssuePinHomeImageItem,
     IssuePinReliabilityResponse,
     ReliabilityStatus,
-    UpdateIssuePinRequest,
+    UpdateIssuePinMultipartRequest,
 )
 from app.services.internal.issue_confidence_basis import is_failed_reliability_content
 from app.schemas.issue_pin_job import ImageSnapshot, IssuePinReliabilityJob
@@ -45,11 +53,20 @@ from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerServi
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 from app.services.prompts import build_issue_pin_prompt_from_pipeline_bundle
 from app.services.vector_domains import VectorDomain
-from app.utils.geo import wkt_point_from_wgs84
+from app.utils.geo import user_gps_from_wgs84, wgs84_from_pin_point, wkt_point_from_wgs84
 
 logger = logging.getLogger(__name__)
 SINGLE_RETRIEVAL_TOP_K = 5
 S3_ISSUE_IMAGE_PREFIX = "issueimage"
+MAX_PIN_IMAGE_TOTAL_BYTES = 50 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class _UpdatePinImagePlan:
+    images_unchanged: bool
+    kept: tuple[tuple[PinImage, bool], ...]
+    new: tuple[tuple[ImageSnapshot, bool], ...]
+    removed_s3_keys: tuple[str, ...]
 
 
 class IssueService:
@@ -104,12 +121,15 @@ class IssueService:
         return normalized_updated_at > normalized_created_at
 
     @staticmethod
-    def _user_coordinates_from_request(request: CreateIssuePinRequest | UpdateIssuePinRequest) -> str:
-        return f"{request.latitude:.6f},{request.longitude:.6f}"
+    def _user_coordinates_from_request(request: CreateIssuePinRequest) -> str:
+        return user_gps_from_wgs84(
+            latitude=request.latitude,
+            longitude=request.longitude,
+        )
 
     async def _resolve_user_location_address(
         self,
-        request: CreateIssuePinRequest | UpdateIssuePinRequest,
+        request: CreateIssuePinRequest,
     ) -> str | None:
         resolved = await self._location_resolve_client.resolve_wgs84(
             latitude=request.latitude,
@@ -122,29 +142,48 @@ class IssueService:
 
     async def _resolve_location_fields(
         self,
-        request: CreateIssuePinRequest | UpdateIssuePinRequest,
+        request: CreateIssuePinRequest,
     ) -> tuple[int, str, str]:
-        resolved = await self._location_resolve_client.resolve_wgs84(
+        return await self._resolve_location_fields_from_coords(
             latitude=request.latitude,
             longitude=request.longitude,
+            failure_error=ErrorCode.VALIDATION_ERROR,
+        )
+
+    async def _resolve_location_fields_from_coords(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        failure_error: ErrorCode = ErrorCode.ISSUE_PIN_IMPORT_FAILED,
+    ) -> tuple[int, str, str]:
+        resolved = await self._location_resolve_client.resolve_wgs84(
+            latitude=latitude,
+            longitude=longitude,
         )
         if resolved is None:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-            )
+            if failure_error == ErrorCode.VALIDATION_ERROR:
+                raise_validation_exception(
+                    failure_error,
+                    detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
+                )
+            raise_business_exception(failure_error)
         detail_address = (resolved.address or "").strip()
         if not detail_address:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치 주소를 확인할 수 없습니다.",
-            )
+            if failure_error == ErrorCode.VALIDATION_ERROR:
+                raise_validation_exception(
+                    failure_error,
+                    detail="위치 주소를 확인할 수 없습니다.",
+                )
+            raise_business_exception(failure_error)
         location_id = resolved.location_id
         if location_id is None:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-            )
+            if failure_error == ErrorCode.VALIDATION_ERROR:
+                raise_validation_exception(
+                    failure_error,
+                    detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
+                )
+            raise_business_exception(failure_error)
         trimmed_address = detail_address[:150]
         return location_id, trimmed_address, trimmed_address
 
@@ -261,62 +300,6 @@ class IssueService:
             content=pin_body,
         )
 
-    @staticmethod
-    def _validate_create_issue_pin_payload(
-        *,
-        title: str,
-        content: str,
-        images: list[UploadFile],
-    ) -> tuple[str, str]:
-        safe_title = title.strip()
-        safe_content = content.strip()
-        if not safe_title:
-            raise_validation_exception(ErrorCode.VALIDATION_ERROR, detail="제목을 입력해 주세요.")
-        if not safe_content:
-            raise_validation_exception(ErrorCode.VALIDATION_ERROR, detail="본문을 입력해 주세요.")
-        if len(safe_title) > settings.pin_title_max_length:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail=f"제목은 {settings.pin_title_max_length}자 이하여야 합니다.",
-            )
-        if len(safe_content) > settings.pin_content_max_length:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail=f"본문은 {settings.pin_content_max_length}자 이하여야 합니다.",
-            )
-        if len(images) > settings.issue_pin_max_images:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail=f"이미지는 최대 {settings.issue_pin_max_images}장까지 업로드할 수 있습니다.",
-            )
-        return safe_title, safe_content
-
-    @staticmethod
-    async def _snapshot_upload_images(images: list[UploadFile]) -> tuple[ImageSnapshot, ...]:
-        snapshots: list[ImageSnapshot] = []
-        for index, upload in enumerate(images, start=1):
-            raw = await upload.read()
-            if not raw:
-                # multipart/form-data 에서 `images=`처럼 빈 필드가 전달되면
-                # filename 없는 0-byte 파트가 들어올 수 있다. 이 경우는 "이미지 없음"으로 처리.
-                if not (upload.filename or "").strip():
-                    continue
-                raise_validation_exception(
-                    ErrorCode.VALIDATION_ERROR,
-                    detail=f"이미지 파일이 비어 있습니다. (index={index})",
-                )
-            mime = (upload.content_type or "").split(";")[0].strip().lower()
-            if not mime:
-                guessed, _ = mimetypes.guess_type(upload.filename or "")
-                mime = (guessed or "").split(";")[0].strip().lower()
-            if not mime.startswith("image/"):
-                raise_file_exception(ErrorCode.FILE_TYPE_NOT_SUPPORTED)
-            name = upload.filename or f"image_{index}.jpg"
-            snapshots.append(
-                ImageSnapshot(data=raw, content_type=mime, filename=name),
-            )
-        return tuple(snapshots)
-
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:
         return await self._s3_util.upload_bytes(
             snap.data,
@@ -325,98 +308,376 @@ class IssueService:
             prefix=S3_ISSUE_IMAGE_PREFIX,
         )
 
-    async def _upload_pin_images_sync(
+    @staticmethod
+    def _validate_pin_text(
+        *,
+        pin_title: str,
+        pin_content: str,
+        validation_error: ErrorCode,
+    ) -> tuple[str, str]:
+        safe_title = pin_title.strip()
+        safe_content = pin_content.strip()
+        if not safe_title or not safe_content:
+            raise_business_exception(validation_error)
+        if len(safe_title) > settings.pin_title_max_length:
+            raise_business_exception(validation_error)
+        if len(safe_content) > settings.pin_content_max_length:
+            raise_business_exception(validation_error)
+        return safe_title, safe_content
+
+    @staticmethod
+    def _validate_update_issue_pin_text(*, pin_title: str, pin_content: str) -> tuple[str, str]:
+        return IssueService._validate_pin_text(
+            pin_title=pin_title,
+            pin_content=pin_content,
+            validation_error=ErrorCode.ISSUE_PIN_EDIT_VALIDATION,
+        )
+
+    @staticmethod
+    def _validate_pin_image_main_flags(
+        *main_flags: bool,
+        error_code: ErrorCode = ErrorCode.ISSUE_PIN_EDIT_VALIDATION,
+    ) -> None:
+        if not main_flags:
+            return
+        main_count = sum(1 for flag in main_flags if flag)
+        if main_count != 1:
+            raise_business_exception(error_code)
+
+    @staticmethod
+    async def _snapshot_update_photos(photos: list[UploadFile]) -> tuple[ImageSnapshot, ...]:
+        snapshots: list[ImageSnapshot] = []
+        total_bytes = 0
+        for index, upload in enumerate(photos, start=1):
+            raw = await upload.read()
+            if not raw:
+                if not (upload.filename or "").strip():
+                    continue
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            extension = Path(upload.filename or "").suffix.lower()
+            if extension not in S3Util.ALLOWED_IMAGE_EXTENSIONS:
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            mime = (upload.content_type or "").split(";")[0].strip().lower()
+            if not mime:
+                guessed, _ = mimetypes.guess_type(upload.filename or "")
+                mime = (guessed or "").split(";")[0].strip().lower()
+            if not mime.startswith("image/"):
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            total_bytes += len(raw)
+            if total_bytes > MAX_PIN_IMAGE_TOTAL_BYTES:
+                raise_business_exception(ErrorCode.PIN_IMAGE_TOTAL_SIZE_EXCEEDED)
+            name = upload.filename or f"image_{index}.jpg"
+            snapshots.append(
+                ImageSnapshot(data=raw, content_type=mime, filename=name),
+            )
+        return tuple(snapshots)
+
+    async def _build_update_pin_image_plan(
         self,
         *,
         pin_id: int,
-        snapshots: tuple[ImageSnapshot, ...],
-    ) -> list[PinImage]:
-        """S3 업로드는 병렬(asyncio.gather), DB 저장은 동일 세션에서 순차 처리."""
-        if not snapshots:
-            return []
+        existing_images: list[PinImage],
+        request: UpdateIssuePinMultipartRequest,
+        photos: list[UploadFile],
+    ) -> _UpdatePinImagePlan:
+        if request.pin_image_urls is None and not photos:
+            return _UpdatePinImagePlan(
+                images_unchanged=True,
+                kept=tuple(),
+                new=tuple(),
+                removed_s3_keys=tuple(),
+            )
+
+        kept_specs: list[tuple[PinImage, bool]] = []
+        if request.pin_image_urls is None:
+            kept_specs = [(img, img.is_main) for img in existing_images]
+        else:
+            url_to_image: dict[str, PinImage] = {}
+            for img in existing_images:
+                if img.pin_id != pin_id:
+                    raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+                normalized_url = (img.pin_s3_url or "").strip()
+                if normalized_url:
+                    url_to_image[normalized_url] = img
+
+            seen_urls: set[str] = set()
+            seen_ids: set[int] = set()
+            for item in request.pin_image_urls:
+                url = item.pin_image_url.strip()
+                if not url or url in seen_urls:
+                    raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+                seen_urls.add(url)
+                row = url_to_image.get(url)
+                if row is None:
+                    raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+                if row.pin_image_id in seen_ids:
+                    raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+                seen_ids.add(row.pin_image_id)
+                kept_specs.append((row, item.is_main))
+
+        if request.pin_images and not photos:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+
+        new_specs: list[tuple[ImageSnapshot, bool]] = []
+        if photos:
+            pin_images_meta = request.pin_images
+            if pin_images_meta is None:
+                raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+            snapshots = await self._snapshot_update_photos(photos)
+            if not snapshots:
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            if len(snapshots) != len(pin_images_meta):
+                raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+            new_specs = [
+                (snapshots[index], pin_images_meta[index].is_main)
+                for index in range(len(snapshots))
+            ]
+
+        total_count = len(kept_specs) + len(new_specs)
+        if total_count > settings.issue_pin_max_images:
+            raise_business_exception(ErrorCode.PIN_IMAGE_COUNT_EXCEEDED)
+
+        self._validate_pin_image_main_flags(
+            *[is_main for _, is_main in kept_specs],
+            *[is_main for _, is_main in new_specs],
+        )
+
+        kept_ids = {row.pin_image_id for row, _ in kept_specs}
+        removed_s3_keys = tuple(
+            (img.pin_s3_key or "").strip()
+            for img in existing_images
+            if img.pin_image_id not in kept_ids and (img.pin_s3_key or "").strip()
+        )
+
+        return _UpdatePinImagePlan(
+            images_unchanged=False,
+            kept=tuple(kept_specs),
+            new=tuple(new_specs),
+            removed_s3_keys=removed_s3_keys,
+        )
+
+    async def _upload_new_pin_images_with_is_main(
+        self,
+        *,
+        pin_id: int,
+        new_specs: tuple[tuple[ImageSnapshot, bool], ...],
+    ) -> tuple[list[PinImage], list[str]]:
+        if not new_specs:
+            return [], []
+
+        uploaded_keys: list[str] = []
+
+        async def upload_and_track(snap: ImageSnapshot) -> dict[str, str]:
+            uploaded = await self._upload_snapshot_to_s3(snap)
+            uploaded_keys.append(uploaded["key"])
+            return uploaded
 
         try:
             uploaded_list = await asyncio.gather(
-                *[self._upload_snapshot_to_s3(snap) for snap in snapshots],
+                *[upload_and_track(snap) for snap, _ in new_specs],
             )
         except Exception:
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
             logger.exception("issue pin image S3 upload failed pin_id=%s", pin_id)
-            raise_file_exception(ErrorCode.FILE_UPLOAD_ERROR)
+            raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
 
         saved: list[PinImage] = []
-        for index, (snap, uploaded) in enumerate(zip(snapshots, uploaded_list, strict=True)):
+        for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
             pin_image = PinImage(
                 pin_id=pin_id,
                 pin_s3_key=uploaded["key"],
                 pin_s3_url=uploaded["url"],
-                is_main=index == 0,
+                is_main=is_main,
             )
-            await self._pin_image_repo.save(pin_image, flush_immediately=True)
             saved.append(pin_image)
-        return saved
+        return saved, uploaded_keys
+
+    async def _sync_pin_images_after_update(
+        self,
+        *,
+        pin_id: int,
+        plan: _UpdatePinImagePlan,
+    ) -> tuple[list[PinImage], list[str]]:
+        new_rows, new_s3_keys = await self._upload_new_pin_images_with_is_main(
+            pin_id=pin_id,
+            new_specs=plan.new,
+        )
+        try:
+            kept_ids = {row.pin_image_id for row, _ in plan.kept}
+            all_existing = await self._pin_image_repo.list_by_pin_id(pin_id)
+            remove_ids = [
+                img.pin_image_id
+                for img in all_existing
+                if img.pin_image_id not in kept_ids
+            ]
+            if remove_ids:
+                await self._pin_image_repo.delete_by_ids(remove_ids)
+
+            for row, is_main in plan.kept:
+                row.is_main = is_main
+                await self._pin_image_repo.save(row, flush_immediately=True)
+
+            for pin_image in new_rows:
+                await self._pin_image_repo.save(pin_image, flush_immediately=True)
+        except Exception:
+            if new_s3_keys:
+                await self._s3_util.delete_objects_best_effort(new_s3_keys)
+            logger.exception("issue pin update image DB sync failed pin_id=%s", pin_id)
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+
+        saved_images = [row for row, _ in plan.kept]
+        saved_images.extend(new_rows)
+        return saved_images, new_s3_keys
+
+    async def _cleanup_removed_pin_images_best_effort(
+        self,
+        *,
+        pin_id: int,
+        removed_s3_keys: tuple[str, ...],
+    ) -> None:
+        """commit 성공 후 제거된 핀 이미지 S3 객체를 best-effort로 삭제한다.
+
+        DB 커밋 이후에만 호출해야 한다. 실패해도 API 응답은 성공으로 유지하고
+        로그만 남긴다(고아 객체는 운영 모니터링·별도 배치 정리 대상).
+        """
+        if not removed_s3_keys:
+            return
+        requested = len(removed_s3_keys)
+        try:
+            deleted_count = await self._s3_util.delete_objects_best_effort(
+                list(removed_s3_keys),
+            )
+        except Exception:
+            logger.exception(
+                "issue pin update removed image S3 cleanup failed pin_id=%s requested=%s",
+                pin_id,
+                requested,
+            )
+            return
+
+        if deleted_count < requested:
+            logger.warning(
+                "issue pin update removed image S3 cleanup incomplete pin_id=%s deleted=%s requested=%s",
+                pin_id,
+                deleted_count,
+                requested,
+            )
+        else:
+            logger.info(
+                "issue pin update removed image S3 cleanup pin_id=%s deleted=%s requested=%s",
+                pin_id,
+                deleted_count,
+                requested,
+            )
+
+    @staticmethod
+    def _user_gps_from_pin_location(pin_location: PinLocation | None) -> str:
+        if pin_location is None:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+        latitude, longitude = wgs84_from_pin_point(pin_location.pin_point)
+        return user_gps_from_wgs84(latitude=latitude, longitude=longitude)
 
     async def create_issue_pin(
         self,
         *,
         uid: str,
-        request: CreateIssuePinRequest,
-        images: list[UploadFile] | None = None,
+        request: CreateIssuePinMultipartRequest,
+        photos: list[UploadFile] | None = None,
         background_tasks: BackgroundTasks | None = None,
     ) -> IssuePinHomeDetailResponse:
-        uploads = images or []
-        safe_title, safe_content = self._validate_create_issue_pin_payload(
-            title=request.title,
-            content=request.content,
-            images=uploads,
+        uploads = photos or []
+        safe_title, safe_content = self._validate_pin_text(
+            pin_title=request.pin_title,
+            pin_content=request.pin_content,
+            validation_error=ErrorCode.ISSUE_PIN_IMPORT_VALIDATION,
         )
+        if len(uploads) > settings.issue_pin_max_images:
+            raise_business_exception(ErrorCode.PIN_IMAGE_COUNT_EXCEEDED)
+        if len(uploads) != len(request.pin_images):
+            raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_VALIDATION)
+        self._validate_pin_image_main_flags(
+            *[item.is_main for item in request.pin_images],
+            error_code=ErrorCode.ISSUE_PIN_IMPORT_VALIDATION,
+        )
+
         user = await self._user_repo.get_by_uid(uid)
         if user is None:
-            raise_validation_exception(ErrorCode.USER_NOT_FOUND)
+            raise_business_exception(ErrorCode.USER_NOT_FOUND)
 
-        location_id, detail_address, user_address = await self._resolve_location_fields(request)
+        location_id, detail_address, user_address = await self._resolve_location_fields_from_coords(
+            latitude=request.lat,
+            longitude=request.lng,
+        )
+        user_gps = user_gps_from_wgs84(latitude=request.lat, longitude=request.lng)
 
-        image_snapshots = await self._snapshot_upload_images(uploads)
-        user_gps = self._user_coordinates_from_request(request)
+        image_specs: tuple[tuple[ImageSnapshot, bool], ...] = ()
+        if uploads:
+            snapshots = await self._snapshot_update_photos(uploads)
+            if len(snapshots) != len(request.pin_images):
+                raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_VALIDATION)
+            image_specs = tuple(
+                (snapshots[index], request.pin_images[index].is_main)
+                for index in range(len(snapshots))
+            )
 
         pin = Pin(
             uid=uid,
             pin_type=PinType.ISSUE,
             pin_title=safe_title,
             pin_content=safe_content,
-            tone_type=request.tone,
+            tone_type=ToneType.NONE,
             like_count=0,
             view_count=0,
         )
-        await self._pin_repo.save(pin, flush_immediately=True)
 
-        issue_pin = IssuePin(
-            issue_pin_state=IssuePinState.BEFORE_PROGRESS,
-            petition_count=0,
-            pin_id=pin.pin_id,
-            issue_confidence=None,
-            confidence_content=None,
-        )
-        await self._issue_pin_repo.save(issue_pin, flush_immediately=True)
-
-        pin_location = PinLocation(
-            pin_id=pin.pin_id,
-            location_id=location_id,
-            detail_address=detail_address,
-            pin_point=wkt_point_from_wgs84(
-                latitude=request.latitude,
-                longitude=request.longitude,
-            ),
-        )
-        await self._pin_location_repo.save(pin_location, flush_immediately=True)
-
+        uploaded_keys: list[str] = []
         saved_images: list[PinImage] = []
-        if image_snapshots:
-            saved_images = await self._upload_pin_images_sync(
-                pin_id=pin.pin_id,
-                snapshots=image_snapshots,
-            )
+        issue_pin: IssuePin
+        pin_location: PinLocation
+        try:
+            await self._pin_repo.save(pin, flush_immediately=True)
 
-        await self._pin_repo.commit()
+            issue_pin = IssuePin(
+                issue_pin_state=IssuePinState.BEFORE_PROGRESS,
+                petition_count=0,
+                pin_id=pin.pin_id,
+                issue_confidence=None,
+                confidence_content=None,
+            )
+            await self._issue_pin_repo.save(issue_pin, flush_immediately=True)
+
+            pin_location = PinLocation(
+                pin_id=pin.pin_id,
+                location_id=location_id,
+                detail_address=detail_address,
+                pin_point=wkt_point_from_wgs84(
+                    latitude=request.lat,
+                    longitude=request.lng,
+                ),
+            )
+            await self._pin_location_repo.save(pin_location, flush_immediately=True)
+
+            if image_specs:
+                saved_images, uploaded_keys = await self._upload_new_pin_images_with_is_main(
+                    pin_id=pin.pin_id,
+                    new_specs=image_specs,
+                )
+                for pin_image in saved_images:
+                    await self._pin_image_repo.save(pin_image, flush_immediately=True)
+
+            await self._pin_repo.commit()
+        except BusinessException:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            raise
+        except Exception:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            logger.exception("issue pin create commit failed uid=%s", uid)
+            raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_FAILED)
 
         await self._background_runner.schedule(
             IssuePinReliabilityJob(
@@ -430,9 +691,7 @@ class IssueService:
             background_tasks=background_tasks,
         )
 
-        image_status = (
-            ImageUploadStatus.COMPLETED if image_snapshots else ImageUploadStatus.NONE
-        )
+        image_status = ImageUploadStatus.COMPLETED if saved_images else ImageUploadStatus.NONE
         return await self._build_issue_pin_home_response(
             uid=uid,
             pin=pin,
@@ -449,15 +708,18 @@ class IssueService:
         *,
         uid: str,
         pin_id: int,
-        request: UpdateIssuePinRequest,
-        images: list[UploadFile] | None = None,
+        request: UpdateIssuePinMultipartRequest,
+        photos: list[UploadFile] | None = None,
         background_tasks: BackgroundTasks | None = None,
     ) -> IssuePinHomeDetailResponse:
-        uploads = images or []
-        safe_title, safe_content = self._validate_create_issue_pin_payload(
-            title=request.title,
-            content=request.content,
-            images=uploads,
+        uploads = photos or []
+        user = await self._user_repo.get_by_uid(uid)
+        if user is None:
+            raise_business_exception(ErrorCode.USER_NOT_FOUND)
+
+        safe_title, safe_content = self._validate_update_issue_pin_text(
+            pin_title=request.pin_title,
+            pin_content=request.pin_content,
         )
         issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
         if issue_pin is None or issue_pin.pin is None:
@@ -469,63 +731,58 @@ class IssueService:
         if pin.uid != uid:
             raise_business_exception(ErrorCode.FORBIDDEN)
         if issue_pin.issue_pin_state != IssuePinState.BEFORE_PROGRESS:
-            raise_validation_exception(
-                ErrorCode.VALIDATION_ERROR,
-                detail="진행 전 상태(BEFORE_PROGRESS)인 이슈 핀만 수정할 수 있습니다.",
-            )
-
-        location_id, detail_address, user_address = await self._resolve_location_fields(request)
-        image_snapshots = await self._snapshot_upload_images(uploads)
-        user_gps = self._user_coordinates_from_request(request)
-        old_s3_keys = [
-            image.pin_s3_key
-            for image in list(pin.pin_images or [])
-            if (image.pin_s3_key or "").strip()
-        ]
-
-        pin.pin_title = safe_title
-        pin.pin_content = safe_content
-        pin.tone_type = request.tone
-        await self._pin_repo.save(pin, flush_immediately=True)
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
 
         pin_location = pin.pin_location
         if pin_location is None:
-            pin_location = PinLocation(
-                pin_id=pin.pin_id,
-                location_id=location_id,
-                detail_address=detail_address,
-                pin_point=wkt_point_from_wgs84(
-                    latitude=request.latitude,
-                    longitude=request.longitude,
-                ),
-            )
-        else:
-            pin_location.location_id = location_id
-            pin_location.detail_address = detail_address
-            pin_location.pin_point = wkt_point_from_wgs84(
-                latitude=request.latitude,
-                longitude=request.longitude,
-            )
-        await self._pin_location_repo.save(pin_location, flush_immediately=True)
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
-        await self._pin_image_repo.delete_by_pin_id(pin.pin_id)
-        pin.pin_images = []
-        saved_images = await self._upload_pin_images_sync(
+        existing_images = list(pin.pin_images or [])
+        image_plan = await self._build_update_pin_image_plan(
             pin_id=pin.pin_id,
-            snapshots=image_snapshots,
+            existing_images=existing_images,
+            request=request,
+            photos=uploads,
         )
 
-        await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
-        await self._background_runner.cancel(pin_id=pin.pin_id)
-        await self._pin_repo.commit()
-        if old_s3_keys:
-            deleted_count = await self._s3_util.delete_objects_best_effort(old_s3_keys)
-            logger.info(
-                "issue pin update old image S3 cleanup pin_id=%s deleted=%s requested=%s",
-                pin.pin_id,
-                deleted_count,
-                len(old_s3_keys),
-            )
+        uploaded_keys: list[str] = []
+        saved_images: list[PinImage]
+        try:
+            if safe_title != pin.pin_title or safe_content != pin.pin_content:
+                pin.pin_title = safe_title
+                pin.pin_content = safe_content
+                await self._pin_repo.save(pin, flush_immediately=True)
+
+            if image_plan.images_unchanged:
+                saved_images = existing_images
+            else:
+                saved_images, uploaded_keys = await self._sync_pin_images_after_update(
+                    pin_id=pin.pin_id,
+                    plan=image_plan,
+                )
+
+            user_gps = self._user_gps_from_pin_location(pin_location)
+            user_address = (pin_location.detail_address or "").strip() or None
+
+            await self._issue_pin_repo.reset_confidence(issue_pin.issue_pin_id)
+            await self._background_runner.cancel(pin_id=pin.pin_id)
+            await self._pin_repo.commit()
+        except BusinessException:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            raise
+        except Exception:
+            await self._pin_repo.rollback()
+            if uploaded_keys:
+                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+            logger.exception("issue pin update failed pin_id=%s", pin.pin_id)
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+
+        await self._cleanup_removed_pin_images_best_effort(
+            pin_id=pin.pin_id,
+            removed_s3_keys=image_plan.removed_s3_keys,
+        )
 
         await self._background_runner.schedule(
             IssuePinReliabilityJob(
@@ -539,7 +796,7 @@ class IssueService:
             background_tasks=background_tasks,
         )
         image_status = (
-            ImageUploadStatus.COMPLETED if image_snapshots else ImageUploadStatus.NONE
+            ImageUploadStatus.COMPLETED if saved_images else ImageUploadStatus.NONE
         )
 
         return await self._build_issue_pin_home_response(

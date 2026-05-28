@@ -29,12 +29,45 @@ class CreateIssuePinRequest(BaseModel):
     longitude: float = Field(ge=-180, le=180)
 
 
-class UpdateIssuePinRequest(BaseModel):
-    title: str
-    content: str
-    tone: ToneType = ToneType.NONE
-    latitude: float = Field(ge=-90, le=90)
-    longitude: float = Field(ge=-180, le=180)
+class UpdateIssuePinImageUrlItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    pin_image_url: str = Field(alias="pinImageUrl")
+    is_main: bool = Field(alias="isMain")
+
+
+class PinImageIsMainItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    is_main: bool = Field(alias="isMain")
+
+
+UpdateIssuePinNewImageItem = PinImageIsMainItem
+
+
+class CreateIssuePinMultipartRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    lat: float = Field(ge=-90, le=90)
+    lng: float = Field(ge=-180, le=180)
+    pin_title: str = Field(alias="pinTitle")
+    pin_content: str = Field(alias="pinContent")
+    pin_images: list[PinImageIsMainItem] = Field(alias="pinImages")
+
+
+class UpdateIssuePinMultipartRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    pin_title: str = Field(alias="pinTitle")
+    pin_content: str = Field(alias="pinContent")
+    pin_image_urls: list[UpdateIssuePinImageUrlItem] | None = Field(
+        default=None,
+        alias="pinImageUrls",
+    )
+    pin_images: list[PinImageIsMainItem] | None = Field(
+        default=None,
+        alias="pinImages",
+    )
 
 
 class ImageWithLocation(BaseModel):
