@@ -214,8 +214,20 @@ class IssueService:
         return text
 
     @staticmethod
+    def _normalize_title_text(text: str, *, max_length: int) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = " ".join(part.strip() for part in normalized.splitlines() if part.strip())
+        normalized = normalized.strip().rstrip(" .,!?:;")
+        if len(normalized) > max_length:
+            normalized = normalized[:max_length].rstrip(" .,!?:;")
+        return normalized
+
+    @staticmethod
     def _sanitize_generated_title(*, generated_title: str, fallback_title: str) -> str:
-        candidate = generated_title.strip() or fallback_title.strip()
+        max_length = settings.pin_title_max_length
+        candidate = IssueService._normalize_title_text(generated_title, max_length=max_length)
+        if not candidate:
+            candidate = IssueService._normalize_title_text(fallback_title, max_length=max_length)
         return candidate or "민원 제보"
 
     async def issue_pin_ai_make(
