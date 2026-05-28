@@ -1,10 +1,18 @@
-from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
+from typing import Annotated
 
-from app.core.codes import SuccessCode
+from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
+from pydantic import ValidationError
+
+from app.core.codes import ErrorCode, SuccessCode
 from app.core.deps import CurrentUserIdDep, IssueServiceDep
+from app.core.exceptions import raise_business_exception
 from app.core.responses import success_response
 from app.models.enum.ToneType import ToneType
-from app.schemas.IssueDTO import CreateIssuePinRequest, UpdateIssuePinRequest
+from app.schemas.IssueDTO import (
+    CreateIssuePinMultipartRequest,
+    CreateIssuePinRequest,
+    UpdateIssuePinMultipartRequest,
+)
 
 router = APIRouter(prefix="/issues", tags=["issue"])
 
@@ -44,29 +52,23 @@ async def create_issue_pin(
     uid: CurrentUserIdDep,
     issue_service: IssueServiceDep,
     background_tasks: BackgroundTasks,
-    title: str = Form(...),
-    content: str = Form(...),
-    tone: ToneType = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    images: list[UploadFile] = File(default=[]),
+    request: Annotated[str, Form(...)],
+    photos: list[UploadFile] = File(default=[]),
 ):
-    request = CreateIssuePinRequest(
-        title=title,
-        content=content,
-        tone=tone,
-        latitude=latitude,
-        longitude=longitude,
-    )
+    try:
+        body = CreateIssuePinMultipartRequest.model_validate_json(request)
+    except ValidationError:
+        raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_VALIDATION)
+
     result = await issue_service.create_issue_pin(
         uid=uid,
-        request=request,
-        images=images,
+        request=body,
+        photos=photos,
         background_tasks=background_tasks,
     )
     return success_response(
         result=result.model_dump(by_alias=True, exclude_none=False),
-        success_code=SuccessCode.CREATED,
+        success_code=SuccessCode.ISSUE_PIN_IMPORT_SUCCESS,
     )
 
 
@@ -92,30 +94,24 @@ async def update_issue_pin(
     uid: CurrentUserIdDep,
     issue_service: IssueServiceDep,
     background_tasks: BackgroundTasks,
-    title: str = Form(...),
-    content: str = Form(...),
-    tone: ToneType = Form(...),
-    latitude: float = Form(...),
-    longitude: float = Form(...),
-    images: list[UploadFile] = File(default=[]),
+    request: Annotated[str, Form(...)],
+    photos: list[UploadFile] = File(default=[]),
 ):
-    request = UpdateIssuePinRequest(
-        title=title,
-        content=content,
-        tone=tone,
-        latitude=latitude,
-        longitude=longitude,
-    )
+    try:
+        body = UpdateIssuePinMultipartRequest.model_validate_json(request)
+    except ValidationError:
+        raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+
     result = await issue_service.update_issue_pin(
         uid=uid,
         pin_id=pin_id,
-        request=request,
-        images=images,
+        request=body,
+        photos=photos,
         background_tasks=background_tasks,
     )
     return success_response(
         result=result.model_dump(by_alias=True, exclude_none=False),
-        success_code=SuccessCode.OK,
+        success_code=SuccessCode.ISSUE_PIN_EDIT_SUCCESS,
     )
 
 

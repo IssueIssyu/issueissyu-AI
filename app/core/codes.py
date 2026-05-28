@@ -50,6 +50,41 @@ class ErrorCode(Enum):
         "ISSUE_4222",
         "핀 생성 모델 응답을 가져올 수 없습니다. (차단 또는 형식 오류)",
     )
+    ISSUE_PIN_EDIT_VALIDATION = (
+        status.HTTP_400_BAD_REQUEST,
+        "ISSUE_PIN_EDIT_400_1",
+        "필수 요청 값 누락.",
+    )
+    ISSUE_PIN_EDIT_FAILED = (
+        status.HTTP_400_BAD_REQUEST,
+        "ISSUE_PIN_EDIT_400_2",
+        "이슈 핀 수정 API를 실행 할 수 없습니다.",
+    )
+    ISSUE_PIN_IMPORT_VALIDATION = (
+        status.HTTP_400_BAD_REQUEST,
+        "ISSUE_PIN_IMPORT_400_1",
+        "필수 요청 값 누락.",
+    )
+    ISSUE_PIN_IMPORT_FAILED = (
+        status.HTTP_400_BAD_REQUEST,
+        "ISSUE_PIN_IMPORT_400_2",
+        "이슈 핀 등록 API를 실행 할 수 없습니다.",
+    )
+    PIN_IMAGE_TOTAL_SIZE_EXCEEDED = (
+        status.HTTP_400_BAD_REQUEST,
+        "PIN_IMAGE_400_1",
+        "첨부한 사진 용량이 너무 큽니다.",
+    )
+    PIN_IMAGE_UPLOAD_FAILED = (
+        status.HTTP_400_BAD_REQUEST,
+        "PIN_IMAGE_400_2",
+        "사진 첨부에 실패했습니다.",
+    )
+    PIN_IMAGE_COUNT_EXCEEDED = (
+        status.HTTP_400_BAD_REQUEST,
+        "PIN_IMAGE_400_3",
+        "최대 사진 첨부 갯수를 초과했습니다.",
+    )
 
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
@@ -94,6 +129,16 @@ class SuccessCode(Enum):
         status.HTTP_200_OK,
         "ISSUE_2002",
         "이슈 핀 신뢰도 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_EDIT_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_PIN_EDIT_200",
+        "이슈 핀 수정에 성공했습니다.",
+    )
+    ISSUE_PIN_IMPORT_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "ISSUE_PIN_IMPORT_201",
+        "이슈 핀 등록에 성공했습니다.",
     )
 
     COMPLAINT_EMAIL_GENERATE_SUCCESS = (
