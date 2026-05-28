@@ -505,7 +505,9 @@ class IssueService:
             return saved, uploaded_keys
         finally:
             if not success and uploaded_keys:
-                await self._s3_util.delete_objects_best_effort(uploaded_keys)
+                await asyncio.shield(
+                    self._s3_util.delete_objects_best_effort(uploaded_keys),
+                )
 
     async def _sync_pin_images_after_update(
         self,
