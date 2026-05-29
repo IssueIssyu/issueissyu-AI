@@ -309,3 +309,47 @@ def clamp_confidence_score(value: object) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, min(1.0, score))
+
+
+_CORE_RELIABILITY_AXES = frozenset({"content", "image", "location"})
+
+
+def count_core_reliability_warns(vlm_result: dict[str, Any]) -> int:
+    items = _coerce_basis_items(vlm_result.get("confidence_basis"))
+    return sum(
+        1
+        for item in items
+        if item.get("status") == "warn" and item.get("axis") in _CORE_RELIABILITY_AXES
+    )
+
+
+def cap_confidence_score_by_basis_warns(score: float, vlm_result: dict[str, Any]) -> float:
+    """축별 warn이 많을수록 모델이 준 점수 상한을 낮춘다."""
+    warn_count = count_core_reliability_warns(vlm_result)
+    capped = score
+    if warn_count >= 2:
+        capped = min(capped, 0.64)
+    elif warn_count == 1:
+        capped = min(capped, 0.84)
+    return max(0.0, min(1.0, capped))
+
+
+def derive_complaint_email_validity(
+    *,
+    score: float,
+    vlm_result: dict[str, Any],
+    model_validity: bool,
+) -> bool:
+    """청원 알림용 validity — 모델 출력과 점수·축 warn을 함께 본다."""
+    warn_count = count_core_reliability_warns(vlm_result)
+    if score < 0.40:
+        return False
+    if warn_count >= 2 and score < 0.70:
+        return False
+    if score >= 0.70 and warn_count == 0:
+        return True
+    if score >= 0.65 and warn_count <= 1 and model_validity:
+        return True
+    if score >= 0.55 and warn_count <= 1 and model_validity:
+        return True
+    return False

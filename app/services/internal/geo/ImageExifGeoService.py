@@ -8,8 +8,11 @@ from PIL import Image, UnidentifiedImageError
 from PIL.ExifTags import GPSTAGS, IFD
 
 from app.schemas.Wgs84PointDTO import Wgs84PointDTO
+from app.utils.pillow_images import ensure_heif_opener
 
 logger = logging.getLogger(__name__)
+
+ensure_heif_opener()
 
 # Pillow 버전에 따라 EXIF GPS IFD 식별자 노출 방식이 다르다.
 # - 최신 Pillow 계열: IFD.GPSInfo 사용

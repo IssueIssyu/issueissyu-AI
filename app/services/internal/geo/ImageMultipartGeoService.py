@@ -18,7 +18,15 @@ class ImageMultipartGeoService:
     """`multipart/form-data`로 받은 이미지에서 EPSG:4326(WGS84) 좌표를 추출."""
 
     ALLOWED_MEDIA_TYPES: frozenset[str] = frozenset(
-        {"image/jpeg", "image/png", "image/webp", "image/tiff", "image/x-tiff"}
+        {
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/tiff",
+            "image/x-tiff",
+            "image/heic",
+            "image/heif",
+        }
     )
     MAX_IMAGE_BYTES: int = 20 * 1024 * 1024
 
@@ -27,7 +35,7 @@ class ImageMultipartGeoService:
         if ctype and ctype not in self.ALLOWED_MEDIA_TYPES and ctype != "application/octet-stream":
             raise_file_exception(
                 ErrorCode.FILE_TYPE_NOT_SUPPORTED,
-                detail="지원 형식: JPEG, PNG, WebP, TIFF 또는 application/octet-stream",
+                detail="지원 형식: JPEG, PNG, WebP, TIFF, HEIC/HEIF 또는 application/octet-stream",
             )
 
         raw = await file.read(size=self.MAX_IMAGE_BYTES + 1)
