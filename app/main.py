@@ -28,6 +28,13 @@ from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.services.vector_domains import build_vector_domain_configs
+from app.schemas.IssueDTO import (
+    CreateIssuePinMultipartRequest,
+    PinImageIsMainItem,
+    UpdateIssuePinImageUrlItem,
+    UpdateIssuePinMultipartRequest,
+)
+from app.utils.openapi_multipart import patch_multipart_json_request_field, register_pydantic_models
 from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
 from app.utils.vector import ensure_pgvector_extension
@@ -245,6 +252,43 @@ def custom_openapi() -> dict[str, Any]:
         routes=app.routes,
     )
     _patch_binary_media_schema(openapi_schema)
+    register_pydantic_models(
+        openapi_schema,
+        PinImageIsMainItem,
+        UpdateIssuePinImageUrlItem,
+        CreateIssuePinMultipartRequest,
+        UpdateIssuePinMultipartRequest,
+    )
+    patch_multipart_json_request_field(
+        openapi_schema,
+        body_schema_key="Body_create_issue_pin_issues_pin_post",
+        request_model=CreateIssuePinMultipartRequest,
+        description=(
+            "JSON part (Content-Type: application/json). "
+            "photos와 pinImages 길이·순서 1:1, 이미지 1장 이상이면 isMain true 정확히 1개."
+        ),
+        example={
+            "lat": 37.566535,
+            "lng": 126.977969,
+            "pinTitle": "횡단보도 신호등 고장",
+            "pinContent": "신호등이 3일째 작동하지 않습니다.",
+            "pinImages": [{"isMain": True}],
+        },
+    )
+    patch_multipart_json_request_field(
+        openapi_schema,
+        body_schema_key="Body_update_issue_pin_issues_pin__pin_id__patch",
+        request_model=UpdateIssuePinMultipartRequest,
+        description=(
+            "JSON part (Content-Type: application/json). "
+            "pinImageUrls 생략+photos 없음=기존 이미지 유지, photos 있을 때 pinImages 필수."
+        ),
+        example={
+            "pinTitle": "수정된 제목",
+            "pinContent": "수정된 본문",
+            "pinImageUrls": [{"pinImageUrl": "https://example.com/a.jpg", "isMain": True}],
+        },
+    )
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -259,3 +303,7 @@ for router in enabled_routers:
 @app.get("/health")
 def health() -> JSONResponse:
     return success_response(result={"status": "ok"}, success_code=SuccessCode.OK)
+
+@app.get("/")
+def default_route() -> JSONResponse:
+    return success_response(result={"status": "issueissyu서비스의 AI 서버입니다."}, success_code=SuccessCode.OK)

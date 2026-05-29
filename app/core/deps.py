@@ -135,8 +135,8 @@ def get_issue_rag_planner_service() -> IssueRagPlannerService:
         raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
     return IssueRagPlannerService(
         api_key=api_key_secret.get_secret_value(),
-        model_name=settings.gemini_pin_text_model,
-        fallback_models=parse_gemini_model_list(settings.gemini_pin_text_fallback_models),
+        model_name=settings.gemini_rag_planner_model,
+        fallback_models=parse_gemini_model_list(settings.gemini_rag_planner_fallback_models),
     )
 
 

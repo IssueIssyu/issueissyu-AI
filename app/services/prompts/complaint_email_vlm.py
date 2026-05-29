@@ -85,8 +85,8 @@ class ComplaintEmailVlmCatalog:
             "properties": {
                 "type": {"type": "string", "enum": list(cls.CATEGORY_TYPES)},
                 "domain": {"type": "string", "enum": list(cls.ADMIN_DOMAINS)},
-                "subcategory": {"type": ["string", "null"]},
                 "subcategory": {"type": "string", "nullable": True},
+                "summary": {"type": "string"},
                 "objects": {"type": "array", "items": {"type": "string"}},
                 "keywords": {"type": "array", "items": {"type": "string"}},
                 "query": {"type": "string"},

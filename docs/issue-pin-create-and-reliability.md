@@ -155,32 +155,53 @@ AI 미리보기. **DB 저장 없음.**
 
 ### 4.3 `POST /issues/pin` (신규 핵심)
 
-실제 게시.
+실제 게시. **multipart/form-data** — `request`(JSON part) + `photos`(선택).
 
-| Form 필드 | 필수 | 설명 |
-|-----------|------|------|
-| title | O | **최종** 제목 (AI 초안 수정본 가능) |
-| content | O | **최종** 본문 |
-| tone | O | `ToneType` (한국어 value) |
-| latitude | O | 위도 |
-| longitude | O | 경도 |
-| images | X | 0~N장 multipart 파일 |
+| 파트 | 필수 | 설명 |
+|------|------|------|
+| `request` | O | JSON. `lat`, `lng`, `pinTitle`, `pinContent`, `pinImages[]` |
+| `photos` | X | 이미지 파일 0~5장 (합계 50MB) |
+
+**`request` JSON**
+
+| 필드 | 필수 | 설명 |
+|------|------|------|
+| `lat` | O | 위도 (-90~90) |
+| `lng` | O | 경도 (-180~180) |
+| `pinTitle` | O | **최종** 제목 |
+| `pinContent` | O | **최종** 본문 |
+| `pinImages` | O | `{ isMain }[]` — `photos`와 동일 길이 (0장이면 `[]`) |
+
+- **`toneType` 미수신** → DB `ToneType.NONE` 고정
+- `photos` ↔ `pinImages[]` 인덱스 1:1, `isMain` 합산 정확히 1개(이미지 1장 이상 시)
+- S3 업로드 후 DB/commit 실패 시 신규 S3 객체 롤백 삭제 시도
 
 **HTTP**: `201 Created`  
-**성공 코드**: `COMMON_201`  
+**성공 코드**: `ISSUE_PIN_IMPORT_201`  
 **응답 body**: `IssuePinHomeDetailResponse` (camelCase, Spring 홈 상세 형태)
+
+**에러 코드**
+
+| code | 상황 |
+|------|------|
+| `ISSUE_PIN_IMPORT_400_1` | 필수값/개수/isMain 검증 실패 |
+| `ISSUE_PIN_IMPORT_400_2` | 역지오코딩·DB 저장 실패 |
+| `PIN_IMAGE_400_1` | photos 합계 50MB 초과 |
+| `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
+| `PIN_IMAGE_400_3` | 5장 초과 |
+| `USER_4041` | 사용자 없음 |
 
 **동기 처리 순서** (`IssueService.create_issue_pin`):
 
-1. payload 검증 (제목/본문/이미지 개수)
+1. payload 검증 (제목/본문, photos↔pinImages, isMain, 5장/50MB)
 2. 사용자 존재 확인
-3. `LocationResolveClient.resolve_wgs84` → 실패 시 422
-4. `_snapshot_upload_images` — multipart → `ImageSnapshot(bytes)` 
-5. `Pin` INSERT
+3. `LocationResolveClient.resolve_wgs84` → 실패 시 `ISSUE_PIN_IMPORT_400_2`
+4. `_snapshot_update_photos` — multipart → `ImageSnapshot(bytes)`
+5. `Pin` INSERT (`tone_type=NONE`)
 6. `IssuePin` INSERT (`issue_confidence=None`, `confidence_content=None`, `BEFORE_PROGRESS`)
 7. `PinLocation` INSERT (`location_id`, `detail_address`, `pin_point` WKT)
-8. `_upload_pin_images_sync` — S3 `issueimage/{timestamp}-{uuid}.{ext}` + `pin_image`
-9. `commit`
+8. `_upload_new_pin_images_with_is_main` — S3 + `pin_image` (`isMain` per `pinImages`)
+9. `commit` (실패 시 S3 롤백)
 10. `IssuePinBackgroundRunner.schedule(job, background_tasks=...)`
 11. 홈 상세 응답 조립 (`reliabilityStatus=pending`)
 
@@ -215,20 +236,46 @@ AI 미리보기. **DB 저장 없음.**
 
 ### 4.6 `PATCH /issues/pin/{pin_id}`
 
-이슈 핀 수정.
+이슈 핀 수정. **multipart/form-data** — `request`(JSON part) + `photos`(선택).
 
-**성공 코드**: `COMMON_200`  
+**성공 코드**: `ISSUE_PIN_EDIT_200`  
 **응답**: `IssuePinHomeDetailResponse`
 
-**수정 제약**
-- 작성자 본인(`pin.uid == uid`)만 수정 가능 (`COMMON_403`)
-- `issue_pin_state == BEFORE_PROGRESS`일 때만 수정 가능 (`COMMON_422`)
-- 수정 후 신뢰도는 `issue_confidence/confidence_content = NULL`로 초기화되고 재분석이 재스케줄됨
-- 이미지는 전체 교체 방식(기존 `pin_image` 삭제 후 신규 업로드)으로 처리
+**요청**
 
-**신뢰도 파이프라인 처리**
-- 수정 요청 시 기존 `pin_id`의 진행 중 신뢰도 작업 취소를 시도
-- 취소가 불가능한 작업(이미 실행 중 `BackgroundTasks`)은 generation 검증으로 결과 반영을 차단
+| 파트 | 필수 | 설명 |
+|------|------|------|
+| `request` | O | JSON. `pinTitle`, `pinContent`, 선택 `pinImageUrls`, `photos` 있을 때 `pinImages` |
+| `photos` | X | 신규 이미지 파일 배열 (최대 5장, 합계 50MB) |
+
+**`request` JSON**
+
+- `pinImageUrls` **생략** + `photos` 없음 → 기존 이미지 유지 (제목/본문만 수정)
+- `pinImageUrls: []` → 기존 이미지 전부 삭제
+- `pinImageUrls: [{ pinImageUrl, isMain }]` → URL 일치 `pin_image` 행 재사용(`pin_image_id` 유지)
+- `photos` ↔ `pinImages[]` 인덱스 1:1, `isMain` 합산 정확히 1개(이미지 1장 이상 시)
+
+**수정 제약**
+- 작성자 본인만 수정 (`COMMON_403`)
+- `issue_pin_state == BEFORE_PROGRESS`만 수정 (`ISSUE_PIN_EDIT_400_1`)
+- **toneType·위도·경도·region 변경 불가** (DB 기존 값 유지)
+- `pin.updated_at`은 title/content 변경 시에만 갱신 (이미지만 변경 시 pin row 미갱신)
+- S3 업로드 후 DB 실패 시 신규 S3 객체 롤백 삭제 시도
+
+**에러 코드**
+
+| code | 상황 |
+|------|------|
+| `ISSUE_PIN_EDIT_400_1` | 필수값/isMain/개수/URL 검증 실패 |
+| `ISSUE_PIN_EDIT_400_2` | DB 저장 등 처리 실패 |
+| `PIN_IMAGE_400_1` | 신규 photos 합계 50MB 초과 |
+| `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
+| `PIN_IMAGE_400_3` | 최종 5장 초과 |
+| `USER_4041` | 사용자 없음 |
+
+**신뢰도 파이프라인**
+- 수정 후 `issue_confidence`/`confidence_content` NULL 초기화 + 재스케줄 (기존 GPS는 `pin_location.pin_point`에서 추출)
+- 진행 중 job 취소 시도, generation 검증으로 stale 결과 차단
 
 ---
 
@@ -265,8 +312,9 @@ AI 미리보기. **DB 저장 없음.**
 
 ### 6.1 이미지 스냅샷
 
-- `_snapshot_upload_images`: `UploadFile.read()` → `ImageSnapshot(data, content_type, filename)`
-- 빈 파일·비이미지 MIME → 422 / 415
+- `_snapshot_update_photos`: `UploadFile.read()` → `ImageSnapshot(data, content_type, filename)`
+- 빈 파일·비이미지 MIME·허용 확장자 외 → `PIN_IMAGE_400_2`
+- 합계 50MB 초과 → `PIN_IMAGE_400_1`
 
 ### 6.2 S3 업로드
 
@@ -274,17 +322,20 @@ AI 미리보기. **DB 저장 없음.**
 - 메서드: `S3Util.upload_bytes` (신규)
 - 키 형식: `issueimage/{UTC timestamp}-{uuid}{ext}`
 - 병렬: `asyncio.gather` per snapshot
-- DB: `PinImageRepo.save` — `pin_s3_key`, `pin_s3_url`, `is_main` (첫 장 main)
+- DB: `PinImageRepo.save` — `pin_s3_key`, `pin_s3_url`, `is_main` (`pinImages[].isMain`)
+- 구현: `_upload_new_pin_images_with_is_main` (PATCH와 공통)
 
 ### 6.3 위치
 
 - `pin_location.location_id` = Spring resolve 응답 `locationId`
 - `detail_address` = resolve `address` (최대 150자)
 - `pin_point` = `wkt_point_from_wgs84` (`app/utils/geo.py`, SRID 4326)
+- 요청 좌표: JSON `lat` / `lng`
 
 ### 6.4 tone_type DB 저장
 
-- API: `ToneType` 한국어 **value** (Form)
+- **등록 API**: `toneType` 미수신 → DB **`NONE`** 고정
+- **`POST /issues/pin/ai`**: `ToneType` 한국어 **value** (Form)
 - ORM/DB: enum **name** 저장 (`NONE`, `DISCOMFORT_COMPLAINT`, …)
 - DB check constraint에 모든 name 허용 필요 (로컬·AWS 각각 마이그레이션 이슈 있었음)
 
@@ -410,7 +461,7 @@ class IssuePinReliabilityJob:
 | `GEMINI_VLM_MODEL` | `gemini-2.5-flash` | 신뢰도 VLM (3.1-pro는 503·지연 多) |
 | `GEMINI_VLM_FALLBACK_MODELS` | `gemini-2.5-flash,gemini-2.5-pro` | 콤마 구분 |
 | `GEMINI_PIN_TEXT_MODEL` | `gemini-2.5-flash` | /pin/ai 핀 LLM |
-| `GEMINI_PIN_TEXT_FALLBACK_MODELS` | `gemini-2.5-flash-lite,gemini-2.0-flash-lite` | |
+| `GEMINI_PIN_TEXT_FALLBACK_MODELS` | `gemini-2.5-flash-lite,gemini-2.5-flash` | |
 | `LOCATION_CORE_BASE_URL` | `http://localhost:8080` | Spring resolve |
 | `LOCATION_RESOLVE_TIMEOUT_SECONDS` | `10.0` | |
 | `AWS_BUCKET` | - | S3 버킷 |
@@ -487,15 +538,15 @@ class IssuePinReliabilityJob:
 ### 12.1 `app/routes/IssueRoute.py`
 
 - `POST /issues/pin` 추가 (`BackgroundTasks` 주입)
-- `PATCH /issues/pin/{pin_id}` 추가 (`multipart/form-data`, 이미지 전체 교체)
+- `PATCH /issues/pin/{pin_id}` 추가 (`multipart/form-data`, `request` JSON + `photos`, URL 재사용·선택 삭제)
 - `GET /issues/pin/{issue_pin_id}` 추가
 - `GET /issues/pin/{pin_id}/reliability` 추가
 
 ### 12.2 `app/services/IssueService.py`
 
-- `create_issue_pin` 전체 구현
-- `update_issue_pin` 추가 (작성자/상태 검증, 이미지 교체, 신뢰도 초기화·재스케줄)
-- `_snapshot_upload_images`, `_upload_pin_images_sync`
+- `create_issue_pin` multipart `request` JSON + `photos`, isMain·S3 롤백
+- `update_issue_pin` 추가 (작성자/상태 검증, URL 재사용·선택 삭제·신규 업로드, 신뢰도 초기화·재스케줄)
+- `_snapshot_update_photos`, `_upload_new_pin_images_with_is_main`
 - `_build_issue_pin_home_response`, `get_issue_pin_detail`, `get_issue_pin_reliability`
 - `_derive_reliability_status`, `_derive_image_upload_status`
 - 의존성: PinLocationRepo, PinImageRepo, PinLikeRepo, CommunityRepo, S3Util, IssuePinBackgroundRunner
@@ -631,9 +682,11 @@ class IssuePinReliabilityJob:
 | 코드 | 상황 |
 |------|------|
 | `USER_4041` | 사용자 없음 |
-| `COMMON_422` | 위치 resolve 실패, 빈 제목/본문, 길이 초과 |
-| `FILE_4001` | S3 업로드 실패 |
-| `FILE_4151` | 비이미지 파일 |
+| `ISSUE_PIN_IMPORT_400_1` | 필수값/개수/isMain 검증 실패 |
+| `ISSUE_PIN_IMPORT_400_2` | 역지오코딩·DB 저장 실패 |
+| `PIN_IMAGE_400_1` | photos 합계 50MB 초과 |
+| `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
+| `PIN_IMAGE_400_3` | 5장 초과 |
 
 **미사용**: `ISSUE_4221` (신뢰도 낮아 게시 거절) — 정책상 게시는 항상 허용
 
@@ -641,7 +694,8 @@ class IssuePinReliabilityJob:
 
 | 코드 | API |
 |------|-----|
-| `COMMON_201` | POST /issues/pin, /pin/ai |
+| `COMMON_201` | POST /issues/pin/ai |
+| `ISSUE_PIN_IMPORT_201` | POST /issues/pin |
 | `ISSUE_2001` | GET /issues/pin/{id} |
 | `ISSUE_2002` | GET /issues/pin/{id}/reliability |
 
@@ -657,14 +711,14 @@ class IssuePinReliabilityJob:
 
 ## 17. 프론트엔드 연동 체크리스트
 
-- [ ] `POST /issues/pin/ai` → 편집 → `POST /issues/pin` 2단계
+- [ ] `POST /issues/pin/ai` → 편집 → `POST /issues/pin` 2단계 (`request` JSON + `photos`)
 - [ ] 게시 응답 `reliabilityStatus === 'pending'` 이면 신뢰도 폴링
 - [ ] `GET /issues/pin/{pin_id}/reliability` 또는 상세에서 `issueConfidence`, `confidenceContent` 표시
 - [ ] `confidenceContent` 줄바꿈 (`\n`) 렌더링
 - [ ] `reliabilityStatus === 'failed'` 시 재시도 안내 UI
-- [ ] 이미지 0장 게시 지원
-- [ ] `tone` Form 값은 한국어 label (`없음`, …)
-- [ ] 게시 시 `latitude`/`longitude` 필수
+- [ ] 이미지 0장 게시 지원 (`pinImages: []`)
+- [ ] 게시 시 JSON `lat`/`lng` 필수, `pinImages[].isMain` (이미지 1장 이상)
+- [ ] `/pin/ai`만 `tone` Form (한국어 label)
 
 ---
 
