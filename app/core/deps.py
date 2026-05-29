@@ -26,6 +26,7 @@ from app.services.IssueService import IssueService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
+from app.services.ContestPinService import ContestPinService
 from app.services.FestivalPinService import FestivalPinService
 from app.services.PolicyPinService import PolicyPinService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
@@ -459,6 +460,16 @@ def get_festival_pin_service() -> FestivalPinService:
 FestivalPinServiceDep = Annotated[
     FestivalPinService,
     Depends(get_festival_pin_service),
+]
+
+
+def get_contest_pin_service() -> ContestPinService:
+    return ContestPinService()
+
+
+ContestPinServiceDep = Annotated[
+    ContestPinService,
+    Depends(get_contest_pin_service),
 ]
 
 
