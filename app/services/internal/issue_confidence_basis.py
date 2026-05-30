@@ -348,8 +348,6 @@ def derive_complaint_email_validity(
         return False
     if score >= 0.70 and warn_count == 0:
         return True
-    if score >= 0.65 and warn_count <= 1 and model_validity:
-        return True
     if score >= 0.55 and warn_count <= 1 and model_validity:
         return True
     return False
