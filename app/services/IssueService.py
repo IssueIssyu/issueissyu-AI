@@ -214,19 +214,21 @@ class IssueService:
         return text
 
     @staticmethod
-    def _tune_title(*, original_title: str, rewritten: dict[str, Any]) -> str:
-        primary = rewritten.get("primary_query")
-        keyword = rewritten.get("keyword_query")
-        candidate = (
-            IssueService._sanitize_single_query(primary)
-            or IssueService._sanitize_single_query(keyword)
-            or original_title.strip()
-        )
-        # 제목은 짧고 선명하게: 불필요한 접미 구두점 제거 + 길이 제한
-        tuned = candidate.strip().rstrip(" .,!?:;")
-        if len(tuned) > 42:
-            tuned = tuned[:42].rstrip()
-        return tuned or "민원 제보"
+    def _normalize_title_text(text: str, *, max_length: int) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = " ".join(part.strip() for part in normalized.splitlines() if part.strip())
+        normalized = normalized.strip().rstrip(" .,!?:;")
+        if len(normalized) > max_length:
+            normalized = normalized[:max_length].rstrip(" .,!?:;")
+        return normalized
+
+    @staticmethod
+    def _sanitize_generated_title(*, generated_title: str, fallback_title: str) -> str:
+        max_length = settings.pin_title_max_length
+        candidate = IssueService._normalize_title_text(generated_title, max_length=max_length)
+        if not candidate:
+            candidate = IssueService._normalize_title_text(fallback_title, max_length=max_length)
+        return candidate or "민원 제보"
 
     async def issue_pin_ai_make(
         self,
@@ -241,12 +243,11 @@ class IssueService:
         user_location = await self._resolve_user_location_address(request)
         if user_location is None:
             user_location = "주소 확인 불가"
-        user_coordinates = self._user_coordinates_from_request(request)
 
         rewritten = await self._issue_rag_planner_service.rewrite_queries(
             title=safe_title,
             content=safe_content,
-            user_location=user_coordinates,
+            user_location=user_location,
         )
         filters = None
         primary_query = self._sanitize_single_query(rewritten.get("primary_query"))
@@ -289,15 +290,15 @@ class IssueService:
             "rag_hits": rag_payload,
         }
         pin_prompt = build_issue_pin_prompt_from_pipeline_bundle(bundle)
-        pin_body = await self._issue_pin_llm_service.generate_pin_text(prompt=pin_prompt)
-        tuned_title = self._tune_title(
-            original_title=request.title,
-            rewritten=rewritten,
+        pin_copy = await self._issue_pin_llm_service.generate_pin_copy(prompt=pin_prompt)
+        generated_title = self._sanitize_generated_title(
+            generated_title=pin_copy["title"],
+            fallback_title=safe_title,
         )
 
         return IssueAnalysisResult(
-            title=tuned_title,
-            content=pin_body,
+            title=generated_title,
+            content=pin_copy["content"],
         )
 
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:

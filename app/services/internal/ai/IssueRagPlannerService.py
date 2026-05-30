@@ -45,6 +45,8 @@ def build_query_rewrite_prompt(*, title: str, content: str, user_location: str |
 [규칙]
 - 입력에 없는 사실 추가 금지
 - 위치 추측 금지 (user_location 값만 사용)
+- user_location이 위도,경도 숫자(GPS 좌표)이면 검색 질의에 좌표를 넣지 말고 null처럼 취급
+- primary_query·expansion_queries·keyword_query에 GPS 좌표(위도,경도 숫자 쌍) 출력 금지
 - primary_query: 1문장, 20~50자 권장
 - expansion_queries: 의미가 같은 대체 질의 2~3개
 - keyword_query: 핵심 키워드 나열(공백 구분)
