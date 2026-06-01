@@ -22,6 +22,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from app.clients.VisitKoreaClient import VisitKoreaClient
 from app.utils.festival_date_filter import validate_yyyymmdd
+from app.utils.visitkorea_area import infer_area_code_from_addr
 from app.utils.visitkorea_facilities import (
     extract_stay_available,
     extract_pet_friendly,
@@ -173,6 +174,10 @@ def build_document_row(
     event_end = str(list_item.get("eventenddate") or merged.get("eventenddate") or "").strip() or None
 
     coords = tourapi_to_latlng(mapx=merged.get("mapx"), mapy=merged.get("mapy"))
+    area_code = str(merged.get("areacode") or list_item.get("areacode") or "").strip() or None
+    if not area_code:
+        area_code = infer_area_code_from_addr(addr)
+    sigungu_code = str(merged.get("sigungucode") or list_item.get("sigungucode") or "").strip() or None
     pin_content = merge_pin_content(
         overview=str(merged.get("overview") or ""),
         intro=intro_text,
@@ -184,6 +189,8 @@ def build_document_row(
         "pin_title": title,
         "pin_content": pin_content,
         "addr": addr,
+        "area_code": area_code,
+        "sigungu_code": sigungu_code,
         "longitude": coords["longitude"],
         "latitude": coords["latitude"],
         "event_start_time": event_start,

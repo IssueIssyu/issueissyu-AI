@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+
+
+def current_year_festival_range(*, ref: date | None = None) -> tuple[str, str]:
+    """올해 오늘~12/31 (매년 동일 패턴)."""
+    today = ref or date.today()
+    start = today.strftime("%Y%m%d")
+    end = date(today.year, 12, 31).strftime("%Y%m%d")
+    return start, end
 
 
 def validate_yyyymmdd(value: str, *, label: str) -> str:

@@ -51,6 +51,7 @@ from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRun
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
+from app.services.internal.geo.location_resolve_fields import resolve_pin_location_fields
 from app.services.prompts import build_issue_pin_prompt_from_pipeline_bundle
 from app.services.vector_domains import VectorDomain
 from app.utils.geo import user_gps_from_wgs84, wgs84_from_pin_point, wkt_point_from_wgs84
@@ -157,7 +158,8 @@ class IssueService:
         longitude: float,
         failure_error: ErrorCode = ErrorCode.ISSUE_PIN_IMPORT_FAILED,
     ) -> tuple[int, str, str]:
-        resolved = await self._location_resolve_client.resolve_wgs84(
+        resolved = await resolve_pin_location_fields(
+            self._location_resolve_client,
             latitude=latitude,
             longitude=longitude,
         )
@@ -168,23 +170,7 @@ class IssueService:
                     detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
                 )
             raise_business_exception(failure_error)
-        detail_address = (resolved.address or "").strip()
-        if not detail_address:
-            if failure_error == ErrorCode.VALIDATION_ERROR:
-                raise_validation_exception(
-                    failure_error,
-                    detail="위치 주소를 확인할 수 없습니다.",
-                )
-            raise_business_exception(failure_error)
-        location_id = resolved.location_id
-        if location_id is None:
-            if failure_error == ErrorCode.VALIDATION_ERROR:
-                raise_validation_exception(
-                    failure_error,
-                    detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-                )
-            raise_business_exception(failure_error)
-        trimmed_address = detail_address[:150]
+        location_id, trimmed_address, _pin_point = resolved
         return location_id, trimmed_address, trimmed_address
 
     @staticmethod

@@ -14,6 +14,7 @@ from app.models.User import User
 from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.ComplaintPetitionRepo import ComplaintPetitionRepo
 from app.repositories.DepartmentRepo import DepartmentRepo
+from app.repositories.EventPinRepo import EventPinRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.LocationDepartmentRepo import LocationDepartmentRepo
 from app.repositories.LocationRepo import LocationRepo
@@ -28,6 +29,7 @@ from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
 from app.services.FestivalPinService import FestivalPinService
+from app.services.FestivalEventIngestService import FestivalEventIngestService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
@@ -458,4 +460,33 @@ def get_festival_pin_service() -> FestivalPinService:
 FestivalPinServiceDep = Annotated[
     FestivalPinService,
     Depends(get_festival_pin_service),
+]
+
+
+def get_event_pin_repo(session: DbSessionDep) -> EventPinRepo:
+    return EventPinRepo(session)
+
+
+EventPinRepoDep = Annotated[EventPinRepo, Depends(get_event_pin_repo)]
+
+
+def get_festival_event_ingest_service(
+    pin_repo: PinRepoDep,
+    event_pin_repo: EventPinRepoDep,
+    pin_location_repo: PinLocationRepoDep,
+    pin_image_repo: PinImageRepoDep,
+    location_resolve_client: LocationResolveClientDep,
+) -> FestivalEventIngestService:
+    return FestivalEventIngestService(
+        pin_repo=pin_repo,
+        event_pin_repo=event_pin_repo,
+        pin_location_repo=pin_location_repo,
+        pin_image_repo=pin_image_repo,
+        location_resolve_client=location_resolve_client,
+    )
+
+
+FestivalEventIngestServiceDep = Annotated[
+    FestivalEventIngestService,
+    Depends(get_festival_event_ingest_service),
 ]

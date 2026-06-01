@@ -28,6 +28,10 @@ class FestivalPinDTO(BaseModel):
     )
 
     contentid: str = Field(description="TourAPI contentid (재수집, 중복 방지)")
+    festival_api_id: int | None = Field(
+        default=None,
+        description="DB event_pin.festival_api_id (TourAPI contentid 정수)",
+    )
     pin_type: str = Field(default="FESTIVAL", description="pin.pin_type")
     pin_title: str = Field(description="pin.pin_title")
     pin_content_raw: str = Field(description="TourAPI 공식 소개 원문 (보관용)")

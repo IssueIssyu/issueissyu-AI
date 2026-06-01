@@ -12,6 +12,7 @@ from google.genai import types
 from app.core.codes import ErrorCode
 from app.core.exceptions import BusinessException, raise_business_exception
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
+from app.services.prompts.festival_pin import FESTIVAL_PIN_OUTPUT_SCHEMA
 from app.services.prompts.issue_pin import ISSUE_PIN_OUTPUT_SCHEMA
 
 logger = logging.getLogger(__name__)
@@ -87,3 +88,47 @@ class IssuePinLLMService:
             raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
 
         return {"title": title_s, "content": content_s}
+
+    async def generate_festival_pin_copy(self, *, prompt: str) -> dict[str, str]:
+        """축제 핀용 제목·본문 JSON (`pin_title`, `pin_content`)."""
+        text = (prompt or "").strip()
+        if not text:
+            raise_business_exception(ErrorCode.ISSUE_PIN_PROMPT_EMPTY)
+
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=FESTIVAL_PIN_OUTPUT_SCHEMA,
+        )
+        response = await self._generate_with_retry(contents=text, config=config)
+        try:
+            raw = response.text
+        except (ValueError, AttributeError) as exc:
+            raise BusinessException(
+                ErrorCode.ISSUE_PIN_LLM_BLOCKED,
+                str(exc) if str(exc) else None,
+            ) from exc
+
+        out = (raw or "").strip()
+        if not out:
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
+
+        try:
+            parsed: Any = json.loads(out)
+        except JSONDecodeError as exc:
+            logger.exception("Festival pin LLM JSON parse failed")
+            raise BusinessException(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT) from exc
+
+        if not isinstance(parsed, dict):
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
+
+        title = parsed.get("pin_title")
+        content = parsed.get("pin_content")
+        if not isinstance(title, str) or not isinstance(content, str):
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
+
+        title_s = title.strip()[:100]
+        content_s = content.strip()
+        if not title_s or not content_s:
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
+
+        return {"pin_title": title_s, "pin_content": content_s}
