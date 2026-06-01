@@ -68,12 +68,48 @@ class FestivalTransformHelpersTest(unittest.TestCase):
 
     def test_build_handoff_row_includes_festival_api_id(self) -> None:
         row = build_handoff_row(
-            {"contentid": "42", "pin_title": "원제목", "addr": "서울"},
+            {
+                "contentid": "42",
+                "pin_title": "원제목",
+                "addr": "서울",
+                "pin_images": [{"pin_image_url": "https://example.com/main.jpg", "is_main": True}],
+            },
             pin_title="LLM 제목",
             pin_content="LLM 본문",
         )
         self.assertEqual(row["festival_api_id"], 42)
         self.assertEqual(row["pin_title"], "LLM 제목")
+        self.assertEqual(row["pin_images"][0]["is_main"], True)
+
+    def test_collect_pin_image_specs_uses_firstimage_only(self) -> None:
+        from rag.scripts.fetch_visitkorea import collect_pin_image_specs, pin_images_for_db_row
+
+        list_item = {
+            "firstimage": "https://example.com/main.jpg",
+            "firstimage2": "https://example.com/thumb.jpg",
+        }
+        image_payload = {
+            "response": {
+                "body": {
+                    "items": {
+                        "item": [
+                            {"originimgurl": "https://example.com/gallery.jpg"},
+                        ],
+                    },
+                },
+            },
+        }
+        specs = collect_pin_image_specs(list_item, None, image_payload)
+        self.assertEqual(
+            specs,
+            [
+                {"pin_image_url": "https://example.com/main.jpg", "is_main": True},
+                {"pin_image_url": "https://example.com/gallery.jpg", "is_main": False},
+            ],
+        )
+        db_specs = pin_images_for_db_row({"pin_images": specs})
+        self.assertEqual(sum(1 for s in db_specs if s["is_main"]), 1)
+        self.assertTrue(db_specs[0]["is_main"])
 
     def test_count_pending_transform(self) -> None:
         documents = [

@@ -52,7 +52,8 @@ from rag.scripts.fetch_visitkorea import (
     FESTIVAL_CONTENT_TYPE_ID,
     _fetch_festival_item_details,
     build_document_row,
-    collect_image_urls,
+    collect_pin_image_specs,
+    pin_images_for_db_row,
     extract_pet_friendly,
     extract_stay_available,
     tourapi_body_items,
@@ -150,7 +151,7 @@ class FestivalEventIngestService:
                         content_type_id=content_type_id,
                         fetch_images=True,
                     )
-                    image_urls = collect_image_urls(
+                    pin_images = collect_pin_image_specs(
                         list_item,
                         details.common_item,
                         details.image_payload,
@@ -164,7 +165,7 @@ class FestivalEventIngestService:
                         list_item=list_item,
                         common_item=details.common_item,
                         intro_text=details.intro_text,
-                        image_urls=image_urls,
+                        pin_images=pin_images,
                         pet_friendly=pet_friendly,
                         stay_available=stay_available,
                     )
@@ -583,7 +584,7 @@ class FestivalEventIngestService:
         )
         await self._pin_location_repo.save(pin_location, flush_immediately=True)
 
-        await self._replace_pin_images(pin_id=pin.pin_id, image_urls=list(row.get("image_urls") or []))
+        await self._replace_pin_images(pin_id=pin.pin_id, row=row)
         return int(pin.pin_id)
 
     async def _update_festival_pin(self, *, existing: EventPin, row: dict[str, Any]) -> int:
@@ -620,19 +621,19 @@ class FestivalEventIngestService:
             await self._pin_location_repo.save(pin.pin_location, flush_immediately=True)
 
         await self._pin_image_repo.delete_by_pin_id(pin.pin_id)
-        await self._replace_pin_images(pin_id=pin.pin_id, image_urls=list(row.get("image_urls") or []))
+        await self._replace_pin_images(pin_id=pin.pin_id, row=row)
         return int(pin.pin_id)
 
-    async def _replace_pin_images(self, *, pin_id: int, image_urls: list[str]) -> None:
-        for index, url in enumerate(image_urls):
-            text = str(url or "").strip()
-            if not text:
+    async def _replace_pin_images(self, *, pin_id: int, row: dict[str, Any]) -> None:
+        for spec in pin_images_for_db_row(row):
+            url = str(spec.get("pin_image_url") or "").strip()
+            if not url:
                 continue
             pin_image = PinImage(
                 pin_id=pin_id,
                 pin_s3_key=FESTIVAL_IMAGE_S3_KEY,
-                pin_s3_url=text,
-                is_main=index == 0,
+                pin_s3_url=url,
+                is_main=bool(spec.get("is_main")),
             )
             await self._pin_image_repo.save(pin_image, flush_immediately=True)
 

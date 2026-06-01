@@ -109,12 +109,74 @@ def collect_intro_text(intro_payload: dict[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _add_image_url(urls: list[str], seen: set[str], raw: object) -> None:
-    url = str(raw or "").strip()
-    if not url or url in seen:
-        return
-    seen.add(url)
-    urls.append(url)
+def resolve_firstimage_url(
+    list_item: dict[str, Any],
+    common_item: dict[str, Any] | None,
+) -> str:
+    """TourAPI 대표 이미지(firstimage)만 사용. firstimage2는 무시."""
+    for src in (list_item, common_item or {}):
+        url = str(src.get("firstimage") or "").strip()
+        if url:
+            return url
+    return ""
+
+
+def collect_pin_image_specs(
+    list_item: dict[str, Any],
+    common_item: dict[str, Any] | None,
+    image_payload: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """firstimage → is_main=True, detailImage2 → is_main=False. firstimage2는 제외."""
+    specs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    main_url = resolve_firstimage_url(list_item, common_item)
+    if main_url:
+        seen.add(main_url)
+        specs.append({"pin_image_url": main_url, "is_main": True})
+
+    if image_payload is not None:
+        for item in tourapi_body_items(image_payload):
+            for key in ("originimgurl", "smallimageurl"):
+                url = str(item.get(key) or "").strip()
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                specs.append({"pin_image_url": url, "is_main": False})
+
+    return specs
+
+
+def pin_image_urls_from_specs(specs: list[dict[str, Any]]) -> list[str]:
+    mains = [s["pin_image_url"] for s in specs if s.get("is_main")]
+    others = [s["pin_image_url"] for s in specs if not s.get("is_main")]
+    return mains + others
+
+
+def normalize_pin_images_for_db(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    main_assigned = False
+    for spec in specs:
+        url = str(spec.get("pin_image_url") or "").strip()
+        if not url:
+            continue
+        is_main = bool(spec.get("is_main")) and not main_assigned
+        if is_main:
+            main_assigned = True
+        normalized.append({"pin_image_url": url, "is_main": is_main})
+    if normalized and not main_assigned:
+        normalized[0]["is_main"] = True
+    return normalized
+
+
+def pin_images_for_db_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_specs = row.get("pin_images")
+    if isinstance(raw_specs, list) and raw_specs:
+        return normalize_pin_images_for_db(raw_specs)
+    urls = [str(url).strip() for url in row.get("image_urls") or [] if str(url).strip()]
+    return normalize_pin_images_for_db(
+        [{"pin_image_url": url, "is_main": index == 0} for index, url in enumerate(urls)],
+    )
 
 
 def collect_image_urls(
@@ -122,16 +184,9 @@ def collect_image_urls(
     common_item: dict[str, Any] | None,
     image_payload: dict[str, Any] | None,
 ) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for src in (list_item, common_item or {}):
-        _add_image_url(urls, seen, src.get("firstimage"))
-        _add_image_url(urls, seen, src.get("firstimage2"))
-    if image_payload is not None:
-        for item in tourapi_body_items(image_payload):
-            _add_image_url(urls, seen, item.get("originimgurl"))
-            _add_image_url(urls, seen, item.get("smallimageurl"))
-    return urls
+    return pin_image_urls_from_specs(
+        collect_pin_image_specs(list_item, common_item, image_payload),
+    )
 
 
 def merge_pin_content(*, overview: str, intro: str, fallback: str = "") -> str:
@@ -152,7 +207,7 @@ def build_document_row(
     list_item: dict[str, Any],
     common_item: dict[str, Any] | None,
     intro_text: str,
-    image_urls: list[str],
+    pin_images: list[dict[str, Any]],
     pet_friendly: str,
     stay_available: str,
 ) -> dict[str, Any] | None:
@@ -195,7 +250,8 @@ def build_document_row(
         "latitude": coords["latitude"],
         "event_start_time": event_start,
         "event_end_time": event_end,
-        "image_urls": image_urls,
+        "pin_images": pin_images,
+        "image_urls": pin_image_urls_from_specs(pin_images),
         "tel": clean_text(str(merged.get("tel") or "")),
         "pet_friendly": pet_friendly,
         "stay_available": stay_available,
@@ -408,7 +464,7 @@ async def fetch_festival_documents(
                 image_payload = details.image_payload
                 stats["detail_errors"] += details.detail_errors
 
-            image_urls = collect_image_urls(list_item, common_item, image_payload)
+            pin_images = collect_pin_image_specs(list_item, common_item, image_payload)
             pet_friendly = extract_pet_friendly(
                 pet_tour_payload=pet_tour_payload,
                 intro_payload=intro_payload,
@@ -418,7 +474,7 @@ async def fetch_festival_documents(
                 list_item=list_item,
                 common_item=common_item,
                 intro_text=intro_text,
-                image_urls=image_urls,
+                pin_images=pin_images,
                 pet_friendly=pet_friendly,
                 stay_available=stay_available,
             )

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -42,7 +44,11 @@ class FestivalPinDTO(BaseModel):
     latitude: str | None = Field(default=None, description="위도 → pin_location(백엔드)")
     image_urls: list[str] = Field(
         default_factory=list,
-        description="이미지 URL 목록 → pin_image",
+        description="이미지 URL 목록 (하위 호환, pin_images 우선)",
+    )
+    pin_images: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="pin_image URL + is_main (firstimage만 대표)",
     )
     event_start_time: str | None = Field(
         default=None,

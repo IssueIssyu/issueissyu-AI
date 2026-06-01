@@ -152,6 +152,7 @@ def build_handoff_row(
         "latitude": source.get("latitude"),
         "event_start_time": source.get("event_start_time"),
         "event_end_time": source.get("event_end_time"),
+        "pin_images": list(source.get("pin_images") or []),
         "image_urls": list(source.get("image_urls") or []),
         "tel": (source.get("tel") or "").strip(),
     }
