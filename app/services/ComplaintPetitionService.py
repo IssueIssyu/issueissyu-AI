@@ -40,6 +40,7 @@ from app.schemas.ComplaintEmailDTO import (
 from app.schemas.IssueDTO import ImageWithLocation
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.department_catalog import CURATED_CATEGORY_NAMES
+from app.utils.geo import user_gps_from_wgs84, wgs84_from_pin_point
 from app.utils.S3Util import S3Util
 
 logger = logging.getLogger(__name__)
@@ -179,14 +180,19 @@ class ComplaintPetitionService:
             )
 
         images = await self._load_pin_images(pin.pin_images, fallback_address=pin_location.detail_address)
+        pin_lat, pin_lng = wgs84_from_pin_point(pin_location.pin_point)
+        user_gps = user_gps_from_wgs84(latitude=pin_lat, longitude=pin_lng)
         generated = await self.complaint_email_service.generate_petition_package(
             pin_title=pin.pin_title,
             pin_content=pin.pin_content,
             images=images,
             photo_address=pin_location.detail_address,
+            user_location=user_gps,
+            user_address=pin_location.detail_address,
             submitter_name=(pin.user.user_name if pin.user is not None else None),
             submitter_address=pin_location.detail_address,
             submitter_phone=(pin.user.phone if pin.user is not None else None),
+            issue_pin_id=issue_pin.issue_pin_id,
         )
         department_name = (generated.department or "").strip()
         if not department_name:
@@ -211,7 +217,10 @@ class ComplaintPetitionService:
             prefix=_S3_PDF_PREFIX,
         )
 
-        subject = generated.notification_email_subject.strip() or f"[민원 자동 생성] {pin.pin_title}"
+        subject = generated.notification_email_subject.strip()
+        if not subject:
+            dept = (generated.department or "").strip() or "담당부서"
+            subject = f"[민원 자동 생성] 청원 의견서 ({dept})"
         body = generated.notification_email_body.strip()
         if not body:
             raise_business_exception(ErrorCode.INTERNAL_SERVER_ERROR, "메일 본문 생성에 실패했습니다.")

@@ -65,12 +65,15 @@ class ComplaintEmailLlmBundle(BaseModel):
 
 
 class ComplaintEmailValidationResult(BaseModel):
-    # 핀 검증 VLM 기반 신뢰도
+    # 청원 알림·신뢰도 VLM 결과
     reliability_score: float = Field(ge=0.0, le=1.0)
     validity: bool
     error_code: str | None = None
     scene_summary: str | None = None
     risk_note: str | None = None
+    notification_subject: str | None = None
+    notification_summary: str | None = None
+    confidence_basis_markdown: str | None = None
 
 
 class ComplaintEmailGenerateResult(BaseModel):
