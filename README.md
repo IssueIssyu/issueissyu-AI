@@ -2,13 +2,12 @@
 
 issueissyu(이슈있슈) **AI 서비스**는 지역 기반 이슈·민원 처리를 돕는 **FastAPI 기반 Python API 서버**입니다.  
 이미지·텍스트 분석, RAG 검색, 이슈 핀 신뢰도 평가, 민원 의견서 자동 생성·이메일 발송 등 **AI 파이프라인**을 담당합니다.  
-인증·회원·커뮤니티 등 핵심 백엔드는 Spring Boot 서비스와 JWT를 공유하며, 이 레포는 AI 전용 마이크로서비스 역할을 합니다.
 
 
 ## 👥 Team
 |                                 AI(팀장)                                  |                                 AI                                  |
 |:-----------------------------------------------------------------------:|:-------------------------------------------------------------------:|
-| <img width="186" height="217" alt="스크린샷 2026-06-01 114950" src="" /> | <img width="180" height="217" alt="스크린샷 2026-06-01 115059" src="" /> |
+| <img width="185" height="218" alt="스크린샷 2026-06-01 115013" src="https://github.com/user-attachments/assets/09308917-0f54-436b-88fc-5b2f80417c1b" /> | <img width="182" height="220" alt="스크린샷 2026-06-01 115047" src="https://github.com/user-attachments/assets/d323f8e6-0017-49fb-b5e3-1165fd2fcf53" /> |
 |       양지우<br/><a href="https://github.com/qkwltkwkd1">@qkwltkwkd1</a>       |       전성환<br/><a href="https://github.com/selnem">@selnem</a>        |
 
 ## 💻 Tech Stack
