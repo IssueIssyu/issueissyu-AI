@@ -184,12 +184,12 @@ async def transform_one_row(llm: IssuePinLLMService, row: dict[str, Any]) -> dic
         pet_friendly=str(row.get("pet_friendly") or "정보 없음"),
         stay_available=str(row.get("stay_available") or "정보 없음"),
     )
-    generated = await llm.generate_festival_pin_copy(prompt=prompt)
+    instagram_text = await llm.generate_pin_text(prompt=prompt)
     source = {**row, "pin_content_raw": raw_content}
     return build_handoff_row(
         source,
-        pin_title=generated["pin_title"],
-        pin_content=generated["pin_content"],
+        pin_title=str(row.get("pin_title") or ""),
+        pin_content=instagram_text,
     )
 
 
