@@ -5,7 +5,7 @@ issueissyu(이슈있슈) **AI 서비스**는 지역 기반 이슈·민원 처리
 
 
 ## 👥 Team
-|                                 AI(팀장)                                  |                                 AI                                  |
+|                                 AI (PartLeader)                                  |                                 AI                                  |
 |:-----------------------------------------------------------------------:|:-------------------------------------------------------------------:|
 | <img width="185" height="218" alt="스크린샷 2026-06-01 115013" src="https://github.com/user-attachments/assets/09308917-0f54-436b-88fc-5b2f80417c1b" /> | <img width="182" height="220" alt="스크린샷 2026-06-01 115047" src="https://github.com/user-attachments/assets/d323f8e6-0017-49fb-b5e3-1165fd2fcf53" /> |
 |       양지우<br/><a href="https://github.com/qkwltkwkd1">@qkwltkwkd1</a>       |       전성환<br/><a href="https://github.com/selnem">@selnem</a>        |
