@@ -390,29 +390,34 @@ class FestivalEventIngestService:
                 continue
             existing = await self._event_pin_repo.get_by_festival_api_id(festival_api_id)
             try:
-                if existing is None:
-                    pin_id = await self._insert_festival_pin(admin_uid=admin_uid, row=row, festival_api_id=festival_api_id)
-                    inserted_count += 1
-                    db_ids.add(festival_api_id)
-                    pin_ids.append(pin_id)
-                    items.append(
-                        FestivalBatchItemResult(
+                async with self._pin_repo.session.begin_nested():
+                    if existing is None:
+                        pin_id = await self._insert_festival_pin(
+                            admin_uid=admin_uid,
+                            row=row,
                             festival_api_id=festival_api_id,
-                            pin_title=str(row.get("pin_title") or ""),
-                            action=FestivalBatchAction.CREATED,
-                        ),
-                    )
-                elif allow_update:
-                    pin_id = await self._update_festival_pin(existing=existing, row=row)
-                    updated_count += 1
-                    pin_ids.append(pin_id)
-                    items.append(
-                        FestivalBatchItemResult(
-                            festival_api_id=festival_api_id,
-                            pin_title=str(row.get("pin_title") or ""),
-                            action=FestivalBatchAction.UPDATED,
-                        ),
-                    )
+                        )
+                        inserted_count += 1
+                        db_ids.add(festival_api_id)
+                        pin_ids.append(pin_id)
+                        items.append(
+                            FestivalBatchItemResult(
+                                festival_api_id=festival_api_id,
+                                pin_title=str(row.get("pin_title") or ""),
+                                action=FestivalBatchAction.CREATED,
+                            ),
+                        )
+                    elif allow_update:
+                        pin_id = await self._update_festival_pin(existing=existing, row=row)
+                        updated_count += 1
+                        pin_ids.append(pin_id)
+                        items.append(
+                            FestivalBatchItemResult(
+                                festival_api_id=festival_api_id,
+                                pin_title=str(row.get("pin_title") or ""),
+                                action=FestivalBatchAction.UPDATED,
+                            ),
+                        )
             except Exception as exc:
                 logger.exception("festival import failed festival_api_id=%s", festival_api_id)
                 errors.append(
