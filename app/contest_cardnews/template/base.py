@@ -82,6 +82,16 @@ def load_font(size: int, *, bold: bool = False, extra_bold: bool = False) -> Ima
     path = _FONT_DIR / name
     if path.is_file():
         return ImageFont.truetype(str(path), size=size)
+    # 전용 폰트가 없을 때 한글 지원 가능한 Pretendard를 우선 폴백으로 사용한다.
+    for fallback_name in (
+        "Pretendard-Bold.otf",
+        "Pretendard-Bold.ttf",
+        "Pretendard-Medium.otf",
+        "Pretendard-Regular.otf",
+    ):
+        fallback_path = _FONT_DIR / fallback_name
+        if fallback_path.is_file():
+            return ImageFont.truetype(str(fallback_path), size=size)
     return ImageFont.load_default()
 
 
