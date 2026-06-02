@@ -27,6 +27,7 @@ from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRun
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
+from app.services.FestivalPinService import FestivalPinService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
@@ -448,3 +449,13 @@ async def require_admin_uid(
 
 
 AdminUserIdDep = Annotated[str, Depends(require_admin_uid)]
+
+
+def get_festival_pin_service() -> FestivalPinService:
+    return FestivalPinService()
+
+
+FestivalPinServiceDep = Annotated[
+    FestivalPinService,
+    Depends(get_festival_pin_service),
+]
