@@ -25,9 +25,6 @@ def append_source_link_to_pin_content(body: str, source_url: str) -> str:
     if not url or not text:
         return text or url
 
-    if url in text:
-        return text
-
     normalized = url.rstrip("/")
     for line in text.splitlines():
         line = line.strip()
