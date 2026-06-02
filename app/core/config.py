@@ -259,6 +259,53 @@ class Settings(BaseSettings):
         default=None,
         alias="POLICY_CARDNEWS_FONT_DIR",
         description="Pretendard 등 TTF 폴더 (기본 app/assets/fonts)",
+
+    # 한국관광공사 TourAPI (공공데이터포털 활용신청 키)
+    visitkorea_service_key: SecretStr | None = Field(
+        default=None,
+        alias="VISITKOREA_SERVICE_KEY",
+    )
+    visitkorea_api_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/KorService2",
+        alias="VISITKOREA_API_BASE_URL",
+    )
+    visitkorea_mobile_os: str = Field(default="ETC", alias="VISITKOREA_MOBILE_OS")
+    visitkorea_mobile_app: str = Field(default="issueissyu", alias="VISITKOREA_MOBILE_APP")
+    visitkorea_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        alias="VISITKOREA_REQUEST_TIMEOUT_SECONDS",
+    )
+    visitkorea_request_interval_seconds: float = Field(
+        default=0.15,
+        ge=0,
+        alias="VISITKOREA_REQUEST_INTERVAL_SECONDS",
+    )
+    festival_sync_lookahead_days: int = Field(
+        default=120,
+        ge=1,
+        le=365,
+        alias="FESTIVAL_SYNC_LOOKAHEAD_DAYS",
+        description="배치 수집 시 오늘부터 N일 앞까지 행사 검색",
+    )
+    festival_sync_fetch_limit: int | None = Field(
+        default=None,
+        ge=1,
+        alias="FESTIVAL_SYNC_FETCH_LIMIT",
+        description="배치 fetch 최대 건수 (미설정 시 제한 없음)",
+    )
+    festival_sync_transform_limit: int | None = Field(
+        default=None,
+        ge=1,
+        alias="FESTIVAL_SYNC_TRANSFORM_LIMIT",
+        description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
+    )
+    festival_transform_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_TRANSFORM_CONCURRENCY",
+        description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
     )
     policy_cardnews_mascot_dir: str | None = Field(
         default="app/assets/mascots",

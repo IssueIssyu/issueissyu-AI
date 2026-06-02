@@ -9,7 +9,7 @@ from app.models.enum.ToneType import ToneType
 ISSUE_PIN_CREATION_PROMPT = """
 [역할]
 너는 커뮤니티 민원 핀 문구 작성기다.
-입력 데이터와 RAG 근거를 바탕으로 최종 본문 1개만 생성한다.
+입력 데이터와 RAG 근거를 바탕으로 제목과 본문을 함께 생성한다.
 
 [입력]
 - 사용자 민원 내용: {user_text}
@@ -26,12 +26,18 @@ ISSUE_PIN_CREATION_PROMPT = """
 - RAG 문장 그대로 복사 금지
 - 근거가 약하면 보수적으로 작성
 
-[톤 규칙]
-- 한줄요약형: 1문장, 100자 내외
-- 상황설명형: 250~350자(약 300자), 상황 중심
-- 개선요청형: 250~350자(약 300자), 부탁/제안 중심
-- 긴급요청형: 250~350자(약 300자), 빠른 확인 필요성 강조, 과장 금지, 이모지 금지
-- 불편호소형: 250~350자(약 300자), 체감 불편 + 절제된 감정 표현
+[제목 공통 규칙]
+- GPS 좌표(위도,경도 숫자 쌍) 출력 금지
+- 제목에는 주소를 넣지 않는다 (시·군·구·동·읍·면·리·도로명·지번·번지·층/호수 등 위치 표기 전부 금지)
+- 공문·민원·신고 접수문 느낌 금지 ("단속 요청", "제보", "조치 바랍니다" 등 딱딱한 표현 지양)
+- 본문과 내용이 겹치더라도 제목은 더 짧고 선명하게 요약
+
+[본문 공통 규칙]
+- 본문에는 사용자 위치(주소)를 필요하면 자연스럽게 포함해도 된다
+- 주소는 본문에서 상황 설명용으로만 사용하고, 제목으로 복사하지 않는다
+
+[선택된 톤 규칙 — 제목·본문 모두 아래 톤에 맞게 작성]
+{tone_style_rules}
 
 [문체 규칙]
 - 커뮤니티 글처럼 자연스럽고 간결하게 작성
@@ -49,16 +55,78 @@ ISSUE_PIN_CREATION_PROMPT = """
 - 과한 훈계/비난/기관 대상 명령형 표현은 피하고, 제안형 문장 사용
 
 [출력 규칙]
-- 최종 본문만 출력
-- JSON/마크다운/제목/설명문 출력 금지
-- 길이 규칙 엄수: 한줄요약형만 짧게, 그 외 톤은 250~350자
+- JSON만 출력: {{"title": "...", "content": "..."}}
+- 마크다운/설명문/코드블록 출력 금지
+- 본문 길이 규칙 엄수: 한줄요약형만 짧게, 그 외 톤은 250~350자
 """
+
+ISSUE_PIN_OUTPUT_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "required": ["title", "content"],
+    "properties": {
+        "title": {"type": "string"},
+        "content": {"type": "string"},
+    },
+}
 
 
 def _tone_label(tone: ToneType | str) -> str:
     if isinstance(tone, ToneType):
         return tone.value
     return str(tone).strip() or ToneType.NONE.value
+
+
+def _resolve_tone_type(tone: ToneType | str) -> ToneType:
+    if isinstance(tone, ToneType):
+        return tone
+    text = str(tone).strip()
+    if not text:
+        return ToneType.NONE
+    for member in ToneType:
+        if text == member.value or text == member.name:
+            return member
+    return ToneType.NONE
+
+
+_TONE_STYLE_RULES: dict[ToneType, str] = {
+    ToneType.NONE: """
+- 제목(15~42자): 동네 커뮤니티 게시판 제목처럼 한 줄, 짧고 자연스럽게. 이웃에게 말 걸듯 가볍게.
+  예) "골목 불법주차, 통행 너무 힘들어요", "요즘 이 문제 자주 보이는 것 같아요"
+- 본문(200~350자): 상황 설명과 공감·나눔의 균형. 2~4문단.
+""".strip(),
+    ToneType.ONE_LINE_SUMMARY: """
+- 제목(15~30자): 본문 핵심을 한 줄 더 짧게 압축. 군더더기 없이 핵심만.
+  예) "골목 불법주차로 통행 불편", "밤마다 소음 때문에 잠 설쳐요"
+- 본문(1문장, 100자 내외): 제목과 같은 핵심을 한 문장으로만 풀어쓰기.
+""".strip(),
+    ToneType.SITUATION_DESCRIPTION: """
+- 제목(15~42자): 지금 어떤 상황인지 바로 느껴지게. "요즘 ~", "~인 것 같아요", "~때문에" 등 상황 중심.
+  예) "요즘 골목 불법주차가 심해진 것 같아요", "쓰레기가 쌓여서 걱정돼요"
+- 본문(250~350자): 언제·어디서·어떤 상황인지 차분히 설명. 사실 중심, 2~4문단.
+""".strip(),
+    ToneType.IMPROVEMENT_REQUEST: """
+- 제목(15~42자): 부드러운 바람·제안 톤. "~개선되면 좋겠어요", "함께 ~해볼까요?" 등.
+  예) "불법주차 문제, 함께 개선해보면 좋겠어요", "골목 정리가 필요할 것 같아요"
+- 본문(250~350자): 문제 인식 + 개선 제안·부탁 중심. 명령조·훈계 금지, 2~4문단.
+""".strip(),
+    ToneType.URGENT_REQUEST: """
+- 제목(15~42자): 빠른 확인·관심이 필요하다는 느낌. 과장·공포 조장·이모지 금지.
+  예) "위험해 보여서 빨리 확인됐으면 해요", "통행 사고 우려가 있어요"
+- 본문(250~350자): 왜 빨리 확인이 필요한지 차분히 설명. 과장 금지, 이모지 금지, 2~4문단.
+""".strip(),
+    ToneType.DISCOMFORT_COMPLAINT: """
+- 제목(15~42자): 체감 불편·감정을 절제해서 표현. "~너무 불편해요", "~때문에 힘들어요".
+  예) "불법주차 때문에 매일 통행이 힘들어요", "소음 때문에 스트레스받아요"
+- 본문(250~350자): 실제로 겪는 불편과 감정을 솔직하되 과하지 않게. 2~4문단.
+""".strip(),
+}
+
+
+def format_tone_style_rules(tone: ToneType | str) -> str:
+    resolved = _resolve_tone_type(tone)
+    label = _tone_label(resolved)
+    body = _TONE_STYLE_RULES.get(resolved, _TONE_STYLE_RULES[ToneType.NONE])
+    return f"선택 톤: {label}\n{body}"
 
 
 def format_user_text_for_pin(*, title: str, content: str) -> str:
@@ -138,6 +206,7 @@ def build_issue_pin_prompt(
         user_text=user_text.strip(),
         user_location=(user_location or "null"),
         tone=_tone_label(tone),
+        tone_style_rules=format_tone_style_rules(tone),
         rag_queries=json.dumps(list(rag_queries or []), ensure_ascii=False),
         retrieved_docs=retrieved,
     )
@@ -210,6 +279,8 @@ def build_issue_pin_prompt_from_pipeline_bundle(
 
 __all__ = [
     "ISSUE_PIN_CREATION_PROMPT",
+    "ISSUE_PIN_OUTPUT_SCHEMA",
+    "format_tone_style_rules",
     "format_user_text_for_pin",
     "format_retrieved_docs_for_pin",
     "build_issue_pin_prompt",

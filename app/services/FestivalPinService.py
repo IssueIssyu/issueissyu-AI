@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from pathlib import Path
+
+from starlette.concurrency import run_in_threadpool
 
 from app.clients.VisitKoreaClient import VisitKoreaClient
 from app.schemas.FestivalPinDTO import (
@@ -165,4 +168,22 @@ class FestivalPinService:
             count=len(pins),
             pins=pins,
             hint=hint,
+        )
+
+    async def aload_from_jsonl(
+        self,
+        *,
+        file_path: Path | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+        limit: int | None = None,
+    ) -> FestivalPinHandoffResult:
+        return await run_in_threadpool(
+            partial(
+                self.load_from_jsonl,
+                file_path=file_path,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+            ),
         )

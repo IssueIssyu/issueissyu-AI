@@ -40,6 +40,7 @@ class VisitKoreaClient:
         self._interval = max(0.0, request_interval_seconds)
         self._http = http_client
         self._owns_client = http_client is None
+        self._request_lock = asyncio.Lock()
 
     @classmethod
     def from_settings(cls, cfg: Settings | None = None) -> VisitKoreaClient:
@@ -85,11 +86,12 @@ class VisitKoreaClient:
             raise RuntimeError("VisitKoreaClient is not started; use async with VisitKoreaClient.from_settings()")
         query = urlencode(self._common_params(**params))
         url = f"{self._base_url}/{endpoint}?{query}"
-        response = await self._http.get(url)
-        response.raise_for_status()
-        payload = response.json()
-        if self._interval > 0:
-            await asyncio.sleep(self._interval)
+        async with self._request_lock:
+            response = await self._http.get(url)
+            response.raise_for_status()
+            payload = response.json()
+            if self._interval > 0:
+                await asyncio.sleep(self._interval)
         return payload
 
     async def search_festival(

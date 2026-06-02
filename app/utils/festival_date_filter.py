@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 
 def validate_yyyymmdd(value: str, *, label: str) -> str:
     text = (value or "").strip()
-    if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
+    try:
+        datetime.strptime(text, "%Y%m%d")
+    except ValueError:
+        raise ValueError(
+            f"{label}는 올바른 YYYYMMDD 형식의 날짜여야 합니다 (받음: {value!r})",
+        ) from None
     return text
 
 

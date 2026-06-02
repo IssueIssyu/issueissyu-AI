@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.clients.VisitKoreaClient import VisitKoreaClient
+from app.utils.festival_date_filter import validate_yyyymmdd
 from app.utils.visitkorea_facilities import (
     extract_stay_available,
     extract_pet_friendly,
@@ -49,11 +51,17 @@ def tourapi_to_latlng(
 
 
 def tourapi_header(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("header") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("header") or {}
+    return {}
 
 
 def tourapi_body(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("body") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("body") or {}
+    return {}
 
 
 def tourapi_result_ok(payload: dict[str, Any]) -> tuple[bool, str]:
@@ -84,13 +92,6 @@ def tourapi_total_count(payload: dict[str, Any]) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return 0
-
-
-def validate_yyyymmdd(value: str, *, label: str) -> str:
-    text = (value or "").strip()
-    if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
-    return text
 
 
 def collect_intro_text(intro_payload: dict[str, Any]) -> str:
@@ -194,6 +195,117 @@ def build_document_row(
     }
 
 
+@dataclass(slots=True)
+class _FestivalItemDetails:
+    common_item: dict[str, Any] | None
+    intro_text: str
+    intro_payload: dict[str, Any] | None
+    pet_tour_payload: dict[str, Any] | None
+    image_payload: dict[str, Any] | None
+    detail_errors: int
+
+
+async def _fetch_detail_common(
+    client: VisitKoreaClient,
+    content_id: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    try:
+        common_payload = await client.detail_common(content_id=content_id)
+        ok, msg = tourapi_result_ok(common_payload)
+        if ok:
+            common_rows = tourapi_body_items(common_payload)
+            return (common_rows[0] if common_rows else None), False
+        logger.warning("detailCommon2 %s: %s", content_id, msg)
+        return None, True
+    except Exception:
+        logger.exception("detailCommon2 실패 contentid=%s", content_id)
+        return None, True
+
+
+async def _fetch_detail_intro(
+    client: VisitKoreaClient,
+    content_id: str,
+    content_type_id: str,
+) -> tuple[str, dict[str, Any] | None, bool]:
+    try:
+        intro_payload = await client.detail_intro(
+            content_id=content_id,
+            content_type_id=content_type_id,
+        )
+        ok, msg = tourapi_result_ok(intro_payload)
+        if ok:
+            return collect_intro_text(intro_payload), intro_payload, False
+        logger.warning("detailIntro2 %s: %s", content_id, msg)
+        return "", None, True
+    except Exception:
+        logger.exception("detailIntro2 실패 contentid=%s", content_id)
+        return "", None, True
+
+
+async def _fetch_detail_pet_tour(
+    client: VisitKoreaClient,
+    content_id: str,
+) -> dict[str, Any] | None:
+    try:
+        pet_tour_payload = await client.detail_pet_tour(content_id=content_id)
+        ok, msg = tourapi_result_ok(pet_tour_payload)
+        if ok:
+            return pet_tour_payload
+        logger.debug("detailPetTour2 %s: %s", content_id, msg)
+        return None
+    except Exception:
+        logger.debug("detailPetTour2 실패 contentid=%s", content_id, exc_info=True)
+        return None
+
+
+async def _fetch_detail_image(
+    client: VisitKoreaClient,
+    content_id: str,
+    *,
+    fetch_images: bool,
+) -> tuple[dict[str, Any] | None, bool]:
+    if not fetch_images:
+        return None, False
+    try:
+        image_payload = await client.detail_image(content_id=content_id)
+        ok, msg = tourapi_result_ok(image_payload)
+        if ok:
+            return image_payload, False
+        logger.warning("detailImage2 %s: %s", content_id, msg)
+        return None, True
+    except Exception:
+        logger.exception("detailImage2 실패 contentid=%s", content_id)
+        return None, True
+
+
+async def _fetch_festival_item_details(
+    client: VisitKoreaClient,
+    *,
+    content_id: str,
+    content_type_id: str,
+    fetch_images: bool,
+) -> _FestivalItemDetails:
+    (
+        (common_item, common_err),
+        (intro_text, intro_payload, intro_err),
+        pet_tour_payload,
+        (image_payload, image_err),
+    ) = await asyncio.gather(
+        _fetch_detail_common(client, content_id),
+        _fetch_detail_intro(client, content_id, content_type_id),
+        _fetch_detail_pet_tour(client, content_id),
+        _fetch_detail_image(client, content_id, fetch_images=fetch_images),
+    )
+    return _FestivalItemDetails(
+        common_item=common_item,
+        intro_text=intro_text,
+        intro_payload=intro_payload,
+        pet_tour_payload=pet_tour_payload,
+        image_payload=image_payload,
+        detail_errors=int(common_err) + int(intro_err) + int(image_err),
+    )
+
+
 async def fetch_festival_documents(
     *,
     client: VisitKoreaClient,
@@ -276,48 +388,18 @@ async def fetch_festival_documents(
                 content_type_id = str(
                     list_item.get("contenttypeid") or FESTIVAL_CONTENT_TYPE_ID
                 ).strip()
-                try:
-                    common_payload = await client.detail_common(content_id=content_id)
-                    ok_c, msg_c = tourapi_result_ok(common_payload)
-                    if ok_c:
-                        common_rows = tourapi_body_items(common_payload)
-                        common_item = common_rows[0] if common_rows else None
-                    else:
-                        logger.warning("detailCommon2 %s: %s", content_id, msg_c)
-                        stats["detail_errors"] += 1
-
-                    intro_payload = await client.detail_intro(
-                        content_id=content_id,
-                        content_type_id=content_type_id,
-                    )
-                    ok_i, msg_i = tourapi_result_ok(intro_payload)
-                    if ok_i:
-                        intro_text = collect_intro_text(intro_payload)
-                    else:
-                        logger.warning("detailIntro2 %s: %s", content_id, msg_i)
-                        intro_payload = None
-                        stats["detail_errors"] += 1
-
-                    try:
-                        pet_tour_payload = await client.detail_pet_tour(content_id=content_id)
-                        ok_p, msg_p = tourapi_result_ok(pet_tour_payload)
-                        if not ok_p:
-                            logger.debug("detailPetTour2 %s: %s", content_id, msg_p)
-                            pet_tour_payload = None
-                    except Exception:
-                        logger.debug("detailPetTour2 실패 contentid=%s", content_id, exc_info=True)
-                        pet_tour_payload = None
-
-                    if fetch_images:
-                        image_payload = await client.detail_image(content_id=content_id)
-                        ok_img, msg_img = tourapi_result_ok(image_payload)
-                        if not ok_img:
-                            logger.warning("detailImage2 %s: %s", content_id, msg_img)
-                            image_payload = None
-                            stats["detail_errors"] += 1
-                except Exception:
-                    logger.exception("상세 API 실패 contentid=%s", content_id)
-                    stats["detail_errors"] += 1
+                details = await _fetch_festival_item_details(
+                    client,
+                    content_id=content_id,
+                    content_type_id=content_type_id,
+                    fetch_images=fetch_images,
+                )
+                common_item = details.common_item
+                intro_text = details.intro_text
+                intro_payload = details.intro_payload
+                pet_tour_payload = details.pet_tour_payload
+                image_payload = details.image_payload
+                stats["detail_errors"] += details.detail_errors
 
             image_urls = collect_image_urls(list_item, common_item, image_payload)
             pet_friendly = extract_pet_friendly(
