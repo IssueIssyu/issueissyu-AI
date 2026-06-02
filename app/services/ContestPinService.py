@@ -155,7 +155,7 @@ class ContestPinService:
                     item = ContestDocumentDTO.model_validate(row)
                 except ValidationError as exc:
                     raise ValueError(
-                        f"JSONL 형식 오류 (line {total_in_file + 1}, contentid={row.get('contentid')}): {exc}"
+                        f"JSONL 형식 오류 (line {total_in_file}, contentid={row.get('contentid')}): {exc}"
                     ) from exc
 
                 if cid_filter and item.contentid != cid_filter:
