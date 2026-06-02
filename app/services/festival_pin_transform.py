@@ -257,14 +257,21 @@ async def transform_documents_batch(
     input_path: Path | None = None,
     output_path: Path | None = None,
     model: str | None = None,
+    enforce_admin_batch_limits: bool = True,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], int, dict[str, int]]:
-    """pending 목록을 page/page_size로 나눠 LLM 가공. batch_size는 페이지 내 처리 상한(5 또는 25)."""
+    """pending 목록을 page/page_size로 나눠 LLM 가공. Admin API는 batch_size 5 또는 25."""
     if page < 1:
         raise ValueError("page는 1 이상이어야 합니다.")
-    effective_page_size = page_size if page_size in (5, 25) else 25
-    effective_batch = batch_size if batch_size is not None else effective_page_size
-    if effective_batch not in (5, 25):
-        raise ValueError("batch_size는 5 또는 25만 허용됩니다.")
+    if enforce_admin_batch_limits:
+        effective_page_size = page_size if page_size in (5, 25) else 25
+        effective_batch = batch_size if batch_size is not None else effective_page_size
+        if effective_batch not in (5, 25):
+            raise ValueError("batch_size는 5 또는 25만 허용됩니다.")
+    else:
+        effective_page_size = max(1, page_size)
+        effective_batch = batch_size if batch_size is not None else effective_page_size
+        if effective_batch < 1:
+            raise ValueError("batch_size는 1 이상이어야 합니다.")
 
     src = input_path or FESTIVAL_DOCUMENTS_PATH
     dst = output_path or FESTIVAL_HANDOFF_PATH
@@ -362,10 +369,11 @@ async def transform_documents_jsonl(
     handoff_by_id, processed_rows, errors, skipped, _page_meta = await transform_documents_batch(
         batch_size=effective_limit,
         page=1,
-        page_size=min(effective_limit, 25),
+        page_size=effective_limit,
         input_path=input_path,
         output_path=output_path,
         model=model,
+        enforce_admin_batch_limits=False,
     )
     src = input_path or FESTIVAL_DOCUMENTS_PATH
     dst = output_path or FESTIVAL_HANDOFF_PATH

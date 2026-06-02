@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import app.models  # noqa: F401 — SQLAlchemy mapper registry
@@ -16,14 +17,17 @@ from app.services.festival_pin_transform import (
     normalize_raw_for_compare,
     parse_festival_api_id,
     reuse_transformed_row_if_unchanged,
+    transform_documents_batch,
 )
 from app.utils.festival_date_filter import current_year_festival_range
 from app.utils.visitkorea_area import (
     infer_area_code_from_addr,
+    resolve_row_area_code,
     row_matches_area_filter,
     validate_area_code,
     validate_sigungu_code,
 )
+from app.utils.visitkorea_facilities import extract_pet_friendly
 
 
 class FestivalTransformHelpersTest(unittest.TestCase):
@@ -159,11 +163,57 @@ class FestivalTransformHelpersTest(unittest.TestCase):
         self.assertEqual(infer_area_code_from_addr("경기도 수원시"), "31")
         self.assertIsNone(infer_area_code_from_addr(""))
 
+    def test_resolve_row_area_code_prefers_areacode_over_empty_addr(self) -> None:
+        self.assertEqual(
+            resolve_row_area_code({"areacode": "1", "addr1": ""}),
+            "1",
+        )
+        self.assertEqual(
+            resolve_row_area_code({"areacode": "31", "addr1": "알 수 없는 주소"}),
+            "31",
+        )
+
+    def test_extract_pet_friendly_skips_none_detail_values(self) -> None:
+        payload = {
+            "response": {
+                "body": {
+                    "items": {
+                        "item": {
+                            "petcomment": None,
+                            "petdetail": "소형견 가능",
+                        },
+                    },
+                },
+            },
+        }
+        self.assertEqual(
+            extract_pet_friendly(pet_tour_payload=payload, intro_payload=None),
+            "소형견 가능",
+        )
+
     def test_parse_event_datetime(self) -> None:
         self.assertEqual(_parse_event_datetime("20260701"), datetime(2026, 7, 1))
 
 
 class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
+    _MISSING_DOCS = Path("/tmp/issueissyu-missing-festival-documents.jsonl")
+
+    async def test_transform_documents_batch_admin_batch_size_validation(self) -> None:
+        with self.assertRaisesRegex(ValueError, "5 또는 25"):
+            await transform_documents_batch(
+                batch_size=10,
+                input_path=self._MISSING_DOCS,
+            )
+
+    async def test_transform_documents_batch_allows_bulk_batch_size(self) -> None:
+        with self.assertRaises(FileNotFoundError):
+            await transform_documents_batch(
+                batch_size=10,
+                page_size=10,
+                input_path=self._MISSING_DOCS,
+                enforce_admin_batch_limits=False,
+            )
+
     async def test_import_batch_skips_existing_when_allow_update_false(self) -> None:
         service = FestivalEventIngestService(
             pin_repo=MagicMock(),

@@ -96,6 +96,8 @@ def extract_pet_friendly(
                 key_lower = str(key).lower()
                 if not key_lower.startswith(("chkpet", "pet")):
                     continue
+                if value is None:
+                    continue
                 text = _clean_text(str(value))
                 if text and text.upper() not in {"Y", "N"}:
                     detail_parts.append(text)

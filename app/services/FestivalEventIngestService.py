@@ -46,7 +46,7 @@ from app.services.festival_pin_transform import (
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 from app.services.internal.geo.location_resolve_fields import resolve_pin_location_fields
 from app.utils.festival_date_filter import current_year_festival_range, festival_overlaps_range
-from app.utils.visitkorea_area import area_display_name, infer_area_code_from_addr, row_matches_area_filter
+from app.utils.visitkorea_area import area_display_name, resolve_row_area_code, row_matches_area_filter
 from rag.scripts.chunk_module import write_jsonl
 from rag.scripts.fetch_visitkorea import (
     FESTIVAL_CONTENT_TYPE_ID,
@@ -137,8 +137,8 @@ class FestivalEventIngestService:
                         continue
 
                     if area_code is not None:
-                        list_addr = str(list_item.get("addr1") or "").strip()
-                        if infer_area_code_from_addr(list_addr) != area_code:
+                        item_area = resolve_row_area_code(list_item)
+                        if item_area != area_code:
                             skipped_area_count += 1
                             continue
 
