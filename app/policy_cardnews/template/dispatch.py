@@ -225,6 +225,7 @@ def apply_deck_template_theme(
     return out
 
 
+@lru_cache(maxsize=128)
 def _load_font(size: int, *, bold: bool = False, extra_bold: bool = False) -> ImageFont.FreeTypeFont:
     size = max(18, int(size))
     if extra_bold:
