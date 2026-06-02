@@ -282,6 +282,46 @@ class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
         mock_session.begin_nested.assert_called_once()
         pin_repo.commit.assert_awaited_once()
 
+    async def test_import_batch_expunges_session_new_after_nested_failure(self) -> None:
+        stale_pin = MagicMock()
+        mock_session = MagicMock()
+        mock_session.new = {stale_pin}
+        mock_session.dirty = set()
+        nested_ctx = MagicMock()
+        nested_ctx.__aenter__ = AsyncMock(return_value=None)
+        nested_ctx.__aexit__ = AsyncMock(return_value=None)
+        mock_session.begin_nested = MagicMock(return_value=nested_ctx)
+
+        pin_repo = MagicMock()
+        pin_repo.session = mock_session
+        pin_repo.commit = AsyncMock()
+
+        service = FestivalEventIngestService(
+            pin_repo=pin_repo,
+            event_pin_repo=MagicMock(),
+            pin_location_repo=MagicMock(),
+            pin_image_repo=MagicMock(),
+            location_resolve_client=MagicMock(),
+        )
+        service._event_pin_repo.list_festival_api_ids = AsyncMock(return_value=set())
+        service._event_pin_repo.get_by_festival_api_id = AsyncMock(return_value=None)
+        service._insert_festival_pin = AsyncMock(side_effect=RuntimeError("flush failed"))
+
+        handoff_path = __import__(
+            "app.services.festival_pin_transform",
+            fromlist=["FESTIVAL_HANDOFF_PATH"],
+        ).FESTIVAL_HANDOFF_PATH
+        handoff_path.parent.mkdir(parents=True, exist_ok=True)
+        handoff_path.write_text(
+            '{"contentid":"102","festival_api_id":102,"pin_title":"A","pin_content":"B",'
+            '"pin_content_raw":"R","event_start_time":"20260701","event_end_time":"20260702",'
+            '"latitude":"37.5","longitude":"127.0","image_urls":[],"addr":"서울"}\n',
+            encoding="utf-8",
+        )
+
+        await service.import_batch(admin_uid="admin-uid", batch_size=5, allow_update=False)
+        mock_session.expunge.assert_called_once_with(stale_pin)
+
     async def test_import_all_delegates_to_import_handoff_rows(self) -> None:
         service = FestivalEventIngestService(
             pin_repo=MagicMock(),

@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.clients.VisitKoreaClient import VisitKoreaClient
 from app.core.config import settings
 from app.models.EventPin import EventPin
@@ -64,6 +66,14 @@ from rag.scripts.fetch_visitkorea import (
 logger = logging.getLogger(__name__)
 
 _IMPORT_REPORT_PATH = FESTIVAL_HANDOFF_PATH.with_name("festival_import_batch_report.json")
+
+
+def _discard_session_state_after_nested_failure(session: AsyncSession) -> None:
+    """SAVEPOINT 롤백 후 session.new/dirty에 남은 객체가 다음 flush·commit에 재시도되지 않도록 정리."""
+    for obj in list(session.new):
+        session.expunge(obj)
+    for obj in list(session.dirty):
+        session.expire(obj)
 
 
 class FestivalEventIngestService:
@@ -420,6 +430,7 @@ class FestivalEventIngestService:
                             ),
                         )
             except Exception as exc:
+                _discard_session_state_after_nested_failure(self._pin_repo.session)
                 logger.exception("festival import failed festival_api_id=%s", festival_api_id)
                 errors.append(
                     {
