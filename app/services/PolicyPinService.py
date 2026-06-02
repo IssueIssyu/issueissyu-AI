@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date, timedelta
 from pathlib import Path
@@ -29,18 +30,17 @@ async def _enrich_cover_image_urls(documents: list[dict[str, Any]]) -> list[dict
     # OpenAPI에 이미지 URL이 없을 때 원문 페이지에서 표지용 URL을 보충
     from app.utils.policy_news_parse import enrich_cover_image_urls as resolve_cover_image_urls
 
-    enriched: list[dict] = []
-    for doc in documents:
+    async def enrich_one(doc: dict[str, Any]) -> dict[str, Any]:
         row = dict(doc)
         if row.get("image_urls"):
-            enriched.append(row)
-            continue
+            return row
         urls = await resolve_cover_image_urls([], source_url=str(row.get("source_url") or ""))
         if urls:
             row["original_image_urls"] = urls[:1]
             row["image_urls"] = urls
-        enriched.append(row)
-    return enriched
+        return row
+
+    return list(await asyncio.gather(*(enrich_one(doc) for doc in documents)))
 
 
 class PolicyPinService:
