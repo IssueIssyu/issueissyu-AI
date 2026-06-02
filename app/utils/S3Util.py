@@ -55,6 +55,16 @@ class S3Util:
 
         self.client = boto3.client("s3", **session_kwargs)
 
+    @staticmethod
+    def resolve_image_mime(content_type: str | None, filename: str | None) -> str:
+        mime = (content_type or "").split(";")[0].strip().lower()
+        if not mime or mime == "application/octet-stream":
+            guessed, _ = mimetypes.guess_type(filename or "")
+            mime = (guessed or "").split(";")[0].strip().lower()
+        if mime == "image/jpg":
+            mime = "image/jpeg"
+        return mime
+
     def _ensure_bucket_name(self) -> str:
         if not self.bucket_name:
             raise_file_exception(
@@ -77,7 +87,7 @@ class S3Util:
                 detail="이미지 파일만 업로드할 수 있습니다.",
             )
 
-        content_type = (upload_file.content_type or "").lower()
+        content_type = self.resolve_image_mime(upload_file.content_type, upload_file.filename)
         if content_type and not content_type.startswith("image/"):
             raise_file_exception(
                 ErrorCode.FILE_TYPE_NOT_SUPPORTED,
