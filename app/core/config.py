@@ -259,6 +259,7 @@ class Settings(BaseSettings):
         default=None,
         alias="POLICY_CARDNEWS_FONT_DIR",
         description="Pretendard 등 TTF 폴더 (기본 app/assets/fonts)",
+    )
 
     # 한국관광공사 TourAPI (공공데이터포털 활용신청 키)
     visitkorea_service_key: SecretStr | None = Field(
