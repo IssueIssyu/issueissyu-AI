@@ -87,3 +87,23 @@ class IssuePinLLMService:
             raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
 
         return {"title": title_s, "content": content_s}
+
+    async def generate_pin_text(self, *, prompt: str) -> str:
+        """축제 핀 등 본문만 필요한 프롬프트용 — plain text 응답."""
+        text = (prompt or "").strip()
+        if not text:
+            raise_business_exception(ErrorCode.ISSUE_PIN_PROMPT_EMPTY)
+
+        response = await self._generate_with_retry(contents=text)
+        try:
+            raw = response.text
+        except (ValueError, AttributeError) as exc:
+            raise BusinessException(
+                ErrorCode.ISSUE_PIN_LLM_BLOCKED,
+                str(exc) if str(exc) else None,
+            ) from exc
+
+        out = (raw or "").strip()
+        if not out:
+            raise_business_exception(ErrorCode.ISSUE_PIN_LLM_NO_OUTPUT)
+        return out
