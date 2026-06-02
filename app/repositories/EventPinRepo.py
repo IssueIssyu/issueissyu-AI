@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -34,6 +34,8 @@ class EventPinRepo(BaseRepo[EventPin]):
 
     async def count_festival_pins(self) -> int:
         result = await self.session.execute(
-            select(EventPin.event_pin_id).where(EventPin.festival_api_id.is_not(None)),
+            select(func.count(EventPin.event_pin_id)).where(
+                EventPin.festival_api_id.is_not(None),
+            ),
         )
-        return len(list(result.scalars().all()))
+        return result.scalar_one()
