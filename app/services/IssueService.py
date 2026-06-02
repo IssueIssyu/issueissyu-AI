@@ -51,6 +51,7 @@ from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRun
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
+from app.services.internal.geo.location_resolve_fields import resolve_pin_location_fields
 from app.services.prompts import build_issue_pin_prompt_from_pipeline_bundle
 from app.services.vector_domains import VectorDomain
 from app.utils.geo import user_gps_from_wgs84, wgs84_from_pin_point, wkt_point_from_wgs84
@@ -157,7 +158,8 @@ class IssueService:
         longitude: float,
         failure_error: ErrorCode = ErrorCode.ISSUE_PIN_IMPORT_FAILED,
     ) -> tuple[int, str, str]:
-        resolved = await self._location_resolve_client.resolve_wgs84(
+        resolved = await resolve_pin_location_fields(
+            self._location_resolve_client,
             latitude=latitude,
             longitude=longitude,
         )
@@ -168,23 +170,7 @@ class IssueService:
                     detail="위치를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
                 )
             raise_business_exception(failure_error)
-        detail_address = (resolved.address or "").strip()
-        if not detail_address:
-            if failure_error == ErrorCode.VALIDATION_ERROR:
-                raise_validation_exception(
-                    failure_error,
-                    detail="위치 주소를 확인할 수 없습니다.",
-                )
-            raise_business_exception(failure_error)
-        location_id = resolved.location_id
-        if location_id is None:
-            if failure_error == ErrorCode.VALIDATION_ERROR:
-                raise_validation_exception(
-                    failure_error,
-                    detail="위치 정보를 확인할 수 없습니다. 좌표를 다시 확인해 주세요.",
-                )
-            raise_business_exception(failure_error)
-        trimmed_address = detail_address[:150]
+        location_id, trimmed_address, _pin_point = resolved
         return location_id, trimmed_address, trimmed_address
 
     @staticmethod
@@ -214,19 +200,21 @@ class IssueService:
         return text
 
     @staticmethod
-    def _tune_title(*, original_title: str, rewritten: dict[str, Any]) -> str:
-        primary = rewritten.get("primary_query")
-        keyword = rewritten.get("keyword_query")
-        candidate = (
-            IssueService._sanitize_single_query(primary)
-            or IssueService._sanitize_single_query(keyword)
-            or original_title.strip()
-        )
-        # 제목은 짧고 선명하게: 불필요한 접미 구두점 제거 + 길이 제한
-        tuned = candidate.strip().rstrip(" .,!?:;")
-        if len(tuned) > 42:
-            tuned = tuned[:42].rstrip()
-        return tuned or "민원 제보"
+    def _normalize_title_text(text: str, *, max_length: int) -> str:
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = " ".join(part.strip() for part in normalized.splitlines() if part.strip())
+        normalized = normalized.strip().rstrip(" .,!?:;")
+        if len(normalized) > max_length:
+            normalized = normalized[:max_length].rstrip(" .,!?:;")
+        return normalized
+
+    @staticmethod
+    def _sanitize_generated_title(*, generated_title: str, fallback_title: str) -> str:
+        max_length = settings.pin_title_max_length
+        candidate = IssueService._normalize_title_text(generated_title, max_length=max_length)
+        if not candidate:
+            candidate = IssueService._normalize_title_text(fallback_title, max_length=max_length)
+        return candidate or "민원 제보"
 
     async def issue_pin_ai_make(
         self,
@@ -241,12 +229,11 @@ class IssueService:
         user_location = await self._resolve_user_location_address(request)
         if user_location is None:
             user_location = "주소 확인 불가"
-        user_coordinates = self._user_coordinates_from_request(request)
 
         rewritten = await self._issue_rag_planner_service.rewrite_queries(
             title=safe_title,
             content=safe_content,
-            user_location=user_coordinates,
+            user_location=user_location,
         )
         filters = None
         primary_query = self._sanitize_single_query(rewritten.get("primary_query"))
@@ -289,15 +276,15 @@ class IssueService:
             "rag_hits": rag_payload,
         }
         pin_prompt = build_issue_pin_prompt_from_pipeline_bundle(bundle)
-        pin_body = await self._issue_pin_llm_service.generate_pin_text(prompt=pin_prompt)
-        tuned_title = self._tune_title(
-            original_title=request.title,
-            rewritten=rewritten,
+        pin_copy = await self._issue_pin_llm_service.generate_pin_copy(prompt=pin_prompt)
+        generated_title = self._sanitize_generated_title(
+            generated_title=pin_copy["title"],
+            fallback_title=safe_title,
         )
 
         return IssueAnalysisResult(
-            title=tuned_title,
-            content=pin_body,
+            title=generated_title,
+            content=pin_copy["content"],
         )
 
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:
@@ -466,6 +453,7 @@ class IssueService:
             return [], []
 
         uploaded_keys: list[str] = []
+        success = False
 
         async def upload_and_track(snap: ImageSnapshot) -> dict[str, str]:
             uploaded = await self._upload_snapshot_to_s3(snap)
@@ -475,23 +463,38 @@ class IssueService:
         try:
             uploaded_list = await asyncio.gather(
                 *[upload_and_track(snap) for snap, _ in new_specs],
+                return_exceptions=True,
             )
-        except Exception:
-            if uploaded_keys:
-                await self._s3_util.delete_objects_best_effort(uploaded_keys)
-            logger.exception("issue pin image S3 upload failed pin_id=%s", pin_id)
-            raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
+            failures = [
+                result for result in uploaded_list if isinstance(result, BaseException)
+            ]
+            if failures:
+                first_failure = failures[0]
+                if not isinstance(first_failure, Exception):
+                    raise first_failure
+                logger.error(
+                    "issue pin image S3 upload failed pin_id=%s",
+                    pin_id,
+                    exc_info=first_failure,
+                )
+                raise_business_exception(ErrorCode.PIN_IMAGE_UPLOAD_FAILED)
 
-        saved: list[PinImage] = []
-        for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
-            pin_image = PinImage(
-                pin_id=pin_id,
-                pin_s3_key=uploaded["key"],
-                pin_s3_url=uploaded["url"],
-                is_main=is_main,
-            )
-            saved.append(pin_image)
-        return saved, uploaded_keys
+            saved: list[PinImage] = []
+            for (snap, is_main), uploaded in zip(new_specs, uploaded_list, strict=True):
+                pin_image = PinImage(
+                    pin_id=pin_id,
+                    pin_s3_key=uploaded["key"],
+                    pin_s3_url=uploaded["url"],
+                    is_main=is_main,
+                )
+                saved.append(pin_image)
+            success = True
+            return saved, uploaded_keys
+        finally:
+            if not success and uploaded_keys:
+                await asyncio.shield(
+                    self._s3_util.delete_objects_best_effort(uploaded_keys),
+                )
 
     async def _sync_pin_images_after_update(
         self,

@@ -206,6 +206,13 @@ class Settings(BaseSettings):
         alias="FESTIVAL_TRANSFORM_CONCURRENCY",
         description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
     )
+    festival_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_BATCH_SIZE",
+        description="admin fetch/transform/import 기본 배치 크기",
+    )
 
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod

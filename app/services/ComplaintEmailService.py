@@ -19,8 +19,14 @@ from app.schemas.ComplaintEmailDTO import (
 from app.schemas.IssueDTO import ImageWithLocation
 from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
 from app.services.internal.ai.ComplaintEmailVLMService import ComplaintEmailVlmService
-from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.ai.VLMService import VLMService, normalize_validity
 from app.services.internal.ComplaintEmailOpinionRenderer import ComplaintEmailOpinionRenderer
+from app.services.internal.issue_confidence_basis import (
+    cap_confidence_score_by_basis_warns,
+    clamp_confidence_score,
+    derive_complaint_email_validity,
+    resolve_confidence_basis_markdown,
+)
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
 from app.services.department_catalog import (
     CURATED_CATEGORY_NORMALIZED_MAP,
@@ -31,6 +37,7 @@ from app.services.prompts.complaint_email_notification import (
     format_notification_email_body,
     format_notification_email_subject,
 )
+from app.services.prompts.complaint_email_reliability import build_complaint_rag_context_block
 from app.services.prompts.issue_pin import format_user_text_for_pin
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.vector_domains import VectorDomain
@@ -99,9 +106,12 @@ class ComplaintEmailService:
         pin_content: str,
         images: list[ImageWithLocation],
         photo_address: str | None = None,
+        user_location: str | None = None,
+        user_address: str | None = None,
         submitter_name: str | None = None,
         submitter_address: str | None = None,
         submitter_phone: str | None = None,
+        issue_pin_id: int | None = None,
     ) -> ComplaintEmailGenerateResult:
         title, content, prepared, pin_text = self._prepare_pin_input(
             pin_title=pin_title,
@@ -139,6 +149,12 @@ class ComplaintEmailService:
         validation = await self._run_validation_vlm(
             pin_text=pin_text,
             images=prepared,
+            photo_address=photo_address,
+            user_location=user_location,
+            user_address=user_address or submitter_address,
+            complaint_vlm=vlm_result,
+            rag_pipeline=rag_pipeline,
+            department=department,
         )
 
         try:
@@ -150,18 +166,21 @@ class ComplaintEmailService:
                 f"의견서 PDF 변환에 실패했습니다: {exc}",
             ) from exc
 
+        notification_subject_vlm = (validation.notification_subject or "").strip()
+        notification_email_subject = notification_subject_vlm or format_notification_email_subject(
+            pin_title=title,
+            department=department,
+        )
         notification_email_body = format_notification_email_body(
             pin_title=title,
             pin_content=content,
+            notification_summary=validation.notification_summary,
             opinion_summary=vlm_result.summary,
             reliability_score=validation.reliability_score,
             validity=validation.validity,
             risk_note=validation.risk_note,
             department=department,
-        )
-        notification_email_subject = format_notification_email_subject(
-            pin_title=title,
-            department=department,
+            issue_pin_id=issue_pin_id,
         )
         reliability_basis = self._build_reliability_basis(validation)
 
@@ -192,35 +211,61 @@ class ComplaintEmailService:
         *,
         pin_text: str,
         images: list[ImageWithLocation],
+        photo_address: str | None = None,
+        user_location: str | None = None,
+        user_address: str | None = None,
+        complaint_vlm: ComplaintEmailVlmOutput | None = None,
+        rag_pipeline: ComplaintEmailRagPipelineResult | None = None,
+        department: str | None = None,
     ) -> ComplaintEmailValidationResult:
         for row in images:
             await row.image.seek(0)
+        rag_hits = (
+            rag_pipeline.reranked_hits
+            if rag_pipeline is not None and rag_pipeline.reranked_hits
+            else (rag_pipeline.retrieval_hits if rag_pipeline is not None else [])
+        )
+        rag_context = build_complaint_rag_context_block(rag_hits)
         try:
-            vlm_result = await self._validation_vlm.analyze_image(
+            vlm_result = await self._validation_vlm.analyze_complaint_email_reliability(
                 user_text=pin_text.strip(),
                 images=images,
-                user_location=None,
-                log_context="complaint-email-validation",
+                user_location=user_location,
+                user_address=user_address,
+                photo_address=photo_address,
+                rag_context_block=rag_context,
+                complaint_vlm=complaint_vlm,
+                department=department,
+                log_context="complaint-email-reliability",
             )
         except RuntimeError as exc:
-            logger.exception("검증 VLM 실패")
+            logger.exception("청원 알림 신뢰도 VLM 실패")
             raise BusinessException(
                 ErrorCode.ISSUE_PIN_LLM_BLOCKED,
-                f"검증 VLM 호출 실패: {exc}",
+                f"청원 알림 신뢰도 VLM 호출 실패: {exc}",
             ) from exc
-        score_raw = vlm_result.get("confidence_score")
-        try:
-            score = float(score_raw)
-        except (TypeError, ValueError):
-            score = 0.0
-        score = max(0.0, min(1.0, score))
-        validity = vlm_result.get("validity")
+        score = cap_confidence_score_by_basis_warns(
+            clamp_confidence_score(vlm_result.get("confidence_score")),
+            vlm_result,
+        )
+        vlm_result["confidence_score"] = score
+        model_validity = normalize_validity(vlm_result.get("validity"))
+        validity = derive_complaint_email_validity(
+            score=score,
+            vlm_result=vlm_result,
+            model_validity=model_validity,
+        )
+        vlm_result["validity"] = validity
+        basis_md = resolve_confidence_basis_markdown(vlm_result, has_images=True)
         return ComplaintEmailValidationResult(
             reliability_score=score,
-            validity=bool(validity) if isinstance(validity, bool) else False,
-            error_code=self._optional_str(vlm_result.get("error_code")),
+            validity=validity,
+            error_code=None,
             scene_summary=self._optional_str(vlm_result.get("scene_summary")),
             risk_note=self._optional_str(vlm_result.get("risk_note")),
+            notification_subject=self._optional_str(vlm_result.get("notification_subject")),
+            notification_summary=self._optional_str(vlm_result.get("notification_summary")),
+            confidence_basis_markdown=basis_md or None,
         )
 
     @staticmethod
@@ -384,6 +429,9 @@ class ComplaintEmailService:
 
     @staticmethod
     def _build_reliability_basis(validation: ComplaintEmailValidationResult) -> str:
+        basis = (validation.confidence_basis_markdown or "").strip()
+        if basis:
+            return basis
         validity_text = "유효" if validation.validity else "추가 확인 필요"
         scene = (validation.scene_summary or "").strip() or "장면 요약 없음"
         risk = (validation.risk_note or "").strip() or "위험 참고 없음"

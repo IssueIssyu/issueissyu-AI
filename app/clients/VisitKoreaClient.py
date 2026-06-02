@@ -101,14 +101,17 @@ class VisitKoreaClient:
         event_end_date: str | None = None,
         page_no: int = 1,
         num_of_rows: int = 100,
+        area_code: str | None = None,
+        sigungu_code: str | None = None,
     ) -> dict[str, Any]:
-        # 기간만으로 전국 수집. 근접 필터는 백엔드 longitude/latitude
         return await self._get(
             ENDPOINT_SEARCH_FESTIVAL,
             eventStartDate=event_start_date,
             eventEndDate=event_end_date or event_start_date,
             pageNo=page_no,
             numOfRows=num_of_rows,
+            areaCode=area_code,
+            sigunguCode=sigungu_code if area_code else None,
         )
 
     async def detail_common(self, *, content_id: str) -> dict[str, Any]:

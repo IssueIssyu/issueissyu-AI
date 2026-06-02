@@ -166,6 +166,41 @@ class SuccessCode(Enum):
         "COMPLAINT_2003",
         "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
     )
+    FESTIVAL_FETCH_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2001",
+        "축제 데이터 수집에 성공했습니다.",
+    )
+    FESTIVAL_TRANSFORM_BATCH_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2011",
+        "축제 LLM 배치 가공에 성공했습니다.",
+    )
+    FESTIVAL_IMPORT_BATCH_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2012",
+        "축제 DB 배치 적재에 성공했습니다.",
+    )
+    FESTIVAL_IMPORT_ALL_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2013",
+        "축제 DB 일괄 적재에 성공했습니다.",
+    )
+    FESTIVAL_STATUS_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2002",
+        "축제 파이프라인 상태 조회에 성공했습니다.",
+    )
+    FESTIVAL_HANDOFF_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2003",
+        "축제 핸드오프 조회에 성공했습니다.",
+    )
+    FESTIVAL_RESET_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2004",
+        "축제 파이프라인 로컬 캐시 초기화에 성공했습니다.",
+    )
     @property
     def http_status(self) -> int:
         return int(self.value[0])

@@ -27,6 +27,11 @@ from app.services.prompts.issue_reliability_text import (
     RELIABILITY_TEXT_RESPONSE_SCHEMA,
     build_issue_reliability_text_prompt,
 )
+from app.schemas.ComplaintEmailDTO import ComplaintEmailVlmOutput
+from app.services.prompts.complaint_email_reliability import (
+    COMPLAINT_EMAIL_RELIABILITY_RESPONSE_SCHEMA,
+    build_complaint_email_reliability_prompt,
+)
 from app.services.prompts.issue_reliability_image import (
     RELIABILITY_IMAGE_RESPONSE_SCHEMA,
     build_issue_reliability_image_prompt,
@@ -475,6 +480,95 @@ class VLMService:
         parsed["confidence_score"] = max(0.0, min(1.0, score))
         if not isinstance(parsed.get("confidence_basis"), list):
             parsed["confidence_basis"] = []
+        return parsed
+
+    async def analyze_complaint_email_reliability(
+        self,
+        *,
+        user_text: str,
+        images: list[ImageWithLocation],
+        user_location: str | None = None,
+        user_address: str | None = None,
+        photo_address: str | None = None,
+        rag_context_block: str | None = None,
+        complaint_vlm: ComplaintEmailVlmOutput | None = None,
+        department: str | None = None,
+        max_attempts_per_model: int | None = None,
+        fallback_models: tuple[str, ...] | None = None,
+        log_context: str | None = None,
+    ) -> dict:
+        if not images:
+            raise RuntimeError("청원 알림 신뢰도 분석에는 이미지가 1개 이상 필요합니다.")
+
+        image_parts: list[types.Part] = []
+        per_address_strings: list[str] = []
+        slot_lines: list[str] = []
+        for idx, row in enumerate(images, start=1):
+            upload = row.image
+            addr = row.address
+            image_bytes = await upload.read()
+            await upload.seek(0)
+            if not image_bytes:
+                raise RuntimeError(f"업로드 이미지가 비어 있습니다. (인덱스 {idx})")
+            mime = resolve_upload_image_mime(upload)
+            image_parts.append(types.Part.from_bytes(data=image_bytes, mime_type=mime))
+            one_addr = coerce_photo_address(addr)
+            if one_addr:
+                per_address_strings.append(one_addr)
+            name = upload.filename or f"image_{idx}"
+            slot_lines.append(f"[{idx}] {name} — 사진 메타 주소: {one_addr if one_addr else 'null'}")
+
+        photo_address_str = ", ".join(per_address_strings) if per_address_strings else photo_address
+        per_image_slot_text = "\n".join(slot_lines)
+
+        prompt = build_complaint_email_reliability_prompt(
+            user_text=user_text,
+            user_location=user_location,
+            user_address=user_address,
+            photo_address=photo_address_str,
+            per_image_slot_text=per_image_slot_text,
+            rag_context_block=rag_context_block or "",
+            complaint_vlm=complaint_vlm,
+            department=department,
+        )
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=COMPLAINT_EMAIL_RELIABILITY_RESPONSE_SCHEMA,
+        )
+        response = await self._generate_with_retry(
+            contents=[*image_parts, prompt],
+            config=config,
+            max_attempts_per_model=max_attempts_per_model,
+            fallback_models=fallback_models,
+            log_context=log_context,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini complaint email reliability 응답이 비어 있습니다.")
+        try:
+            parsed = json.loads(text)
+        except JSONDecodeError as exc:
+            raise RuntimeError(f"Gemini JSON 파싱 실패: {exc}") from exc
+        if not isinstance(parsed, dict):
+            parsed = {}
+
+        try:
+            score = float(parsed.get("confidence_score"))
+        except (TypeError, ValueError):
+            score = 0.0
+        parsed["confidence_score"] = max(0.0, min(1.0, score))
+        if not isinstance(parsed.get("confidence_basis"), list):
+            parsed["confidence_basis"] = []
+        parsed["validity"] = normalize_validity(parsed.get("validity"))
+        for key in ("scene_summary", "notification_subject", "notification_summary"):
+            raw = parsed.get(key)
+            parsed[key] = raw.strip() if isinstance(raw, str) else ""
+        risk = parsed.get("risk_note")
+        if isinstance(risk, str):
+            stripped = risk.strip()
+            parsed["risk_note"] = stripped if stripped else None
+        else:
+            parsed["risk_note"] = None
         return parsed
 
     @staticmethod
