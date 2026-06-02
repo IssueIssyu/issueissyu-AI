@@ -68,11 +68,12 @@ class VectorStoreService:
         if domain is None or not domain.strip():
             return self._default_table_name
         domain_config = self._resolve_domain_config(domain)
-        normalized = (
-            self._normalize_domain(domain_config.table_name)
-            if domain_config
-            else self._normalize_domain(domain)
-        )
+        if domain_config is not None:
+            normalized = self._normalize_domain(domain_config.table_name)
+            if domain_config.standalone_table:
+                return normalized
+        else:
+            normalized = self._normalize_domain(domain)
         return f"{self._default_table_name}_{normalized}"
 
     def _resolve_domain_config(self, domain: str | None) -> DomainVectorConfig | None:
