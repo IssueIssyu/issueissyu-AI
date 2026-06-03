@@ -279,6 +279,10 @@ class IssuePinDailyRateLimitService:
                 keys=[key],
                 args=[ttl_seconds, daily_limit],
             )
+            if raw is None or len(raw) < 2:
+                raise ValueError(f"unexpected redis script result: {raw!r}")
+            recorded = int(raw[0]) == 1
+            used_count = int(raw[1])
         except Exception:
             logger.warning(
                 "Issue pin success record skipped: Redis error kind=%s uid=%s",
@@ -288,8 +292,6 @@ class IssuePinDailyRateLimitService:
             )
             return None
 
-        recorded = int(raw[0]) == 1
-        used_count = int(raw[1])
         snapshot = RateLimitSnapshot(
             daily_limit=daily_limit,
             used_count=used_count,

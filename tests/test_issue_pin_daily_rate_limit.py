@@ -134,6 +134,26 @@ class IssuePinDailyRateLimitServiceTest(unittest.IsolatedAsyncioTestCase):
         self.record_script.assert_not_awaited()
 
     @patch("app.services.internal.IssuePinDailyRateLimitService.settings")
+    async def test_record_skips_on_malformed_script_result(self, mock_settings: MagicMock) -> None:
+        mock_settings.issue_pin_create_rate_limit_enabled = True
+        mock_settings.issue_pin_create_daily_limit = 10
+        self.record_script.return_value = None
+
+        result = await self.service.record_daily_quota_success(RateLimitKind.CREATE, uid="user-1")
+
+        self.assertIsNone(result)
+
+    @patch("app.services.internal.IssuePinDailyRateLimitService.settings")
+    async def test_record_skips_on_short_script_result(self, mock_settings: MagicMock) -> None:
+        mock_settings.issue_pin_create_rate_limit_enabled = True
+        mock_settings.issue_pin_create_daily_limit = 10
+        self.record_script.return_value = [1]
+
+        result = await self.service.record_daily_quota_success(RateLimitKind.CREATE, uid="user-1")
+
+        self.assertIsNone(result)
+
+    @patch("app.services.internal.IssuePinDailyRateLimitService.settings")
     async def test_get_quota_create_when_enabled(self, mock_settings: MagicMock) -> None:
         mock_settings.issue_pin_create_rate_limit_enabled = True
         mock_settings.issue_pin_create_daily_limit = 10
