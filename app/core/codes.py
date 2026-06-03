@@ -34,7 +34,17 @@ class ErrorCode(Enum):
     AI_PIN_GENERATION_RATE_LIMIT_EXCEEDED = (
         status.HTTP_429_TOO_MANY_REQUESTS,
         "AI_4291",
-        "오늘 AI 글 생성·수정 횟수를 초과했습니다.",
+        "오늘 AI 글 생성(미리보기) 성공 횟수를 초과했습니다.",
+    )
+    ISSUE_PIN_CREATE_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "ISSUE_4291",
+        "오늘 이슈 핀 게시 성공 횟수를 초과했습니다.",
+    )
+    ISSUE_PIN_EDIT_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "ISSUE_4292",
+        "오늘 이슈 핀 수정 성공 횟수를 초과했습니다.",
     )
 
     # Issue
@@ -138,7 +148,17 @@ class SuccessCode(Enum):
     ISSUE_PIN_AI_QUOTA_GET_SUCCESS = (
         status.HTTP_200_OK,
         "ISSUE_2003",
-        "AI 글 생성·수정 제한 횟수 조회에 성공했습니다.",
+        "AI 글 생성(미리보기) 성공 제한 횟수 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_CREATE_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2004",
+        "이슈 핀 게시 성공 제한 횟수 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_EDIT_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2005",
+        "이슈 핀 수정 성공 제한 횟수 조회에 성공했습니다.",
     )
     ISSUE_PIN_EDIT_SUCCESS = (
         status.HTTP_200_OK,

@@ -47,7 +47,11 @@ from app.schemas.IssueDTO import (
 from app.services.internal.issue_confidence_basis import is_failed_reliability_content
 from app.schemas.issue_pin_job import ImageSnapshot, IssuePinReliabilityJob
 from app.services.VectorStoreService import VectorStoreService
-from app.services.internal.AiPinGenerationRateLimitService import AiPinGenerationRateLimitService
+from app.services.internal.IssuePinDailyRateLimitService import (
+    IssuePinDailyRateLimitService,
+    RateLimitKind,
+    RateLimitSnapshot,
+)
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
@@ -61,6 +65,18 @@ logger = logging.getLogger(__name__)
 SINGLE_RETRIEVAL_TOP_K = 5
 S3_ISSUE_IMAGE_PREFIX = "issueimage"
 MAX_PIN_IMAGE_TOTAL_BYTES = 50 * 1024 * 1024
+
+
+@dataclass(frozen=True, slots=True)
+class IssuePinMutationResult:
+    detail: IssuePinHomeDetailResponse
+    rate_limit_quota: dict[str, bool | int | str]
+
+
+@dataclass(frozen=True, slots=True)
+class IssuePinAiMakeResult:
+    analysis: IssueAnalysisResult
+    rate_limit_quota: dict[str, bool | int | str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +103,7 @@ class IssueService:
         user_repo: UserRepo,
         s3_util: S3Util,
         background_runner: IssuePinBackgroundRunner,
-        ai_pin_generation_rate_limit_service: AiPinGenerationRateLimitService,
+        issue_pin_daily_rate_limit_service: IssuePinDailyRateLimitService,
     ) -> None:
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
@@ -102,7 +118,40 @@ class IssueService:
         self._community_repo = community_repo
         self._user_repo = user_repo
         self._background_runner = background_runner
-        self._ai_pin_generation_rate_limit_service = ai_pin_generation_rate_limit_service
+        self._rate_limit = issue_pin_daily_rate_limit_service
+
+    async def _build_rate_limit_quota_dict(
+        self,
+        *,
+        kind: RateLimitKind,
+        uid: str,
+        snapshot: RateLimitSnapshot | None,
+        pin_id: int | None = None,
+    ) -> dict[str, bool | int | str]:
+        if snapshot is not None:
+            status = self._rate_limit.quota_status_from_snapshot(snapshot, kind=kind)
+        else:
+            status = await self._rate_limit.get_daily_quota_status(
+                kind,
+                uid=uid,
+                pin_id=pin_id,
+            )
+        return status.to_result_dict()
+
+    async def ensure_issue_pin_edit_access(self, *, uid: str, pin_id: int) -> None:
+        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
+        if issue_pin is None or issue_pin.pin is None:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+
+        pin = issue_pin.pin
+        if pin.pin_type != PinType.ISSUE:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+        if pin.uid != uid:
+            raise_business_exception(ErrorCode.FORBIDDEN)
+        if issue_pin.issue_pin_state != IssuePinState.BEFORE_PROGRESS:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+        if pin.pin_location is None:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
     @staticmethod
     def _format_pin_datetime(value: datetime | None) -> str | None:
@@ -293,46 +342,16 @@ class IssueService:
         *,
         uid: str,
         request: CreateIssuePinRequest,
-    ) -> IssueAnalysisResult:
-        await self._ai_pin_generation_rate_limit_service.consume_daily_quota(uid=uid)
-        return await self._generate_issue_pin_ai_copy(request=request)
-
-    async def issue_pin_ai_edit(
-        self,
-        *,
-        uid: str,
-        pin_id: int,
-        title: str,
-        content: str,
-        tone: ToneType = ToneType.NONE,
-    ) -> IssueAnalysisResult:
-        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
-        if issue_pin is None or issue_pin.pin is None:
-            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
-
-        pin = issue_pin.pin
-        if pin.pin_type != PinType.ISSUE:
-            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
-        if pin.uid != uid:
-            raise_business_exception(ErrorCode.FORBIDDEN)
-        if issue_pin.issue_pin_state != IssuePinState.BEFORE_PROGRESS:
-            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
-
-        pin_location = pin.pin_location
-        if pin_location is None:
-            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
-
-        latitude, longitude = wgs84_from_pin_point(pin_location.pin_point)
-        await self._ai_pin_generation_rate_limit_service.consume_daily_quota(uid=uid)
-        return await self._generate_issue_pin_ai_copy(
-            request=CreateIssuePinRequest(
-                title=title,
-                content=content,
-                tone=tone,
-                latitude=latitude,
-                longitude=longitude,
-            ),
+    ) -> IssuePinAiMakeResult:
+        await self._rate_limit.assert_daily_quota_available(RateLimitKind.AI, uid=uid)
+        analysis = await self._generate_issue_pin_ai_copy(request=request)
+        snapshot = await self._rate_limit.record_daily_quota_success(RateLimitKind.AI, uid=uid)
+        quota = await self._build_rate_limit_quota_dict(
+            kind=RateLimitKind.AI,
+            uid=uid,
+            snapshot=snapshot,
         )
+        return IssuePinAiMakeResult(analysis=analysis, rate_limit_quota=quota)
 
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:
         return await self._s3_util.upload_bytes(
@@ -635,8 +654,9 @@ class IssueService:
         request: CreateIssuePinMultipartRequest,
         photos: list[UploadFile] | None = None,
         background_tasks: BackgroundTasks | None = None,
-    ) -> IssuePinHomeDetailResponse:
+    ) -> IssuePinMutationResult:
         uploads = photos or []
+        await self._rate_limit.assert_daily_quota_available(RateLimitKind.CREATE, uid=uid)
         safe_title, safe_content = self._validate_pin_text(
             pin_title=request.pin_title,
             pin_content=request.pin_content,
@@ -729,6 +749,16 @@ class IssueService:
             logger.exception("issue pin create commit failed uid=%s", uid)
             raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_FAILED)
 
+        snapshot = await self._rate_limit.record_daily_quota_success(
+            RateLimitKind.CREATE,
+            uid=uid,
+        )
+        quota = await self._build_rate_limit_quota_dict(
+            kind=RateLimitKind.CREATE,
+            uid=uid,
+            snapshot=snapshot,
+        )
+
         await self._background_runner.schedule(
             IssuePinReliabilityJob(
                 issue_pin_id=issue_pin.issue_pin_id,
@@ -742,7 +772,7 @@ class IssueService:
         )
 
         image_status = ImageUploadStatus.COMPLETED if saved_images else ImageUploadStatus.NONE
-        return await self._build_issue_pin_home_response(
+        detail = await self._build_issue_pin_home_response(
             uid=uid,
             pin=pin,
             issue_pin=issue_pin,
@@ -752,6 +782,7 @@ class IssueService:
             reliability_status=ReliabilityStatus.PENDING,
             image_upload_status=image_status,
         )
+        return IssuePinMutationResult(detail=detail, rate_limit_quota=quota)
 
     async def update_issue_pin(
         self,
@@ -761,7 +792,7 @@ class IssueService:
         request: UpdateIssuePinMultipartRequest,
         photos: list[UploadFile] | None = None,
         background_tasks: BackgroundTasks | None = None,
-    ) -> IssuePinHomeDetailResponse:
+    ) -> IssuePinMutationResult:
         uploads = photos or []
         user = await self._user_repo.get_by_uid(uid)
         if user is None:
@@ -786,6 +817,12 @@ class IssueService:
         pin_location = pin.pin_location
         if pin_location is None:
             raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+
+        await self._rate_limit.assert_daily_quota_available(
+            RateLimitKind.EDIT,
+            uid=uid,
+            pin_id=pin_id,
+        )
 
         existing_images = list(pin.pin_images or [])
         image_plan = await self._build_update_pin_image_plan(
@@ -829,6 +866,18 @@ class IssueService:
             logger.exception("issue pin update failed pin_id=%s", pin.pin_id)
             raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
 
+        snapshot = await self._rate_limit.record_daily_quota_success(
+            RateLimitKind.EDIT,
+            uid=uid,
+            pin_id=pin_id,
+        )
+        quota = await self._build_rate_limit_quota_dict(
+            kind=RateLimitKind.EDIT,
+            uid=uid,
+            snapshot=snapshot,
+            pin_id=pin_id,
+        )
+
         await self._cleanup_removed_pin_images_best_effort(
             pin_id=pin.pin_id,
             removed_s3_keys=image_plan.removed_s3_keys,
@@ -849,16 +898,17 @@ class IssueService:
             ImageUploadStatus.COMPLETED if saved_images else ImageUploadStatus.NONE
         )
 
-        return await self._build_issue_pin_home_response(
+        detail = await self._build_issue_pin_home_response(
             uid=uid,
             pin=pin,
             issue_pin=issue_pin,
             pin_location=pin_location,
-            pin_user_nickname=pin.user.nickname if pin.user is not None else None,
+            pin_user_nickname=user.nickname,
             pin_images=saved_images,
             reliability_status=ReliabilityStatus.PENDING,
             image_upload_status=image_status,
         )
+        return IssuePinMutationResult(detail=detail, rate_limit_quota=quota)
 
     async def _build_issue_pin_home_response(
         self,
