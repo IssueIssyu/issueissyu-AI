@@ -47,6 +47,7 @@ from app.schemas.IssueDTO import (
 from app.services.internal.issue_confidence_basis import is_failed_reliability_content
 from app.schemas.issue_pin_job import ImageSnapshot, IssuePinReliabilityJob
 from app.services.VectorStoreService import VectorStoreService
+from app.services.internal.AiPinGenerationRateLimitService import AiPinGenerationRateLimitService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
@@ -86,6 +87,7 @@ class IssueService:
         user_repo: UserRepo,
         s3_util: S3Util,
         background_runner: IssuePinBackgroundRunner,
+        ai_pin_generation_rate_limit_service: AiPinGenerationRateLimitService,
     ) -> None:
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
@@ -100,6 +102,7 @@ class IssueService:
         self._community_repo = community_repo
         self._user_repo = user_repo
         self._background_runner = background_runner
+        self._ai_pin_generation_rate_limit_service = ai_pin_generation_rate_limit_service
 
     @staticmethod
     def _format_pin_datetime(value: datetime | None) -> str | None:
@@ -216,13 +219,11 @@ class IssueService:
             candidate = IssueService._normalize_title_text(fallback_title, max_length=max_length)
         return candidate or "민원 제보"
 
-    async def issue_pin_ai_make(
+    async def _generate_issue_pin_ai_copy(
         self,
         *,
-        uid: str,
         request: CreateIssuePinRequest,
     ) -> IssueAnalysisResult:
-        _ = uid
         safe_title = request.title.strip()
         safe_content = request.content.strip()
         user_content = f"title:{safe_title}\ncontent:{safe_content}\n".strip()
@@ -285,6 +286,52 @@ class IssueService:
         return IssueAnalysisResult(
             title=generated_title,
             content=pin_copy["content"],
+        )
+
+    async def issue_pin_ai_make(
+        self,
+        *,
+        uid: str,
+        request: CreateIssuePinRequest,
+    ) -> IssueAnalysisResult:
+        await self._ai_pin_generation_rate_limit_service.consume_daily_quota(uid=uid)
+        return await self._generate_issue_pin_ai_copy(request=request)
+
+    async def issue_pin_ai_edit(
+        self,
+        *,
+        uid: str,
+        pin_id: int,
+        title: str,
+        content: str,
+        tone: ToneType = ToneType.NONE,
+    ) -> IssueAnalysisResult:
+        issue_pin = await self._issue_pin_repo.get_by_pin_id(pin_id)
+        if issue_pin is None or issue_pin.pin is None:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+
+        pin = issue_pin.pin
+        if pin.pin_type != PinType.ISSUE:
+            raise_business_exception(ErrorCode.ISSUE_NOT_FOUND)
+        if pin.uid != uid:
+            raise_business_exception(ErrorCode.FORBIDDEN)
+        if issue_pin.issue_pin_state != IssuePinState.BEFORE_PROGRESS:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_VALIDATION)
+
+        pin_location = pin.pin_location
+        if pin_location is None:
+            raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+
+        latitude, longitude = wgs84_from_pin_point(pin_location.pin_point)
+        await self._ai_pin_generation_rate_limit_service.consume_daily_quota(uid=uid)
+        return await self._generate_issue_pin_ai_copy(
+            request=CreateIssuePinRequest(
+                title=title,
+                content=content,
+                tone=tone,
+                latitude=latitude,
+                longitude=longitude,
+            ),
         )
 
     async def _upload_snapshot_to_s3(self, snap: ImageSnapshot) -> dict[str, str]:

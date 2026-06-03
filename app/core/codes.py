@@ -31,6 +31,11 @@ class ErrorCode(Enum):
 
     # VLM (Gemini)
     VLM_NOT_CONFIGURED = (status.HTTP_503_SERVICE_UNAVAILABLE, "VLM_5031", "VLM(Gemini) API 키가 설정되지 않았습니다.")
+    AI_PIN_GENERATION_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "AI_4291",
+        "오늘 AI 글 생성·수정 횟수를 초과했습니다.",
+    )
 
     # Issue
     ISSUE_LOW_RELIABILITY = (status.HTTP_422_UNPROCESSABLE_ENTITY, "ISSUE_4221", "신뢰도가 낮아 이슈 핀을 생성할 수 없습니다.")
@@ -129,6 +134,11 @@ class SuccessCode(Enum):
         status.HTTP_200_OK,
         "ISSUE_2002",
         "이슈 핀 신뢰도 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_AI_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2003",
+        "AI 글 생성·수정 제한 횟수 조회에 성공했습니다.",
     )
     ISSUE_PIN_EDIT_SUCCESS = (
         status.HTTP_200_OK,

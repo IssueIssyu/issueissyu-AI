@@ -255,6 +255,18 @@ class Settings(BaseSettings):
         alias="PDF_KOREAN_FONT_PATHS",
     )
     issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
+    ai_pin_generation_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="AI_PIN_GENERATION_DAILY_LIMIT",
+        description="uid당 이슈 핀 AI 글 생성·수정(미리보기) 일일 허용 횟수",
+    )
+    ai_pin_generation_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="AI_PIN_GENERATION_RATE_LIMIT_ENABLED",
+        description="false면 AI 글 생성 일일 제한 비활성화",
+    )
     issue_confidence_basis_max_chars: int = Field(
         default=2000,
         ge=200,
