@@ -42,6 +42,7 @@
 | **신뢰도** | **비동기** VLM + RAG → `issue_pin.issue_confidence`, `confidence_content` UPDATE |
 | **근거 문구** | 일반 시민이 읽는 한국어 bullet, 줄바꿈 `\n` 유지 |
 | **S3 ↔ 신뢰도** | 백그라운드는 **메모리 스냅샷이 아니라 DB `pin_image` → S3 다운로드** 로 이미지 로드 |
+| **일일 사용 제한** | Redis, KST 자정 리셋 — AI 생성·게시(uid) / 수정(pin_id), **성공 시에만** 카운트 |
 
 ---
 
@@ -77,6 +78,24 @@
 **발생했던 문제**: 백그라운드 신뢰도만 요청 시점 **메모리 스냅샷**에 의존 → `BackgroundTasks`·긴 바이트 배열·Gemini 503 재시도와 겹치며 `confidence_content`가 **NULL**로 남는 사례 다수.
 
 **해결**: 백그라운드는 **`pin_image.pin_s3_key` → `S3Util.download_bytes`** 로 이미지를 다시 읽은 뒤 VLM에 전달. S3 업로드가 끝난 뒤에만 신뢰도 job이 의미 있게 동작.
+
+### 2.5 일일 사용 제한 (rate limit)
+
+Gemini·DB 부하 방지를 위해 아래 API에 **일일 성공 횟수 제한**을 둡니다 (`IssuePinDailyRateLimitService`, Redis).
+
+| API | 제한 단위 | 카운트 시점 |
+|-----|-----------|-------------|
+| `POST /issues/pin/ai` | **uid** / 일 | LLM 성공 후 |
+| `POST /issues/pin` | **uid** / 일 | DB commit 성공 후 |
+| `PATCH /issues/pin/{pin_id}` | **pin_id(글)** / 일 | DB commit 성공 후 |
+
+- **리셋**: KST 자정 (`resetAt`은 다음 자정 ISO8601)
+- **실패 미집계**: LLM 실패, 검증 실패, DB 롤백 시 Redis INCR 없음
+- **429**: 한도 초과 시에만 (`AI_4291`, `ISSUE_4291`, `ISSUE_4292`)
+- **ON/OFF**: env `*_RATE_LIMIT_ENABLED=false`면 해당 kind만 비활성 (assert·record·429 미적용)
+- **Redis 미연결**: fail-open(제한 스킵) + warning 로그
+- **성공 응답**: 기존 `result` 유지 + **`rateLimitQuota`** 필드 additive (프론트 선택 사용)
+- **사전 조회**: `GET /issues/pin/ai/quota`, `create/quota`, `edit/quota?pin_id=`
 
 ---
 
@@ -149,7 +168,17 @@ AI 미리보기. **DB 저장 없음.**
 | latitude | O | 위도 |
 | longitude | O | 경도 |
 
-**처리**: RAG planner → 벡터 검색 → `IssuePinLLMService` → `IssueAnalysisResult { title, content }`
+**처리**: 작업 전 `assert_daily_quota_available(AI)` → RAG planner → 벡터 검색 → `IssuePinLLMService` → LLM 성공 시 `record_daily_quota_success(AI)`
+
+**성공 응답**: 기존 AI 필드 + `rateLimitQuota` (`enabled`, `dailyLimit`, `usedCount`, `remainingCount`, `resetAt`)
+
+**에러 코드**
+
+| code | HTTP | 상황 |
+|------|------|------|
+| `AI_4291` | 429 | uid 일일 AI 생성 성공 횟수 초과 |
+
+429 `result` 예: `{ dailyLimit, usedCount, resetAt }` (pinId 없음)
 
 ---
 
@@ -182,17 +211,21 @@ AI 미리보기. **DB 저장 없음.**
 
 **에러 코드**
 
-| code | 상황 |
-|------|------|
-| `ISSUE_PIN_IMPORT_400_1` | 필수값/개수/isMain 검증 실패 |
-| `ISSUE_PIN_IMPORT_400_2` | 역지오코딩·DB 저장 실패 |
-| `PIN_IMAGE_400_1` | photos 합계 50MB 초과 |
-| `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
-| `PIN_IMAGE_400_3` | 5장 초과 |
-| `USER_4041` | 사용자 없음 |
+| code | HTTP | 상황 |
+|------|------|------|
+| `ISSUE_PIN_IMPORT_400_1` | 400 | 필수값/개수/isMain 검증 실패 |
+| `ISSUE_PIN_IMPORT_400_2` | 400 | 역지오코딩·DB 저장 실패 |
+| `PIN_IMAGE_400_1` | 400 | photos 합계 50MB 초과 |
+| `PIN_IMAGE_400_2` | 400 | 업로드/검증/S3 실패 |
+| `PIN_IMAGE_400_3` | 400 | 5장 초과 |
+| `USER_4041` | 404 | 사용자 없음 |
+| `ISSUE_4291` | 429 | uid 일일 게시 성공 횟수 초과 |
+
+**성공 응답**: `IssuePinHomeDetailResponse` + `rateLimitQuota`
 
 **동기 처리 순서** (`IssueService.create_issue_pin`):
 
+0. `assert_daily_quota_available(CREATE)` (uid)
 1. payload 검증 (제목/본문, photos↔pinImages, isMain, 5장/50MB)
 2. 사용자 존재 확인
 3. `LocationResolveClient.resolve_wgs84` → 실패 시 `ISSUE_PIN_IMPORT_400_2`
@@ -201,9 +234,9 @@ AI 미리보기. **DB 저장 없음.**
 6. `IssuePin` INSERT (`issue_confidence=None`, `confidence_content=None`, `BEFORE_PROGRESS`)
 7. `PinLocation` INSERT (`location_id`, `detail_address`, `pin_point` WKT)
 8. `_upload_new_pin_images_with_is_main` — S3 + `pin_image` (`isMain` per `pinImages`)
-9. `commit` (실패 시 S3 롤백)
+9. `commit` (실패 시 S3 롤백) → 성공 시 `record_daily_quota_success(CREATE)`
 10. `IssuePinBackgroundRunner.schedule(job, background_tasks=...)`
-11. 홈 상세 응답 조립 (`reliabilityStatus=pending`)
+11. 홈 상세 응답 조립 (`reliabilityStatus=pending`) + `rateLimitQuota`
 
 ---
 
@@ -264,18 +297,53 @@ AI 미리보기. **DB 저장 없음.**
 
 **에러 코드**
 
-| code | 상황 |
-|------|------|
-| `ISSUE_PIN_EDIT_400_1` | 필수값/isMain/개수/URL 검증 실패 |
-| `ISSUE_PIN_EDIT_400_2` | DB 저장 등 처리 실패 |
-| `PIN_IMAGE_400_1` | 신규 photos 합계 50MB 초과 |
-| `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
-| `PIN_IMAGE_400_3` | 최종 5장 초과 |
-| `USER_4041` | 사용자 없음 |
+| code | HTTP | 상황 |
+|------|------|------|
+| `ISSUE_PIN_EDIT_400_1` | 400 | 필수값/isMain/개수/URL 검증 실패 |
+| `ISSUE_PIN_EDIT_400_2` | 400 | DB 저장 등 처리 실패 |
+| `PIN_IMAGE_400_1` | 400 | 신규 photos 합계 50MB 초과 |
+| `PIN_IMAGE_400_2` | 400 | 업로드/검증/S3 실패 |
+| `PIN_IMAGE_400_3` | 400 | 최종 5장 초과 |
+| `USER_4041` | 404 | 사용자 없음 |
+| `ISSUE_4292` | 429 | pin_id(글) 일일 수정 성공 횟수 초과 |
+
+429 `result` 예: `{ dailyLimit, usedCount, resetAt, pinId }` — **edit만** `pinId` 포함
+
+**성공 응답**: `IssuePinHomeDetailResponse` + `rateLimitQuota`
+
+**처리**: `assert_daily_quota_available(EDIT, pin_id=…)` → … → commit 성공 후 `record_daily_quota_success(EDIT, pin_id=…)`
 
 **신뢰도 파이프라인**
 - 수정 후 `issue_confidence`/`confidence_content` NULL 초기화 + 재스케줄 (기존 GPS는 `pin_location.pin_point`에서 추출)
 - 진행 중 job 취소 시도, generation 검증으로 stale 결과 차단
+
+---
+
+### 4.7 quota 조회 (일일 사용 제한)
+
+게시·수정·AI 호출 **전** 남은 횟수 확인용. 인증 필수.
+
+| API | 제한 단위 | 성공 코드 |
+|-----|-----------|-----------|
+| `GET /issues/pin/ai/quota` | uid | `ISSUE_PIN_AI_QUOTA_GET_SUCCESS` |
+| `GET /issues/pin/create/quota` | uid | `ISSUE_PIN_CREATE_QUOTA_GET_SUCCESS` |
+| `GET /issues/pin/edit/quota?pin_id=` | pin_id | `ISSUE_PIN_EDIT_QUOTA_GET_SUCCESS` |
+
+edit quota는 `ensure_issue_pin_edit_access`로 **본인 pin**만 조회 가능.
+
+**응답** (`IssuePinQuotaResponse`, camelCase):
+
+```json
+{
+  "enabled": true,
+  "dailyLimit": 10,
+  "usedCount": 3,
+  "remainingCount": 7,
+  "resetAt": "2026-06-04T00:00:00+09:00"
+}
+```
+
+`enabled: false` (env OFF 또는 `dailyLimit < 1`)일 때: `usedCount: 0`, `remainingCount: dailyLimit`.
 
 ---
 
@@ -305,6 +373,19 @@ AI 미리보기. **DB 저장 없음.**
 ### 5.3 `IssuePinHomeDetailResponse` 주요 필드 (camelCase)
 
 `pinId`, `issuePinId`, `pinTitle`, `pinContent`, `issuePinState`, `pinDetailAddress`, `pinImageUrls[]`, `reliabilityStatus`, `imageUploadStatus`, `issueConfidence`는 상세에 직접 넣지 않고 reliability API 사용 권장.
+
+### 5.4 `rateLimitQuota` / `IssuePinQuotaResponse`
+
+| 필드 | 설명 |
+|------|------|
+| `enabled` | env로 해당 kind 제한 활성 여부 |
+| `dailyLimit` | 일일 허용 성공 횟수 |
+| `usedCount` | 오늘(KST) 이미 성공한 횟수 |
+| `remainingCount` | `max(0, dailyLimit - usedCount)` (비활성 시 `dailyLimit`) |
+| `resetAt` | 다음 KST 자정 (ISO8601) |
+
+- `POST /issues/pin/ai`, `POST /issues/pin`, `PATCH /issues/pin/{pin_id}` **성공** 시 `result` 하단에 포함
+- quota GET API 응답 body와 동일 구조
 
 ---
 
@@ -475,6 +556,16 @@ class IssuePinReliabilityJob:
 | `ISSUE_PIN_RELIABILITY_VLM_TIMEOUT_SECONDS` | `180` | VLM 단계 |
 | `PIN_TITLE_MAX_LENGTH` | `100` | |
 | `PIN_CONTENT_MAX_LENGTH` | `10000` | |
+| `REDIS_LOCAL_HOST` / `REDIS_LOCAL_PORT` | `6379` | local 환경 rate limit (또는 `LOCAL_REDIS_*` → CI에서 alias) |
+| `VALKEY_HOST` / `VALKEY_PORT` / `VALKEY_DB` / `VALKEY_PASSWORD` / `VALKEY_TLS` | - | dev/prod Redis(Valkey) |
+| `AI_PIN_GENERATION_DAILY_LIMIT` | `10` | uid당 AI 미리보기 일일 성공 허용 |
+| `AI_PIN_GENERATION_RATE_LIMIT_ENABLED` | `true` | `false`면 AI 제한 OFF |
+| `ISSUE_PIN_CREATE_DAILY_LIMIT` | `10` | uid당 게시 일일 성공 허용 |
+| `ISSUE_PIN_CREATE_RATE_LIMIT_ENABLED` | `true` | `false`면 게시 제한 OFF |
+| `ISSUE_PIN_EDIT_DAILY_LIMIT` | `10` | pin_id(글)당 수정 일일 성공 허용 |
+| `ISSUE_PIN_EDIT_RATE_LIMIT_ENABLED` | `true` | `false`면 수정 제한 OFF |
+
+Redis key 예: `issue_pin:ai:daily:{uid}:{YYYYMMDD}`, `issue_pin:create:daily:{uid}:{YYYYMMDD}`, `issue_pin:edit:daily:{pin_id}:{YYYYMMDD}`
 
 ---
 
@@ -530,6 +621,8 @@ class IssuePinReliabilityJob:
 | `app/repositories/CommunityRepo.py` | community |
 | `app/models/Community.py` | community ORM |
 | `app/models/PinLike.py` | pin_like ORM |
+| `app/services/internal/IssuePinDailyRateLimitService.py` | AI/CREATE/EDIT 일일 quota (Redis, KST) |
+| `tests/test_issue_pin_daily_rate_limit.py` | rate limit 단위 테스트 |
 
 ---
 
@@ -541,6 +634,8 @@ class IssuePinReliabilityJob:
 - `PATCH /issues/pin/{pin_id}` 추가 (`multipart/form-data`, `request` JSON + `photos`, URL 재사용·선택 삭제)
 - `GET /issues/pin/{issue_pin_id}` 추가
 - `GET /issues/pin/{pin_id}/reliability` 추가
+- `GET /issues/pin/ai/quota`, `create/quota`, `edit/quota` 추가
+- 성공 응답에 `rateLimitQuota` merge
 
 ### 12.2 `app/services/IssueService.py`
 
@@ -550,17 +645,21 @@ class IssuePinReliabilityJob:
 - `_build_issue_pin_home_response`, `get_issue_pin_detail`, `get_issue_pin_reliability`
 - `_derive_reliability_status`, `_derive_image_upload_status`
 - 의존성: PinLocationRepo, PinImageRepo, PinLikeRepo, CommunityRepo, S3Util, IssuePinBackgroundRunner
+- `issue_pin_ai_make` / `create_issue_pin` / `update_issue_pin`: assert → 작업 → commit·LLM 성공 후 record
+- `ensure_issue_pin_edit_access`: edit quota·수정 API 공통 소유권 검증
 
 ### 12.3 `app/core/deps.py`
 
 - Repo·S3·BackgroundRunner DI
 - `get_issue_pin_background_runner`: VLM, EXIF, S3, VectorStore, RAG planner 주입
+- `get_issue_pin_daily_rate_limit_service`: Redis 클라이언트 주입
 
 ### 12.4 `app/core/config.py`
 
 - Gemini VLM/핀 텍스트 모델 분리
 - 신뢰도 파이프라인 타임아웃·planner 생략·재시도 횟수 설정
 - `issue_pin_max_images`, `pin_title_max_length`, `pin_content_max_length`
+- `AI_PIN_GENERATION_*`, `ISSUE_PIN_CREATE_*`, `ISSUE_PIN_EDIT_*` rate limit env
 
 ### 12.5 `app/core/codes.py`
 
@@ -688,6 +787,14 @@ class IssuePinReliabilityJob:
 | `PIN_IMAGE_400_2` | 업로드/검증/S3 실패 |
 | `PIN_IMAGE_400_3` | 5장 초과 |
 
+### 15.1.1 일일 사용 제한 (429)
+
+| 코드 | API | 비고 |
+|------|-----|------|
+| `AI_4291` | POST /issues/pin/ai | uid 기준 |
+| `ISSUE_4291` | POST /issues/pin | uid 기준 |
+| `ISSUE_4292` | PATCH /issues/pin/{pin_id} | pin_id 기준, `result.pinId` 포함 |
+
 **미사용**: `ISSUE_4221` (신뢰도 낮아 게시 거절) — 정책상 게시는 항상 허용
 
 ### 15.2 성공
@@ -698,6 +805,9 @@ class IssuePinReliabilityJob:
 | `ISSUE_PIN_IMPORT_201` | POST /issues/pin |
 | `ISSUE_2001` | GET /issues/pin/{id} |
 | `ISSUE_2002` | GET /issues/pin/{id}/reliability |
+| `ISSUE_PIN_AI_QUOTA_GET_SUCCESS` | GET /issues/pin/ai/quota |
+| `ISSUE_PIN_CREATE_QUOTA_GET_SUCCESS` | GET /issues/pin/create/quota |
+| `ISSUE_PIN_EDIT_QUOTA_GET_SUCCESS` | GET /issues/pin/edit/quota |
 
 ---
 
@@ -719,6 +829,9 @@ class IssuePinReliabilityJob:
 - [ ] 이미지 0장 게시 지원 (`pinImages: []`)
 - [ ] 게시 시 JSON `lat`/`lng` 필수, `pinImages[].isMain` (이미지 1장 이상)
 - [ ] `/pin/ai`만 `tone` Form (한국어 label)
+- [ ] (선택) 화면 진입 시 `GET …/quota`로 남은 횟수 표시
+- [ ] 429 (`AI_4291` / `ISSUE_4291` / `ISSUE_4292`) 시 `result.resetAt` 기준 안내
+- [ ] 성공 응답 `rateLimitQuota`로 버튼 상태 갱신 (미사용 시 quota GET만으로도 가능)
 
 ---
 
@@ -761,6 +874,21 @@ FROM issue_pin ORDER BY issue_pin_id DESC LIMIT 10;
 
 - 과거 `sanitize`가 `\n`을 공백으로 합침 → `normalize_display_line_breaks`로 수정
 - 프론트 `pre-line` 필요
+
+### 18.7 rate limit이 동작하지 않음
+
+**원인 후보**:
+
+1. `*_RATE_LIMIT_ENABLED=false` — 해당 kind 비활성
+2. Redis 미연결 — fail-open으로 제한 스킵 (서버 로그 `Redis client unavailable` 확인)
+3. env 변경 후 **서버 미재시작**
+4. 로컬에서 `REDIS_LOCAL_HOST` 미설정 (`LOCAL_REDIS_HOST`만 있으면 CI alias 필요)
+
+**확인**:
+
+```bash
+redis-cli GET "issue_pin:ai:daily:{uid}:{YYYYMMDD}"
+```
 
 ---
 

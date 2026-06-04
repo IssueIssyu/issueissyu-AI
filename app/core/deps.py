@@ -24,6 +24,7 @@ from app.repositories.PinLocationRepo import PinLocationRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
+from app.services.internal.IssuePinDailyRateLimitService import IssuePinDailyRateLimitService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
@@ -368,6 +369,21 @@ IssuePinBackgroundRunnerDep = Annotated[
 ]
 
 
+def get_issue_pin_daily_rate_limit_service(request: Request) -> IssuePinDailyRateLimitService:
+    redis_client = getattr(request.app.state, "async_redis_client", None)
+    return IssuePinDailyRateLimitService(redis_client=redis_client)
+
+
+IssuePinDailyRateLimitServiceDep = Annotated[
+    IssuePinDailyRateLimitService,
+    Depends(get_issue_pin_daily_rate_limit_service),
+]
+
+
+# backward-compatible alias
+AiPinGenerationRateLimitServiceDep = IssuePinDailyRateLimitServiceDep
+
+
 def get_issue_service(
     vector_store_service: VectorStoreServiceDep,
     issue_rag_planner_service: IssueRagPlannerServiceDep,
@@ -382,6 +398,7 @@ def get_issue_service(
     user_repo: UserRepoDep,
     s3_util: S3UtilDep,
     background_runner: IssuePinBackgroundRunnerDep,
+    issue_pin_daily_rate_limit_service: IssuePinDailyRateLimitServiceDep,
 ) -> IssueService:
     return IssueService(
         vector_store_service=vector_store_service,
@@ -397,6 +414,7 @@ def get_issue_service(
         user_repo=user_repo,
         s3_util=s3_util,
         background_runner=background_runner,
+        issue_pin_daily_rate_limit_service=issue_pin_daily_rate_limit_service,
     )
 
 
