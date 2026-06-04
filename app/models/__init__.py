@@ -3,6 +3,7 @@ from app.models.Department import Department
 from app.models.DbConnectionCheck import DbConnectionCheck
 from app.models.OAuth import OAuth
 from app.models.EventPin import EventPin
+from app.models.IssuePin import IssuePin
 from app.models.Location import Location
 from app.models.LocationDepartment import LocationDepartment
 from app.models.PopulationDensity import PopulationDensity
@@ -28,6 +29,7 @@ __all__ = [
     "Department",
     "REDIS_HASH_NAME",
     "EventPin",
+    "IssuePin",
     "Location",
     "LocationDepartment",
     "PopulationDensity",

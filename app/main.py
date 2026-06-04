@@ -28,6 +28,7 @@ from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.services.vector_domains import build_vector_domain_configs
+from app.services.vector_domains import build_vector_domain_configs
 from app.schemas.IssueDTO import (
     CreateIssuePinMultipartRequest,
     PinImageIsMainItem,
@@ -35,7 +36,6 @@ from app.schemas.IssueDTO import (
     UpdateIssuePinMultipartRequest,
 )
 from app.utils.openapi_multipart import patch_multipart_json_request_field, register_pydantic_models
-from app.services.vector_domains import build_vector_domain_configs
 from app.utils.RedisUtil import get_redis_client
 from app.utils.S3Util import S3Util
 from app.utils.vector import ensure_pgvector_extension

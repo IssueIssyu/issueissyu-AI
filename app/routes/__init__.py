@@ -7,6 +7,7 @@ from app.routes.TestRoute import router as test_router
 from app.routes.VectorTestRoute import router as vector_test_router
 from app.routes.FestivalPinRoute import router as festival_pin_router
 from app.routes.PolicyPinRoute import router as policy_pin_router
+from app.routes.FestivalAdminRoute import router as festival_admin_router
 from app.core.config import settings
 
 ROUTER_REGISTRY = (
@@ -19,6 +20,7 @@ ROUTER_REGISTRY = (
     {"router": vector_test_router, "disabled_envs": {"dev", "prod"}},
     {"router": festival_pin_router, "disabled_envs": {"prod"}},
     {"router": policy_pin_router, "disabled_envs": {"prod"}},
+    {"router": festival_admin_router, "disabled_envs": set()},
 )
 
 

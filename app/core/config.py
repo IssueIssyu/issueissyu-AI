@@ -327,6 +327,13 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
+    festival_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_BATCH_SIZE",
+        description="admin fetch/transform/import 기본 배치 크기",
+    )
 
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod
@@ -369,6 +376,42 @@ class Settings(BaseSettings):
         alias="PDF_KOREAN_FONT_PATHS",
     )
     issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
+    ai_pin_generation_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="AI_PIN_GENERATION_DAILY_LIMIT",
+        description="uid당 이슈 핀 AI 글 생성(미리보기) 일일 성공 허용 횟수",
+    )
+    ai_pin_generation_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="AI_PIN_GENERATION_RATE_LIMIT_ENABLED",
+        description="false면 AI 글 생성 일일 제한 비활성화",
+    )
+    issue_pin_create_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="ISSUE_PIN_CREATE_DAILY_LIMIT",
+        description="uid당 이슈 핀 게시 일일 성공 허용 횟수",
+    )
+    issue_pin_create_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_CREATE_RATE_LIMIT_ENABLED",
+        description="false면 이슈 핀 게시 일일 제한 비활성화",
+    )
+    issue_pin_edit_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="ISSUE_PIN_EDIT_DAILY_LIMIT",
+        description="pin_id(글)당 이슈 핀 수정 일일 성공 허용 횟수",
+    )
+    issue_pin_edit_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_EDIT_RATE_LIMIT_ENABLED",
+        description="false면 이슈 핀 수정 일일 제한 비활성화",
+    )
     issue_confidence_basis_max_chars: int = Field(
         default=2000,
         ge=200,
