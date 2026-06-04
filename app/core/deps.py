@@ -14,6 +14,7 @@ from app.models.User import User
 from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.ComplaintPetitionRepo import ComplaintPetitionRepo
 from app.repositories.DepartmentRepo import DepartmentRepo
+from app.repositories.EventPinRepo import EventPinRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
 from app.repositories.LocationDepartmentRepo import LocationDepartmentRepo
 from app.repositories.LocationRepo import LocationRepo
@@ -23,6 +24,7 @@ from app.repositories.PinLocationRepo import PinLocationRepo
 from app.repositories.PinRepo import PinRepo
 from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
+from app.services.internal.IssuePinDailyRateLimitService import IssuePinDailyRateLimitService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
@@ -30,6 +32,8 @@ from app.services.ContestPinService import ContestPinService
 from app.services.FestivalPinService import FestivalPinService
 from app.services.PolicyPinService import PolicyPinService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
+from app.services.FestivalPinService import FestivalPinService
+from app.services.FestivalEventIngestService import FestivalEventIngestService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
 from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
@@ -368,6 +372,21 @@ IssuePinBackgroundRunnerDep = Annotated[
 ]
 
 
+def get_issue_pin_daily_rate_limit_service(request: Request) -> IssuePinDailyRateLimitService:
+    redis_client = getattr(request.app.state, "async_redis_client", None)
+    return IssuePinDailyRateLimitService(redis_client=redis_client)
+
+
+IssuePinDailyRateLimitServiceDep = Annotated[
+    IssuePinDailyRateLimitService,
+    Depends(get_issue_pin_daily_rate_limit_service),
+]
+
+
+# backward-compatible alias
+AiPinGenerationRateLimitServiceDep = IssuePinDailyRateLimitServiceDep
+
+
 def get_issue_service(
     vector_store_service: VectorStoreServiceDep,
     issue_rag_planner_service: IssueRagPlannerServiceDep,
@@ -382,6 +401,7 @@ def get_issue_service(
     user_repo: UserRepoDep,
     s3_util: S3UtilDep,
     background_runner: IssuePinBackgroundRunnerDep,
+    issue_pin_daily_rate_limit_service: IssuePinDailyRateLimitServiceDep,
 ) -> IssueService:
     return IssueService(
         vector_store_service=vector_store_service,
@@ -397,6 +417,7 @@ def get_issue_service(
         user_repo=user_repo,
         s3_util=s3_util,
         background_runner=background_runner,
+        issue_pin_daily_rate_limit_service=issue_pin_daily_rate_limit_service,
     )
 
 
@@ -451,6 +472,45 @@ async def require_admin_uid(
 
 
 AdminUserIdDep = Annotated[str, Depends(require_admin_uid)]
+
+
+def get_festival_pin_service() -> FestivalPinService:
+    return FestivalPinService()
+
+
+FestivalPinServiceDep = Annotated[
+    FestivalPinService,
+    Depends(get_festival_pin_service),
+]
+
+
+def get_event_pin_repo(session: DbSessionDep) -> EventPinRepo:
+    return EventPinRepo(session)
+
+
+EventPinRepoDep = Annotated[EventPinRepo, Depends(get_event_pin_repo)]
+
+
+def get_festival_event_ingest_service(
+    pin_repo: PinRepoDep,
+    event_pin_repo: EventPinRepoDep,
+    pin_location_repo: PinLocationRepoDep,
+    pin_image_repo: PinImageRepoDep,
+    location_resolve_client: LocationResolveClientDep,
+) -> FestivalEventIngestService:
+    return FestivalEventIngestService(
+        pin_repo=pin_repo,
+        event_pin_repo=event_pin_repo,
+        pin_location_repo=pin_location_repo,
+        pin_image_repo=pin_image_repo,
+        location_resolve_client=location_resolve_client,
+    )
+
+
+FestivalEventIngestServiceDep = Annotated[
+    FestivalEventIngestService,
+    Depends(get_festival_event_ingest_service),
+]
 
 
 def get_festival_pin_service() -> FestivalPinService:

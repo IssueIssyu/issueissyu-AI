@@ -148,7 +148,7 @@ async def list_festival_handoff(
             )
 
     try:
-        body = service.load_from_jsonl(
+        body = await service.aload_from_jsonl(
             start_date=parsed_start,
             end_date=parsed_end,
             limit=limit,

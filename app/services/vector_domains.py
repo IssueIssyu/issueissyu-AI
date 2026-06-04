@@ -8,6 +8,9 @@ from app.core.config import Settings
 
 class VectorDomain(str, Enum):
     COMPLAINT = "complaint"
+    FESTIVAL = "festival"
+    POLICY = "policy"
+    CONTEST = "contest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,12 +23,31 @@ class DomainVectorConfig:
 
 
 def build_vector_domain_configs(settings: Settings) -> dict[VectorDomain, DomainVectorConfig]:
-    # Settings->VectorStoreService 도메인별 테이블, 임베딩 설정
+    embedding_model = settings.gemini_embedding_model
+    embed_dim = settings.vector_embed_dim
     return {
         VectorDomain.COMPLAINT: DomainVectorConfig(
             table_name="complaint",
-            embedding_model=settings.gemini_embedding_model,
-            embed_dim=settings.vector_embed_dim,
+            embedding_model=embedding_model,
+            embed_dim=embed_dim,
+            standalone_table=False,
+        ),
+        VectorDomain.FESTIVAL: DomainVectorConfig(
+            table_name="festival",
+            embedding_model=embedding_model,
+            embed_dim=embed_dim,
+            standalone_table=False,
+        ),
+        VectorDomain.POLICY: DomainVectorConfig(
+            table_name="policy",
+            embedding_model=embedding_model,
+            embed_dim=embed_dim,
+            standalone_table=False,
+        ),
+        VectorDomain.CONTEST: DomainVectorConfig(
+            table_name="contest",
+            embedding_model=embedding_model,
+            embed_dim=embed_dim,
             standalone_table=False,
         ),
     }

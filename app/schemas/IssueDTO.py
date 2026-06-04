@@ -84,6 +84,20 @@ class IssueAnalysisResult(BaseModel):
     content: str
 
 
+class IssuePinQuotaResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    enabled: bool
+    daily_limit: int = Field(alias="dailyLimit")
+    used_count: int = Field(alias="usedCount")
+    remaining_count: int = Field(alias="remainingCount")
+    reset_at: str = Field(alias="resetAt")
+
+
+# backward-compatible alias
+IssuePinAiQuotaResponse = IssuePinQuotaResponse
+
+
 class CreateIssuePinResponse(BaseModel):
     pin_id: int
     issue_pin_id: int

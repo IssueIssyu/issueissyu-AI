@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+from datetime import date, datetime
+
+
+def current_year_festival_range(*, ref: date | None = None) -> tuple[str, str]:
+    """올해 오늘~12/31 (매년 동일 패턴)."""
+    today = ref or date.today()
+    start = today.strftime("%Y%m%d")
+    end = date(today.year, 12, 31).strftime("%Y%m%d")
+    return start, end
+
 
 def validate_yyyymmdd(value: str, *, label: str) -> str:
     text = (value or "").strip()
-    if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
+    try:
+        datetime.strptime(text, "%Y%m%d")
+    except ValueError:
+        raise ValueError(
+            f"{label}는 올바른 YYYYMMDD 형식의 날짜여야 합니다 (받음: {value!r})",
+        ) from None
     return text
 
 

@@ -199,6 +199,60 @@ class Settings(BaseSettings):
         alias="FESTIVAL_SYNC_TRANSFORM_LIMIT",
         description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
     )
+    festival_transform_concurrency: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_TRANSFORM_CONCURRENCY",
+        description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
+    )
+    festival_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_BATCH_SIZE",
+        description="admin fetch/transform/import 기본 배치 크기",
+
+    # 한국관광공사 TourAPI (공공데이터포털 활용신청 키)
+    visitkorea_service_key: SecretStr | None = Field(
+        default=None,
+        alias="VISITKOREA_SERVICE_KEY",
+    )
+    visitkorea_api_base_url: str = Field(
+        default="https://apis.data.go.kr/B551011/KorService2",
+        alias="VISITKOREA_API_BASE_URL",
+    )
+    visitkorea_mobile_os: str = Field(default="ETC", alias="VISITKOREA_MOBILE_OS")
+    visitkorea_mobile_app: str = Field(default="issueissyu", alias="VISITKOREA_MOBILE_APP")
+    visitkorea_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        alias="VISITKOREA_REQUEST_TIMEOUT_SECONDS",
+    )
+    visitkorea_request_interval_seconds: float = Field(
+        default=0.15,
+        ge=0,
+        alias="VISITKOREA_REQUEST_INTERVAL_SECONDS",
+    )
+    festival_sync_lookahead_days: int = Field(
+        default=120,
+        ge=1,
+        le=365,
+        alias="FESTIVAL_SYNC_LOOKAHEAD_DAYS",
+        description="배치 수집 시 오늘부터 N일 앞까지 행사 검색",
+    )
+    festival_sync_fetch_limit: int | None = Field(
+        default=None,
+        ge=1,
+        alias="FESTIVAL_SYNC_FETCH_LIMIT",
+        description="배치 fetch 최대 건수 (미설정 시 제한 없음)",
+    )
+    festival_sync_transform_limit: int | None = Field(
+        default=None,
+        ge=1,
+        alias="FESTIVAL_SYNC_TRANSFORM_LIMIT",
+        description="배치 transform 최대 건수 (미설정 시 fetch 건수 전체)",
+    )
 
     # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
     policy_news_service_key: SecretStr | None = Field(
@@ -321,6 +375,42 @@ class Settings(BaseSettings):
         alias="PDF_KOREAN_FONT_PATHS",
     )
     issue_pin_max_images: int = Field(default=5, ge=0, le=20, alias="ISSUE_PIN_MAX_IMAGES")
+    ai_pin_generation_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="AI_PIN_GENERATION_DAILY_LIMIT",
+        description="uid당 이슈 핀 AI 글 생성(미리보기) 일일 성공 허용 횟수",
+    )
+    ai_pin_generation_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="AI_PIN_GENERATION_RATE_LIMIT_ENABLED",
+        description="false면 AI 글 생성 일일 제한 비활성화",
+    )
+    issue_pin_create_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="ISSUE_PIN_CREATE_DAILY_LIMIT",
+        description="uid당 이슈 핀 게시 일일 성공 허용 횟수",
+    )
+    issue_pin_create_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_CREATE_RATE_LIMIT_ENABLED",
+        description="false면 이슈 핀 게시 일일 제한 비활성화",
+    )
+    issue_pin_edit_daily_limit: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+        alias="ISSUE_PIN_EDIT_DAILY_LIMIT",
+        description="pin_id(글)당 이슈 핀 수정 일일 성공 허용 횟수",
+    )
+    issue_pin_edit_rate_limit_enabled: bool = Field(
+        default=True,
+        alias="ISSUE_PIN_EDIT_RATE_LIMIT_ENABLED",
+        description="false면 이슈 핀 수정 일일 제한 비활성화",
+    )
     issue_confidence_basis_max_chars: int = Field(
         default=2000,
         ge=200,

@@ -28,6 +28,7 @@ from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 from app.services.vector_domains import build_vector_domain_configs
+from app.services.vector_domains import build_vector_domain_configs
 from app.schemas.IssueDTO import (
     CreateIssuePinMultipartRequest,
     PinImageIsMainItem,

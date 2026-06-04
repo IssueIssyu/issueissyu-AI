@@ -34,6 +34,7 @@ python -m rag.scripts.run_festival_pipeline --start-date 20260501 --end-date 202
 - `VISITKOREA_SERVICE_KEY`, `GEMINI_API_KEY` (필수)
 - `FESTIVAL_SYNC_LOOKAHEAD_DAYS` (기본 120, 날짜 미지정 시 오늘~+N일)
 - `FESTIVAL_SYNC_FETCH_LIMIT`, `FESTIVAL_SYNC_TRANSFORM_LIMIT` (선택)
+- `FESTIVAL_TRANSFORM_CONCURRENCY` (기본 5, Gemini 가공 동시 호출 수)
 
 ## Swagger (로컬/dev)
 

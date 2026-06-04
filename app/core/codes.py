@@ -31,6 +31,21 @@ class ErrorCode(Enum):
 
     # VLM (Gemini)
     VLM_NOT_CONFIGURED = (status.HTTP_503_SERVICE_UNAVAILABLE, "VLM_5031", "VLM(Gemini) API 키가 설정되지 않았습니다.")
+    AI_PIN_GENERATION_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "AI_4291",
+        "오늘 AI 글 생성(미리보기) 성공 횟수를 초과했습니다.",
+    )
+    ISSUE_PIN_CREATE_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "ISSUE_4291",
+        "오늘 이슈 핀 게시 성공 횟수를 초과했습니다.",
+    )
+    ISSUE_PIN_EDIT_RATE_LIMIT_EXCEEDED = (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "ISSUE_4292",
+        "오늘 이슈 핀 수정 성공 횟수를 초과했습니다.",
+    )
 
     # Issue
     ISSUE_LOW_RELIABILITY = (status.HTTP_422_UNPROCESSABLE_ENTITY, "ISSUE_4221", "신뢰도가 낮아 이슈 핀을 생성할 수 없습니다.")
@@ -130,6 +145,21 @@ class SuccessCode(Enum):
         "ISSUE_2002",
         "이슈 핀 신뢰도 조회에 성공했습니다.",
     )
+    ISSUE_PIN_AI_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2003",
+        "AI 글 생성(미리보기) 성공 제한 횟수 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_CREATE_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2004",
+        "이슈 핀 게시 성공 제한 횟수 조회에 성공했습니다.",
+    )
+    ISSUE_PIN_EDIT_QUOTA_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "ISSUE_2005",
+        "이슈 핀 수정 성공 제한 횟수 조회에 성공했습니다.",
+    )
     ISSUE_PIN_EDIT_SUCCESS = (
         status.HTTP_200_OK,
         "ISSUE_PIN_EDIT_200",
@@ -165,6 +195,41 @@ class SuccessCode(Enum):
         status.HTTP_200_OK,
         "COMPLAINT_2003",
         "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
+    )
+    FESTIVAL_FETCH_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2001",
+        "축제 데이터 수집에 성공했습니다.",
+    )
+    FESTIVAL_TRANSFORM_BATCH_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2011",
+        "축제 LLM 배치 가공에 성공했습니다.",
+    )
+    FESTIVAL_IMPORT_BATCH_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2012",
+        "축제 DB 배치 적재에 성공했습니다.",
+    )
+    FESTIVAL_IMPORT_ALL_SUCCESS = (
+        status.HTTP_201_CREATED,
+        "FESTIVAL_2013",
+        "축제 DB 일괄 적재에 성공했습니다.",
+    )
+    FESTIVAL_STATUS_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2002",
+        "축제 파이프라인 상태 조회에 성공했습니다.",
+    )
+    FESTIVAL_HANDOFF_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2003",
+        "축제 핸드오프 조회에 성공했습니다.",
+    )
+    FESTIVAL_RESET_SUCCESS = (
+        status.HTTP_200_OK,
+        "FESTIVAL_2004",
+        "축제 파이프라인 로컬 캐시 초기화에 성공했습니다.",
     )
     @property
     def http_status(self) -> int:

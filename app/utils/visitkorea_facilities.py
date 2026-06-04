@@ -26,10 +26,18 @@ def _yn_to_label(value: object) -> str | None:
 
 
 def _intro_items(intro_payload: dict[str, Any] | None) -> list[dict[str, Any]]:
-    if not intro_payload:
+    if not isinstance(intro_payload, dict):
         return []
-    items = (intro_payload.get("response") or {}).get("body") or {}
-    raw = (items.get("items") or {}).get("item")
+    response = intro_payload.get("response")
+    if not isinstance(response, dict):
+        return []
+    body = response.get("body")
+    if not isinstance(body, dict):
+        return []
+    items_dict = body.get("items")
+    if not isinstance(items_dict, dict):
+        return []
+    raw = items_dict.get("item")
     if raw is None:
         return []
     if isinstance(raw, list):
@@ -87,6 +95,8 @@ def extract_pet_friendly(
             for key, value in sorted(item.items()):
                 key_lower = str(key).lower()
                 if not key_lower.startswith(("chkpet", "pet")):
+                    continue
+                if value is None:
                     continue
                 text = _clean_text(str(value))
                 if text and text.upper() not in {"Y", "N"}:

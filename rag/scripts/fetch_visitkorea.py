@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from app.clients.VisitKoreaClient import VisitKoreaClient
+from app.utils.festival_date_filter import validate_yyyymmdd
+from app.utils.visitkorea_area import infer_area_code_from_addr
 from app.utils.visitkorea_facilities import (
     extract_stay_available,
     extract_pet_friendly,
@@ -49,11 +52,17 @@ def tourapi_to_latlng(
 
 
 def tourapi_header(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("header") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("header") or {}
+    return {}
 
 
 def tourapi_body(payload: dict[str, Any]) -> dict[str, Any]:
-    return (payload.get("response") or {}).get("body") or {}
+    response = payload.get("response")
+    if isinstance(response, dict):
+        return response.get("body") or {}
+    return {}
 
 
 def tourapi_result_ok(payload: dict[str, Any]) -> tuple[bool, str]:
@@ -86,13 +95,6 @@ def tourapi_total_count(payload: dict[str, Any]) -> int:
         return 0
 
 
-def validate_yyyymmdd(value: str, *, label: str) -> str:
-    text = (value or "").strip()
-    if len(text) != 8 or not text.isdigit():
-        raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
-    return text
-
-
 def collect_intro_text(intro_payload: dict[str, Any]) -> str:
     parts: list[str] = []
     for item in tourapi_body_items(intro_payload):
@@ -107,12 +109,74 @@ def collect_intro_text(intro_payload: dict[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _add_image_url(urls: list[str], seen: set[str], raw: object) -> None:
-    url = str(raw or "").strip()
-    if not url or url in seen:
-        return
-    seen.add(url)
-    urls.append(url)
+def resolve_firstimage_url(
+    list_item: dict[str, Any],
+    common_item: dict[str, Any] | None,
+) -> str:
+    """TourAPI 대표 이미지(firstimage)만 사용. firstimage2는 무시."""
+    for src in (list_item, common_item or {}):
+        url = str(src.get("firstimage") or "").strip()
+        if url:
+            return url
+    return ""
+
+
+def collect_pin_image_specs(
+    list_item: dict[str, Any],
+    common_item: dict[str, Any] | None,
+    image_payload: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """firstimage → is_main=True, detailImage2 → is_main=False. firstimage2는 제외."""
+    specs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    main_url = resolve_firstimage_url(list_item, common_item)
+    if main_url:
+        seen.add(main_url)
+        specs.append({"pin_image_url": main_url, "is_main": True})
+
+    if image_payload is not None:
+        for item in tourapi_body_items(image_payload):
+            for key in ("originimgurl", "smallimageurl"):
+                url = str(item.get(key) or "").strip()
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                specs.append({"pin_image_url": url, "is_main": False})
+
+    return specs
+
+
+def pin_image_urls_from_specs(specs: list[dict[str, Any]]) -> list[str]:
+    mains = [s["pin_image_url"] for s in specs if s.get("is_main")]
+    others = [s["pin_image_url"] for s in specs if not s.get("is_main")]
+    return mains + others
+
+
+def normalize_pin_images_for_db(specs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    main_assigned = False
+    for spec in specs:
+        url = str(spec.get("pin_image_url") or "").strip()
+        if not url:
+            continue
+        is_main = bool(spec.get("is_main")) and not main_assigned
+        if is_main:
+            main_assigned = True
+        normalized.append({"pin_image_url": url, "is_main": is_main})
+    if normalized and not main_assigned:
+        normalized[0]["is_main"] = True
+    return normalized
+
+
+def pin_images_for_db_row(row: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_specs = row.get("pin_images")
+    if isinstance(raw_specs, list) and raw_specs:
+        return normalize_pin_images_for_db(raw_specs)
+    urls = [str(url).strip() for url in row.get("image_urls") or [] if str(url).strip()]
+    return normalize_pin_images_for_db(
+        [{"pin_image_url": url, "is_main": index == 0} for index, url in enumerate(urls)],
+    )
 
 
 def collect_image_urls(
@@ -120,16 +184,9 @@ def collect_image_urls(
     common_item: dict[str, Any] | None,
     image_payload: dict[str, Any] | None,
 ) -> list[str]:
-    urls: list[str] = []
-    seen: set[str] = set()
-    for src in (list_item, common_item or {}):
-        _add_image_url(urls, seen, src.get("firstimage"))
-        _add_image_url(urls, seen, src.get("firstimage2"))
-    if image_payload is not None:
-        for item in tourapi_body_items(image_payload):
-            _add_image_url(urls, seen, item.get("originimgurl"))
-            _add_image_url(urls, seen, item.get("smallimageurl"))
-    return urls
+    return pin_image_urls_from_specs(
+        collect_pin_image_specs(list_item, common_item, image_payload),
+    )
 
 
 def merge_pin_content(*, overview: str, intro: str, fallback: str = "") -> str:
@@ -150,7 +207,7 @@ def build_document_row(
     list_item: dict[str, Any],
     common_item: dict[str, Any] | None,
     intro_text: str,
-    image_urls: list[str],
+    pin_images: list[dict[str, Any]],
     pet_friendly: str,
     stay_available: str,
 ) -> dict[str, Any] | None:
@@ -172,6 +229,10 @@ def build_document_row(
     event_end = str(list_item.get("eventenddate") or merged.get("eventenddate") or "").strip() or None
 
     coords = tourapi_to_latlng(mapx=merged.get("mapx"), mapy=merged.get("mapy"))
+    area_code = str(merged.get("areacode") or list_item.get("areacode") or "").strip() or None
+    if not area_code:
+        area_code = infer_area_code_from_addr(addr)
+    sigungu_code = str(merged.get("sigungucode") or list_item.get("sigungucode") or "").strip() or None
     pin_content = merge_pin_content(
         overview=str(merged.get("overview") or ""),
         intro=intro_text,
@@ -183,15 +244,129 @@ def build_document_row(
         "pin_title": title,
         "pin_content": pin_content,
         "addr": addr,
+        "area_code": area_code,
+        "sigungu_code": sigungu_code,
         "longitude": coords["longitude"],
         "latitude": coords["latitude"],
         "event_start_time": event_start,
         "event_end_time": event_end,
-        "image_urls": image_urls,
+        "pin_images": pin_images,
+        "image_urls": pin_image_urls_from_specs(pin_images),
         "tel": clean_text(str(merged.get("tel") or "")),
         "pet_friendly": pet_friendly,
         "stay_available": stay_available,
     }
+
+
+@dataclass(slots=True)
+class _FestivalItemDetails:
+    common_item: dict[str, Any] | None
+    intro_text: str
+    intro_payload: dict[str, Any] | None
+    pet_tour_payload: dict[str, Any] | None
+    image_payload: dict[str, Any] | None
+    detail_errors: int
+
+
+async def _fetch_detail_common(
+    client: VisitKoreaClient,
+    content_id: str,
+) -> tuple[dict[str, Any] | None, bool]:
+    try:
+        common_payload = await client.detail_common(content_id=content_id)
+        ok, msg = tourapi_result_ok(common_payload)
+        if ok:
+            common_rows = tourapi_body_items(common_payload)
+            return (common_rows[0] if common_rows else None), False
+        logger.warning("detailCommon2 %s: %s", content_id, msg)
+        return None, True
+    except Exception:
+        logger.exception("detailCommon2 실패 contentid=%s", content_id)
+        return None, True
+
+
+async def _fetch_detail_intro(
+    client: VisitKoreaClient,
+    content_id: str,
+    content_type_id: str,
+) -> tuple[str, dict[str, Any] | None, bool]:
+    try:
+        intro_payload = await client.detail_intro(
+            content_id=content_id,
+            content_type_id=content_type_id,
+        )
+        ok, msg = tourapi_result_ok(intro_payload)
+        if ok:
+            return collect_intro_text(intro_payload), intro_payload, False
+        logger.warning("detailIntro2 %s: %s", content_id, msg)
+        return "", None, True
+    except Exception:
+        logger.exception("detailIntro2 실패 contentid=%s", content_id)
+        return "", None, True
+
+
+async def _fetch_detail_pet_tour(
+    client: VisitKoreaClient,
+    content_id: str,
+) -> dict[str, Any] | None:
+    try:
+        pet_tour_payload = await client.detail_pet_tour(content_id=content_id)
+        ok, msg = tourapi_result_ok(pet_tour_payload)
+        if ok:
+            return pet_tour_payload
+        logger.debug("detailPetTour2 %s: %s", content_id, msg)
+        return None
+    except Exception:
+        logger.debug("detailPetTour2 실패 contentid=%s", content_id, exc_info=True)
+        return None
+
+
+async def _fetch_detail_image(
+    client: VisitKoreaClient,
+    content_id: str,
+    *,
+    fetch_images: bool,
+) -> tuple[dict[str, Any] | None, bool]:
+    if not fetch_images:
+        return None, False
+    try:
+        image_payload = await client.detail_image(content_id=content_id)
+        ok, msg = tourapi_result_ok(image_payload)
+        if ok:
+            return image_payload, False
+        logger.warning("detailImage2 %s: %s", content_id, msg)
+        return None, True
+    except Exception:
+        logger.exception("detailImage2 실패 contentid=%s", content_id)
+        return None, True
+
+
+async def _fetch_festival_item_details(
+    client: VisitKoreaClient,
+    *,
+    content_id: str,
+    content_type_id: str,
+    fetch_images: bool,
+) -> _FestivalItemDetails:
+    (
+        (common_item, common_err),
+        (intro_text, intro_payload, intro_err),
+        pet_tour_payload,
+        (image_payload, image_err),
+    ) = await asyncio.gather(
+        _fetch_detail_common(client, content_id),
+        _fetch_detail_intro(client, content_id, content_type_id),
+        _fetch_detail_pet_tour(client, content_id),
+        _fetch_detail_image(client, content_id, fetch_images=fetch_images),
+    )
+    return _FestivalItemDetails(
+        common_item=common_item,
+        intro_text=intro_text,
+        intro_payload=intro_payload,
+        pet_tour_payload=pet_tour_payload,
+        image_payload=image_payload,
+        detail_errors=int(common_err) + int(intro_err) + int(image_err),
+    )
 
 
 async def fetch_festival_documents(
@@ -276,50 +451,20 @@ async def fetch_festival_documents(
                 content_type_id = str(
                     list_item.get("contenttypeid") or FESTIVAL_CONTENT_TYPE_ID
                 ).strip()
-                try:
-                    common_payload = await client.detail_common(content_id=content_id)
-                    ok_c, msg_c = tourapi_result_ok(common_payload)
-                    if ok_c:
-                        common_rows = tourapi_body_items(common_payload)
-                        common_item = common_rows[0] if common_rows else None
-                    else:
-                        logger.warning("detailCommon2 %s: %s", content_id, msg_c)
-                        stats["detail_errors"] += 1
+                details = await _fetch_festival_item_details(
+                    client,
+                    content_id=content_id,
+                    content_type_id=content_type_id,
+                    fetch_images=fetch_images,
+                )
+                common_item = details.common_item
+                intro_text = details.intro_text
+                intro_payload = details.intro_payload
+                pet_tour_payload = details.pet_tour_payload
+                image_payload = details.image_payload
+                stats["detail_errors"] += details.detail_errors
 
-                    intro_payload = await client.detail_intro(
-                        content_id=content_id,
-                        content_type_id=content_type_id,
-                    )
-                    ok_i, msg_i = tourapi_result_ok(intro_payload)
-                    if ok_i:
-                        intro_text = collect_intro_text(intro_payload)
-                    else:
-                        logger.warning("detailIntro2 %s: %s", content_id, msg_i)
-                        intro_payload = None
-                        stats["detail_errors"] += 1
-
-                    try:
-                        pet_tour_payload = await client.detail_pet_tour(content_id=content_id)
-                        ok_p, msg_p = tourapi_result_ok(pet_tour_payload)
-                        if not ok_p:
-                            logger.debug("detailPetTour2 %s: %s", content_id, msg_p)
-                            pet_tour_payload = None
-                    except Exception:
-                        logger.debug("detailPetTour2 실패 contentid=%s", content_id, exc_info=True)
-                        pet_tour_payload = None
-
-                    if fetch_images:
-                        image_payload = await client.detail_image(content_id=content_id)
-                        ok_img, msg_img = tourapi_result_ok(image_payload)
-                        if not ok_img:
-                            logger.warning("detailImage2 %s: %s", content_id, msg_img)
-                            image_payload = None
-                            stats["detail_errors"] += 1
-                except Exception:
-                    logger.exception("상세 API 실패 contentid=%s", content_id)
-                    stats["detail_errors"] += 1
-
-            image_urls = collect_image_urls(list_item, common_item, image_payload)
+            pin_images = collect_pin_image_specs(list_item, common_item, image_payload)
             pet_friendly = extract_pet_friendly(
                 pet_tour_payload=pet_tour_payload,
                 intro_payload=intro_payload,
@@ -329,7 +474,7 @@ async def fetch_festival_documents(
                 list_item=list_item,
                 common_item=common_item,
                 intro_text=intro_text,
-                image_urls=image_urls,
+                pin_images=pin_images,
                 pet_friendly=pet_friendly,
                 stay_available=stay_available,
             )

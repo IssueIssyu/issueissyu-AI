@@ -128,14 +128,15 @@ async def _run(
             user_repo=user_repo,
             s3_util=MagicMock(),
             background_runner=MagicMock(),
+            issue_pin_daily_rate_limit_service=MagicMock(),
         )
 
-        result = await service.create_issue_pin(
+        outcome = await service.create_issue_pin(
             uid="script-test-user",
             photos=[upload],
             request=request,
         )
-        print(result.model_dump_json(indent=2, ensure_ascii=False))
+        print(outcome.detail.model_dump_json(indent=2, ensure_ascii=False))
 
 
 def main() -> None:
