@@ -78,6 +78,8 @@ pip install -r requirements.txt
 # REDIS_LOCAL_HOST, REDIS_LOCAL_PORT
 # JWT_SECRET, JWT_ALGORITHM
 # GEMINI_API_KEY
+# REDIS_LOCAL_HOST, REDIS_LOCAL_PORT  (일일 사용 제한; local)
+# AI_PIN_GENERATION_* / ISSUE_PIN_CREATE_* / ISSUE_PIN_EDIT_*  (rate limit, docs/issue-pin-create-and-reliability.md §9)
 # AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_BUCKET (이미지 업로드 시)
 # LOCATION_CORE_BASE_URL=http://localhost:8080
 
