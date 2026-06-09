@@ -31,7 +31,6 @@ from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.FestivalPinService import FestivalPinService
 from app.services.PolicyPinService import PolicyPinService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
-from app.services.FestivalPinService import FestivalPinService
 from app.services.FestivalEventIngestService import FestivalEventIngestService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
@@ -509,16 +508,6 @@ def get_festival_event_ingest_service(
 FestivalEventIngestServiceDep = Annotated[
     FestivalEventIngestService,
     Depends(get_festival_event_ingest_service),
-]
-
-
-def get_festival_pin_service() -> FestivalPinService:
-    return FestivalPinService()
-
-
-FestivalPinServiceDep = Annotated[
-    FestivalPinService,
-    Depends(get_festival_pin_service),
 ]
 
 
