@@ -26,9 +26,11 @@ from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPet
 from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
 from app.services.internal.ai.VLMService import VLMService
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
-from app.services.vector_domains import DomainVectorConfig, VectorDomain
-from app.services.vector_domains import build_vector_domain_configs
-from app.services.vector_domains import build_vector_domain_configs
+from app.services.vector_domains import (
+    DomainVectorConfig,
+    VectorDomain,
+    build_vector_domain_configs,
+)
 from app.schemas.IssueDTO import (
     CreateIssuePinMultipartRequest,
     PinImageIsMainItem,
