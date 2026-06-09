@@ -56,7 +56,17 @@ LAYOUT_CTA = "template_cta"
 MASCOT_LAYOUTS = {LAYOUT_COVER, LAYOUT_CTA, LAYOUT_THREE_COL, LAYOUT_NUMBERED}
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_FONT_DIR = _REPO_ROOT / "app" / "assets" / "fonts"
+
+
+def _get_font_dir() -> Path:
+    from app.core.config import settings
+
+    if settings.policy_cardnews_font_dir:
+        return Path(settings.policy_cardnews_font_dir)
+    return _REPO_ROOT / "app" / "assets" / "fonts"
+
+
+_FONT_DIR = _get_font_dir()
 
 
 @dataclass(frozen=True)
