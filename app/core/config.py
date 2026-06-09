@@ -214,10 +214,10 @@ class Settings(BaseSettings):
     rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
     rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
     rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
-    policy_cardnews_font_dir: str | None = Field(
-        default=None,
+    policy_cardnews_font_dir: str = Field(
+        default="app/assets/fonts",
         alias="POLICY_CARDNEWS_FONT_DIR",
-        description="Pretendard 등 TTF 폴더 (기본 app/assets/fonts)",
+        description="Pretendard 등 TTF 폴더",
     )
 
     # 한국관광공사 TourAPI (공공데이터포털 활용신청 키)
@@ -277,7 +277,7 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_string_policy_cardnews_font_dir(cls, value: object) -> object:
         if value == "":
-            return None
+            return "app/assets/fonts"
         return value
 
     @field_validator("policy_cardnews_mascot_dir", mode="before")
