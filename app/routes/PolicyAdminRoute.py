@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.core.codes import ErrorCode, SuccessCode
 from app.core.config import settings
 from app.core.deps import (
+    AdminUserIdDep,
     PolicyEventIngestServiceDep,
     PolicyPinSchedulerDep,
     PolicyPinServiceDep,
@@ -73,6 +74,7 @@ async def sync_policy_pins(
     service: PolicyPinServiceDep,
     ingest_service: PolicyEventIngestServiceDep,
     s3_util: S3UtilDep,
+    _admin_uid: AdminUserIdDep,
     start_date: str | None = Query(default=None, min_length=8, max_length=8, description="YYYYMMDD"),
     end_date: str | None = Query(default=None, min_length=8, max_length=8, description="YYYYMMDD"),
     transform_limit: int | None = Query(default=None, ge=1, le=100, description="가공 최대 건수"),
@@ -107,10 +109,11 @@ async def transform_policy_batch(
     service: PolicyPinServiceDep,
     ingest_service: PolicyEventIngestServiceDep,
     s3_util: S3UtilDep,
+    _admin_uid: AdminUserIdDep,
     batch_size: int | None = Query(default=None, ge=1, le=25, description="이번 배치 가공 건수"),
 ) -> SuccessEnvelope[PolicyTransformBatchResult]:
     try:
-        db_ids = await ingest_service._event_pin_repo.list_policy_api_ids()
+        db_ids = await ingest_service.get_imported_policy_api_ids()
         body = await service.transform_batch(
             batch_size=_clamp_batch(batch_size),
             s3_util=s3_util,
@@ -131,6 +134,7 @@ async def transform_policy_batch(
 )
 async def import_policy_batch(
     ingest_service: PolicyEventIngestServiceDep,
+    _admin_uid: AdminUserIdDep,
     batch_size: int | None = Query(default=None, ge=1, le=25, description="이번 배치 INSERT 건수"),
 ) -> SuccessEnvelope[PolicyImportBatchResult]:
     try:
@@ -153,6 +157,7 @@ async def import_policy_batch(
 )
 async def policy_pipeline_status(
     ingest_service: PolicyEventIngestServiceDep,
+    _admin_uid: AdminUserIdDep,
 ) -> SuccessEnvelope[PolicyPipelineStatusResult]:
     body = await ingest_service.get_pipeline_status()
     return success_response(result=body, success_code=SuccessCode.OK)
@@ -168,6 +173,7 @@ async def run_policy_scheduler_once(
     ingest_service: PolicyEventIngestServiceDep,
     s3_util: S3UtilDep,
     scheduler: PolicyPinSchedulerDep,
+    _admin_uid: AdminUserIdDep,
 ) -> SuccessEnvelope[PolicySyncResult]:
     try:
         if scheduler is not None:

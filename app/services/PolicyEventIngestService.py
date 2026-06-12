@@ -8,8 +8,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from anyio import to_thread
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.core.config import settings
 from app.models.CardnewsImageS3 import CardnewsImageS3
 from app.models.Community import Community
@@ -45,13 +43,6 @@ logger = logging.getLogger(__name__)
 _KST = ZoneInfo("Asia/Seoul")
 _IMPORT_REPORT_PATH = POLICY_HANDOFF_PATH.with_name("policy_import_batch_report.json")
 _COMMUNITY_TYPE_POLICY = "POLICY"
-
-
-def _discard_session_state_after_nested_failure(session: AsyncSession) -> None:
-    for obj in list(session.new):
-        session.expunge(obj)
-    for obj in list(session.dirty):
-        session.expire(obj)
 
 
 def _parse_event_datetime(value: Any) -> datetime:
@@ -105,6 +96,9 @@ class PolicyEventIngestService:
     async def rollback(self) -> None:
         await self._pin_repo.rollback()
 
+    async def get_imported_policy_api_ids(self) -> set[int]:
+        return await self._event_pin_repo.list_policy_api_ids()
+
     async def resolve_admin_uid(self) -> str:
         user_name = settings.policy_admin_user_name.strip()
         user = await self._user_repo.get_by_user_name(user_name)
@@ -128,7 +122,7 @@ class PolicyEventIngestService:
             )
 
         uid = admin_uid or await self.resolve_admin_uid()
-        db_ids = await self._event_pin_repo.list_policy_api_ids()
+        db_ids = await self.get_imported_policy_api_ids()
         inserted_count = 0
         skipped_duplicate_count = 0
         errors: list[dict[str, Any]] = []
@@ -184,7 +178,6 @@ class PolicyEventIngestService:
                     ),
                 )
             except Exception as exc:
-                _discard_session_state_after_nested_failure(self._pin_repo.session)
                 logger.exception("policy import failed policy_api_id=%s", policy_api_id)
                 errors.append(
                     {
@@ -296,7 +289,7 @@ class PolicyEventIngestService:
         meta = self._load_sync_meta()
         documents = load_jsonl_rows(POLICY_DOCUMENTS_PATH)
         handoff_by_id = load_rows_by_content_id(POLICY_HANDOFF_PATH)
-        db_ids = await self._event_pin_repo.list_policy_api_ids()
+        db_ids = await self.get_imported_policy_api_ids()
 
         pending_transform = count_pending_transform(documents, handoff_by_id, db_policy_api_ids=db_ids)
         pending_import = 0

@@ -32,7 +32,10 @@ class CardnewsS3Image(TypedDict):
 
 
 def cleanup_local_cardnews_dir(content_id: str) -> None:
-    target = POLICY_CARDNEWS_OUTPUT_DIR / str(content_id or "").strip()
+    normalized = str(content_id or "").strip()
+    if not normalized:
+        return
+    target = POLICY_CARDNEWS_OUTPUT_DIR / normalized
     if not target.is_dir():
         return
     import shutil

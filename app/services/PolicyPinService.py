@@ -173,7 +173,7 @@ class PolicyPinService:
         effective_batch = batch_size or settings.policy_sync_batch_size
 
         if settings.policy_prune_pipeline_after_import:
-            db_ids_before = await ingest_service._event_pin_repo.list_policy_api_ids()
+            db_ids_before = await ingest_service.get_imported_policy_api_ids()
             prune_pipeline_imported(db_ids_before)
 
         search = await self.search_and_save(
@@ -218,7 +218,7 @@ class PolicyPinService:
             if transform_limit is not None:
                 batch_limit = min(effective_batch, transform_limit - total_processed)
 
-            db_ids = await ingest_service._event_pin_repo.list_policy_api_ids()
+            db_ids = await ingest_service.get_imported_policy_api_ids()
             transform_batch = await self.transform_and_save(
                 limit=batch_limit,
                 s3_util=s3_util,

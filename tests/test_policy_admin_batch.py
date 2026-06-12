@@ -19,7 +19,7 @@ from app.schemas.PolicyPinDTO import PolicyPinSearchResult, PolicyPinTransformRe
 from app.services.PolicyEventIngestService import PolicyEventIngestService
 from app.services.PolicyPinService import PolicyPinService
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
-from app.services.policy_cardnews import _upload_local_handoff_path
+from app.services.policy_cardnews import _upload_local_handoff_path, cleanup_local_cardnews_dir
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -121,6 +121,16 @@ class PolicyCardnewsHandoffPathTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result["key"], "policy/cardnews/1/slide_01.png")
             s3_util.upload_bytes.assert_awaited_once()
 
+    async def test_cleanup_local_cardnews_dir_ignores_empty_content_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "policy_cardnews"
+            root.mkdir()
+
+            with patch("app.services.policy_cardnews.POLICY_CARDNEWS_OUTPUT_DIR", root):
+                cleanup_local_cardnews_dir("")
+
+            self.assertTrue(root.is_dir())
+
 
 class PolicyImportHandoffBatchTest(unittest.IsolatedAsyncioTestCase):
     async def test_requested_batch_size_none_when_import_all(self) -> None:
@@ -175,6 +185,49 @@ class PolicyImportHandoffBatchTest(unittest.IsolatedAsyncioTestCase):
             result = await service.import_handoff_batch(import_all=False, limit=3)
 
         self.assertEqual(result.requested_batch_size, 3)
+
+    async def test_get_imported_policy_api_ids_delegates_to_repo(self) -> None:
+        service = _make_ingest_service()
+        service._event_pin_repo.list_policy_api_ids = AsyncMock(return_value={1, 2})
+
+        result = await service.get_imported_policy_api_ids()
+
+        self.assertEqual(result, {1, 2})
+        service._event_pin_repo.list_policy_api_ids.assert_awaited_once()
+
+    async def test_nested_failure_does_not_expunge_unrelated_session_state(self) -> None:
+        service = _make_ingest_service()
+        nested_ctx = MagicMock()
+        nested_ctx.__aenter__ = AsyncMock()
+        nested_ctx.__aexit__ = AsyncMock(return_value=False)
+        service._pin_repo.session.begin_nested = MagicMock(return_value=nested_ctx)
+        service._pin_repo.session.expunge = MagicMock()
+        service._pin_repo.session.expire = MagicMock()
+        handoff_rows = [
+            {
+                "contentid": "1",
+                "policy_api_id": 1,
+                "title": "정책1",
+                "pin_content": "본문1",
+                "cardnews_images": [{"key": "k1", "url": "https://cdn.example/1.png"}],
+            },
+        ]
+        with (
+            patch(
+                "app.services.PolicyEventIngestService.load_jsonl_rows",
+                return_value=handoff_rows,
+            ),
+            patch(
+                "app.services.PolicyEventIngestService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(service, "_insert_policy_pin", AsyncMock(side_effect=RuntimeError("boom"))),
+        ):
+            result = await service.import_handoff_batch(import_all=True)
+
+        self.assertEqual(result.error_count, 1)
+        service._pin_repo.session.expunge.assert_not_called()
+        service._pin_repo.session.expire.assert_not_called()
 
 
 class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):

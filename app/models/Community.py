@@ -21,7 +21,12 @@ class Community(BaseEntity):
         ForeignKey("pin.pin_id"),
         nullable=False,
     )
-    community_type: Mapped[str] = mapped_column("community_type", String(50), nullable=False)
+    community_type: Mapped[str] = mapped_column(
+        "community_type",
+        String(50),
+        nullable=False,
+        server_default="POLICY",
+    )
     popularity: Mapped[float] = mapped_column("popularity", Float, nullable=False, default=0.0)
     cardnews_images: Mapped[list["CardnewsImageS3"]] = relationship(
         "CardnewsImageS3",

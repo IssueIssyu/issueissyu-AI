@@ -207,10 +207,11 @@ async def transform_documents_jsonl(
 
     documents = load_jsonl_rows(src)
     handoff_by_id = load_rows_by_content_id(dst) if merge_handoff else {}
+    db_ids = db_policy_api_ids or set()
     pending = list_pending_transform_rows(
         documents,
         handoff_by_id,
-        db_policy_api_ids=db_policy_api_ids,
+        db_policy_api_ids=db_ids,
     )
 
     llm = build_llm_service(model=model)
@@ -250,7 +251,7 @@ async def transform_documents_jsonl(
         if not content_id or content_id in handoff_by_id:
             continue
         policy_id = parse_policy_api_id(row)
-        if policy_id is not None and (db_policy_api_ids or set()) and policy_id in (db_policy_api_ids or set()):
+        if policy_id is not None and policy_id in db_ids:
             skipped_duplicate_count += 1
 
     write_handoff_map(handoff_by_id, dst)
