@@ -27,6 +27,7 @@ from app.services.policy_pipeline_cleanup import prune_pipeline_imported
 from app.services.policy_pin_transform import (
     POLICY_DOCUMENTS_PATH,
     POLICY_HANDOFF_PATH,
+    load_jsonl_rows,
     load_rows_by_content_id,
     merge_documents,
     transform_documents_jsonl,
@@ -236,22 +237,22 @@ class PolicyPinService:
             total_skipped_transform += transform_batch.skipped_duplicate_count
             transform_errors.extend(transform_batch.errors)
             transform_pins.extend(transform_batch.pins)
-            last_transform_pending = transform_batch.pending_count
+            last_transform_pending = transform_batch.remaining_pending_count
 
+            if transform_batch.processed_count > 0:
+                import_batch = await ingest_service.import_handoff_batch(
+                    import_all=False,
+                    limit=effective_batch,
+                )
+                _accumulate_import(import_batch)
+                _track_imported_ids(import_batch)
+
+            if transform_batch.remaining_pending_count == 0:
+                break
             if transform_batch.processed_count == 0:
                 break
 
-            import_batch = await ingest_service.import_handoff_batch(
-                import_all=False,
-                limit=effective_batch,
-            )
-            _accumulate_import(import_batch)
-            _track_imported_ids(import_batch)
-
-            if transform_batch.processed_count < batch_limit:
-                break
-
-        while True:
+        while load_jsonl_rows(self.handoff_path()):
             prev_pending = last_import.pending_import_count
             import_batch = await ingest_service.import_handoff_batch(
                 import_all=False,
@@ -299,6 +300,26 @@ class PolicyPinService:
             f"sync 완료: 수집 {search.count}건, 가공 {total_processed}건({batches_run}배치), "
             f"DB INSERT {total_imported}건."
         )
+        if (
+            total_processed == 0
+            and total_imported == 0
+            and last_transform_pending == 0
+            and len(db_ids) > 0
+        ):
+            hint = (
+                f"이미 DB 반영 완료 (policy 핀 {len(db_ids)}건). "
+                "handoff JSONL이 비어 있는 것은 import 후 캐시 정리로 정상입니다."
+            )
+        elif total_processed == 0 and last_transform_pending > 0:
+            hint = (
+                f"수집 {search.count}건 저장됐으나 가공 0건입니다. "
+                f"미가공 {last_transform_pending}건 — GEMINI_API_KEY·transform 오류를 확인하세요."
+            )
+        elif total_processed > 0 and last_transform_pending > 0:
+            hint = (
+                f"sync 부분 완료: 가공 {total_processed}건, DB INSERT {total_imported}건. "
+                f"미가공 {last_transform_pending}건 남음 — /policy-admin/sync 재실행 또는 transform-batch."
+            )
         return PolicySyncResult(
             query_start_date=start_date,
             query_end_date=end_date,

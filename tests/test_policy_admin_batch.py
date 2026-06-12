@@ -216,6 +216,36 @@ class PolicyImportHandoffBatchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {1, 2})
         service._event_pin_repo.list_policy_api_ids.assert_awaited_once()
 
+    async def test_import_handoff_batch_ok_when_handoff_empty_and_db_caught_up(self) -> None:
+        service = _make_ingest_service()
+        service._event_pin_repo.list_policy_api_ids = AsyncMock(return_value={1, 2})
+        documents = [
+            {"contentid": "1", "policy_api_id": 1, "pin_content": "a"},
+            {"contentid": "2", "policy_api_id": 2, "pin_content": "b"},
+        ]
+
+        with patch(
+            "app.services.PolicyEventIngestService.load_jsonl_rows",
+            side_effect=[[], documents],
+        ):
+            result = await service.import_handoff_batch(import_all=False, limit=5)
+
+        self.assertEqual(result.inserted_count, 0)
+        self.assertEqual(result.pending_import_count, 0)
+        self.assertIn("적재 완료", result.hint or "")
+
+    async def test_import_handoff_batch_raises_when_handoff_empty_but_pending_transform(self) -> None:
+        service = _make_ingest_service()
+        service._event_pin_repo.list_policy_api_ids = AsyncMock(return_value=set())
+        documents = [{"contentid": "1", "policy_api_id": 1, "pin_content": "a"}]
+
+        with patch(
+            "app.services.PolicyEventIngestService.load_jsonl_rows",
+            side_effect=[[], documents],
+        ):
+            with self.assertRaises(FileNotFoundError):
+                await service.import_handoff_batch(import_all=False, limit=5)
+
     async def test_import_handoff_batch_skips_per_row_db_lookup(self) -> None:
         service = _make_ingest_service()
         service._event_pin_repo.get_by_policy_api_id = AsyncMock(return_value=None)
@@ -291,7 +321,8 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
                 processed_count=2,
                 error_count=0,
                 pins=[],
-                pending_count=1,
+                pending_count=3,
+                remaining_pending_count=1,
             ),
             PolicyPinTransformResult(
                 input_path="in.jsonl",
@@ -299,7 +330,8 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
                 processed_count=1,
                 error_count=0,
                 pins=[],
-                pending_count=0,
+                pending_count=1,
+                remaining_pending_count=0,
             ),
         ]
         import_batches = [
@@ -434,8 +466,14 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
                         error_count=0,
                         pins=[],
                         pending_count=0,
+                        remaining_pending_count=0,
                     ),
                 ),
+            ),
+            patch.object(service, "handoff_path", return_value=Path("out.jsonl")),
+            patch(
+                "app.services.PolicyPinService.load_jsonl_rows",
+                return_value=[{"contentid": "1"}],
             ),
             patch.object(ingest, "import_handoff_batch", import_mock),
             patch.object(PolicyEventIngestService, "write_sync_meta"),
@@ -453,6 +491,178 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(import_result.inserted_count, 3)
         self.assertEqual(import_result.pending_import_count, 0)
         self.assertEqual(import_result.pin_ids, [11, 12, 13])
+
+    async def test_transform_loop_continues_while_remaining_pending(self) -> None:
+        service = PolicyPinService()
+        ingest = _make_ingest_service()
+        ingest.get_imported_policy_api_ids = AsyncMock(return_value=set())
+        transform_mock = AsyncMock(
+            side_effect=[
+                PolicyPinTransformResult(
+                    input_path="in.jsonl",
+                    output_path="out.jsonl",
+                    processed_count=20,
+                    error_count=5,
+                    pins=[],
+                    pending_count=25,
+                    remaining_pending_count=22,
+                ),
+                PolicyPinTransformResult(
+                    input_path="in.jsonl",
+                    output_path="out.jsonl",
+                    processed_count=22,
+                    error_count=0,
+                    pins=[],
+                    pending_count=22,
+                    remaining_pending_count=0,
+                ),
+            ],
+        )
+        import_mock = AsyncMock(
+            return_value=PolicyImportBatchResult(
+                inserted_count=1,
+                skipped_duplicate_count=0,
+                pending_import_count=0,
+                error_count=0,
+            ),
+        )
+
+        with (
+            patch(
+                "app.services.PolicyPinService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(
+                service,
+                "search_and_save",
+                AsyncMock(
+                    return_value=PolicyPinSearchResult(
+                        query_start_date="20260610",
+                        query_end_date="20260612",
+                        count=42,
+                        pins=[],
+                        saved_documents_path="docs.jsonl",
+                        stats={},
+                    ),
+                ),
+            ),
+            patch.object(service, "transform_and_save", transform_mock),
+            patch.object(ingest, "import_handoff_batch", import_mock),
+            patch.object(PolicyEventIngestService, "write_sync_meta"),
+            patch.object(service, "handoff_path", return_value=Path("out.jsonl")),
+            patch("app.services.PolicyPinService.load_jsonl_rows", return_value=[]),
+        ):
+            result = await service.sync_pipeline(
+                ingest_service=ingest,
+                s3_util=MagicMock(),
+                batch_size=25,
+            )
+
+        self.assertEqual(transform_mock.await_count, 2)
+        self.assertEqual(result.transform.processed_count, 42)
+
+    async def test_sync_completes_when_transform_produces_zero_and_handoff_empty(self) -> None:
+        service = PolicyPinService()
+        ingest = _make_ingest_service()
+        ingest.get_imported_policy_api_ids = AsyncMock(return_value=set())
+        import_mock = AsyncMock()
+
+        with (
+            patch(
+                "app.services.PolicyPinService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(
+                service,
+                "search_and_save",
+                AsyncMock(
+                    return_value=PolicyPinSearchResult(
+                        query_start_date="20260610",
+                        query_end_date="20260612",
+                        count=42,
+                        pins=[],
+                        saved_documents_path="docs.jsonl",
+                        stats={},
+                    ),
+                ),
+            ),
+            patch.object(
+                service,
+                "transform_and_save",
+                AsyncMock(
+                    return_value=PolicyPinTransformResult(
+                        input_path="in.jsonl",
+                        output_path="out.jsonl",
+                        processed_count=0,
+                        error_count=42,
+                        pins=[],
+                        pending_count=42,
+                        remaining_pending_count=42,
+                    ),
+                ),
+            ),
+            patch.object(service, "handoff_path", return_value=Path("out.jsonl")),
+            patch("app.services.PolicyPinService.load_jsonl_rows", return_value=[]),
+            patch.object(ingest, "import_handoff_batch", import_mock),
+            patch.object(PolicyEventIngestService, "write_sync_meta"),
+        ):
+            result = await service.sync_pipeline(
+                ingest_service=ingest,
+                s3_util=MagicMock(),
+            )
+
+        import_mock.assert_not_awaited()
+        self.assertIn("가공 0건", result.hint or "")
+        self.assertEqual(result.import_result.inserted_count, 0)
+
+    async def test_sync_hint_when_already_in_db(self) -> None:
+        service = PolicyPinService()
+        ingest = _make_ingest_service()
+        ingest.get_imported_policy_api_ids = AsyncMock(return_value={1, 2, 3})
+
+        with (
+            patch(
+                "app.services.PolicyPinService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(
+                service,
+                "search_and_save",
+                AsyncMock(
+                    return_value=PolicyPinSearchResult(
+                        query_start_date="20260610",
+                        query_end_date="20260612",
+                        count=3,
+                        pins=[],
+                        saved_documents_path="docs.jsonl",
+                        stats={},
+                    ),
+                ),
+            ),
+            patch.object(
+                service,
+                "transform_and_save",
+                AsyncMock(
+                    return_value=PolicyPinTransformResult(
+                        input_path="in.jsonl",
+                        output_path="out.jsonl",
+                        processed_count=0,
+                        error_count=0,
+                        pins=[],
+                        remaining_pending_count=0,
+                    ),
+                ),
+            ),
+            patch.object(service, "handoff_path", return_value=Path("out.jsonl")),
+            patch("app.services.PolicyPinService.load_jsonl_rows", return_value=[]),
+            patch.object(PolicyEventIngestService, "write_sync_meta"),
+        ):
+            result = await service.sync_pipeline(
+                ingest_service=ingest,
+                s3_util=MagicMock(),
+            )
+
+        self.assertIn("이미 DB 반영 완료", result.hint or "")
 
 
 if __name__ == "__main__":

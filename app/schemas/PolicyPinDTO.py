@@ -90,6 +90,10 @@ class PolicyPinTransformResult(BaseModel):
     hint: str | None = None
     skipped_duplicate_count: int = 0
     pending_count: int = 0
+    remaining_pending_count: int = Field(
+        default=0,
+        description="가공 후에도 handoff·DB에 없는 원문 건수",
+    )
 
 
 class PolicyPinHandoffResult(BaseModel):

@@ -116,13 +116,29 @@ class PolicyEventIngestService:
         limit: int | None = None,
     ) -> PolicyImportBatchResult:
         handoff_rows = await to_thread.run_sync(load_jsonl_rows, POLICY_HANDOFF_PATH)
+        db_ids = await self.get_imported_policy_api_ids()
         if not handoff_rows:
-            raise FileNotFoundError(
-                f"핸드오프 JSONL 없음: {POLICY_HANDOFF_PATH}. transform을 먼저 실행하세요.",
+            documents = await to_thread.run_sync(load_jsonl_rows, POLICY_DOCUMENTS_PATH)
+            pending_transform = count_pending_transform(documents, {}, db_policy_api_ids=db_ids)
+            if pending_transform > 0:
+                raise FileNotFoundError(
+                    f"핸드오프 JSONL 없음: {POLICY_HANDOFF_PATH}. "
+                    f"transform을 먼저 실행하세요. (미가공 {pending_transform}건)",
+                )
+            effective_batch = None if import_all else limit
+            return PolicyImportBatchResult(
+                inserted_count=0,
+                skipped_duplicate_count=0,
+                pending_import_count=0,
+                error_count=0,
+                requested_batch_size=effective_batch,
+                hint=(
+                    f"DB에 policy 핀 {len(db_ids)}건이 있어 적재 완료 상태입니다. "
+                    "handoff JSONL이 비어 있는 것은 import 후 캐시 정리로 정상입니다."
+                ),
             )
 
         uid = admin_uid or await self.resolve_admin_uid()
-        db_ids = await self.get_imported_policy_api_ids()
         inserted_count = 0
         skipped_duplicate_count = 0
         errors: list[dict[str, Any]] = []
@@ -297,6 +313,18 @@ class PolicyEventIngestService:
             if policy_api_id is not None and policy_api_id not in db_ids:
                 pending_import += 1
 
+        is_caught_up = pending_transform == 0 and pending_import == 0
+        hint: str | None = None
+        if is_caught_up and len(db_ids) > 0:
+            hint = (
+                f"DB에 policy 핀 {len(db_ids)}건 반영 완료. "
+                "handoff_count=0은 import 후 JSONL 캐시 정리로 정상입니다."
+            )
+        elif pending_transform > 0:
+            hint = f"미가공 {pending_transform}건 — transform-batch 또는 sync를 실행하세요."
+        elif pending_import > 0:
+            hint = f"미적재 {pending_import}건 — import-batch 또는 sync를 실행하세요."
+
         return PolicyPipelineStatusResult(
             query_start_date=meta.get("query_start_date"),
             query_end_date=meta.get("query_end_date"),
@@ -306,6 +334,8 @@ class PolicyEventIngestService:
             db_policy_count=len(db_ids),
             pending_transform_count=pending_transform,
             pending_import_count=pending_import,
+            is_caught_up=is_caught_up,
+            hint=hint,
         )
 
     @staticmethod

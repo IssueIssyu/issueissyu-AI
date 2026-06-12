@@ -255,6 +255,11 @@ async def transform_documents_jsonl(
             skipped_duplicate_count += 1
 
     write_handoff_map(handoff_by_id, dst)
+    remaining_pending = count_pending_transform(
+        documents,
+        handoff_by_id,
+        db_policy_api_ids=db_ids,
+    )
     pins = [PolicyPinHandoffDTO.from_row(item) for item in processed_rows]
 
     hint: str | None
@@ -276,4 +281,5 @@ async def transform_documents_jsonl(
         hint=hint,
         skipped_duplicate_count=skipped_duplicate_count,
         pending_count=len(pending),
+        remaining_pending_count=remaining_pending,
     )

@@ -30,6 +30,7 @@ class PolicyImportBatchResult(BaseModel):
     items: list[PolicyBatchItemResult] = Field(default_factory=list)
     pin_ids: list[int] = Field(default_factory=list)
     requested_batch_size: int | None = None
+    hint: str | None = None
 
 
 class PolicyTransformBatchResult(PolicyPinTransformResult):
@@ -46,6 +47,11 @@ class PolicyPipelineStatusResult(BaseModel):
     db_policy_count: int
     pending_transform_count: int
     pending_import_count: int
+    is_caught_up: bool = Field(
+        default=False,
+        description="미가공·미적재 건이 없어 DB와 파이프라인이 동기화된 상태",
+    )
+    hint: str | None = None
 
 
 class PolicySyncResult(BaseModel):
