@@ -1,3 +1,5 @@
+from app.models.CardnewsImageS3 import CardnewsImageS3
+from app.models.Community import Community
 from app.models.ComplaintPetition import ComplaintPetition
 from app.models.Department import Department
 from app.models.DbConnectionCheck import DbConnectionCheck
@@ -24,6 +26,8 @@ from app.models.enum.ToneType import ToneType
 from app.models.enum.UserRole import UserRole
 
 __all__ = [
+    "CardnewsImageS3",
+    "Community",
     "DbConnectionCheck",
     "ComplaintPetition",
     "Department",

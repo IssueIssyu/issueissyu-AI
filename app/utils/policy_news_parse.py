@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from html import unescape
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -13,6 +14,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_KST = ZoneInfo("Asia/Seoul")
 _POLICY_DATE_FMT = "%m/%d/%Y %H:%M:%S"
 _POLICY_DATE_FMT_SHORT = "%m/%d/%Y"
 _IMG_SRC_RE = re.compile(
@@ -329,6 +331,22 @@ def approve_date_to_yyyymmdd(raw: str | None) -> str | None:
     return parsed.strftime("%Y%m%d")
 
 
+def policy_date_kst(raw: str | None) -> date | None:
+    parsed = parse_policy_datetime(raw)
+    if parsed is None:
+        return None
+    return parsed.date()
+
+
+def is_embargo_active(embargo_raw: str | None, *, as_of: date | None = None) -> bool:
+    """EmbargoDate가 as_of(KST, 기본 오늘)보다 미래이면 아직 엠바고 → True."""
+    embargo_date = policy_date_kst(embargo_raw)
+    if embargo_date is None:
+        return False
+    today = as_of if as_of is not None else datetime.now(_KST).date()
+    return embargo_date > today
+
+
 def local_name(tag: str) -> str:
     if "}" in tag:
         return tag.rsplit("}", 1)[-1]
@@ -434,6 +452,7 @@ def build_policy_document_row(item: dict[str, str]) -> dict[str, Any] | None:
         "source_url": source_url,
         "subtitles": merge_subtitles(item),
         "contents_status": (item.get("ContentsStatus") or "").strip(),
+        "embargo_date": (item.get("EmbargoDate") or "").strip(),
     }
 
 
