@@ -158,8 +158,7 @@ class PolicyEventIngestService:
             if policy_api_id is None:
                 errors.append({"row": row, "error": "policy_api_id 없음"})
                 continue
-            existing = await self._event_pin_repo.get_by_policy_api_id(policy_api_id)
-            if existing is not None:
+            if policy_api_id in db_ids:
                 skipped_duplicate_count += 1
                 prune_policy_api_ids.add(policy_api_id)
                 continue
@@ -198,7 +197,7 @@ class PolicyEventIngestService:
         await self._pin_repo.commit()
 
         if settings.policy_prune_pipeline_after_import and prune_policy_api_ids:
-            cleanup_after_policy_import(prune_policy_api_ids)
+            await to_thread.run_sync(cleanup_after_policy_import, prune_policy_api_ids)
 
         pending_import = 0
         for row in handoff_rows:

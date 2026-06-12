@@ -216,6 +216,33 @@ class PolicyImportHandoffBatchTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, {1, 2})
         service._event_pin_repo.list_policy_api_ids.assert_awaited_once()
 
+    async def test_import_handoff_batch_skips_per_row_db_lookup(self) -> None:
+        service = _make_ingest_service()
+        service._event_pin_repo.get_by_policy_api_id = AsyncMock(return_value=None)
+        handoff_rows = [
+            {
+                "contentid": "1",
+                "policy_api_id": 1,
+                "title": "정책1",
+                "pin_content": "본문1",
+                "cardnews_images": [{"key": "k1", "url": "https://cdn.example/1.png"}],
+            },
+        ]
+        with (
+            patch(
+                "app.services.PolicyEventIngestService.load_jsonl_rows",
+                return_value=handoff_rows,
+            ),
+            patch(
+                "app.services.PolicyEventIngestService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(service, "_insert_policy_pin", AsyncMock(return_value=101)),
+        ):
+            await service.import_handoff_batch(import_all=True)
+
+        service._event_pin_repo.get_by_policy_api_id.assert_not_awaited()
+
     async def test_nested_failure_does_not_expunge_unrelated_session_state(self) -> None:
         service = _make_ingest_service()
         nested_ctx = MagicMock()
@@ -255,7 +282,7 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
     async def test_import_results_accumulate_across_batches(self) -> None:
         service = PolicyPinService()
         ingest = _make_ingest_service()
-        ingest._event_pin_repo.list_policy_api_ids = AsyncMock(return_value=set())
+        ingest.get_imported_policy_api_ids = AsyncMock(return_value=set())
 
         transform_batches = [
             PolicyPinTransformResult(
@@ -345,11 +372,12 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(import_result.items), 3)
         self.assertEqual(import_result.pin_ids, [11, 12, 13])
         self.assertEqual(import_result.errors, [{"policy_api_id": 1, "error": "e1"}])
+        ingest.get_imported_policy_api_ids.assert_awaited_once()
 
     async def test_import_drains_backlog_when_transform_produces_zero(self) -> None:
         service = PolicyPinService()
         ingest = _make_ingest_service()
-        ingest._event_pin_repo.list_policy_api_ids = AsyncMock(return_value=set())
+        ingest.get_imported_policy_api_ids = AsyncMock(return_value=set())
 
         import_batches = [
             PolicyImportBatchResult(

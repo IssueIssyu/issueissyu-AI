@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any, TypedDict
 
+from anyio import to_thread
+
 from app.core.config import settings
 from app.policy_cardnews import (
     parse_cardnews_slides_json,
@@ -89,7 +91,7 @@ async def _upload_local_handoff_path(
             slide_no = int(slide_name.split("_", 1)[1])
         except ValueError:
             slide_no = 1
-    image_bytes = local_path.read_bytes()
+    image_bytes = await to_thread.run_sync(local_path.read_bytes)
     return await _upload_slide_bytes(
         s3_util,
         content_id=content_id,

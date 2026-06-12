@@ -9,6 +9,7 @@ from typing import Any
 from app.clients.PolicyNewsClient import PolicyNewsClient
 from app.core.config import settings
 from app.schemas.PolicyAdminDTO import (
+    PolicyBatchAction,
     PolicyBatchItemResult,
     PolicyImportBatchResult,
     PolicySyncResult,
@@ -210,6 +211,13 @@ class PolicyPinService:
             import_pin_ids.extend(import_batch.pin_ids)
             last_import = import_batch
 
+        db_ids = await ingest_service.get_imported_policy_api_ids()
+
+        def _track_imported_ids(import_batch: PolicyImportBatchResult) -> None:
+            for item in import_batch.items:
+                if item.action == PolicyBatchAction.CREATED and item.policy_api_id is not None:
+                    db_ids.add(item.policy_api_id)
+
         while True:
             if transform_limit is not None and total_processed >= transform_limit:
                 break
@@ -218,7 +226,6 @@ class PolicyPinService:
             if transform_limit is not None:
                 batch_limit = min(effective_batch, transform_limit - total_processed)
 
-            db_ids = await ingest_service.get_imported_policy_api_ids()
             transform_batch = await self.transform_and_save(
                 limit=batch_limit,
                 s3_util=s3_util,
@@ -239,6 +246,7 @@ class PolicyPinService:
                 limit=effective_batch,
             )
             _accumulate_import(import_batch)
+            _track_imported_ids(import_batch)
 
             if transform_batch.processed_count < batch_limit:
                 break
@@ -250,6 +258,7 @@ class PolicyPinService:
                 limit=effective_batch,
             )
             _accumulate_import(import_batch)
+            _track_imported_ids(import_batch)
             if import_batch.pending_import_count == 0:
                 break
             if import_batch.inserted_count == 0 and import_batch.pending_import_count >= prev_pending:
