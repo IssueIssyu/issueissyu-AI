@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from anyio import to_thread
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -120,7 +121,7 @@ class PolicyEventIngestService:
         import_all: bool = True,
         limit: int | None = None,
     ) -> PolicyImportBatchResult:
-        handoff_rows = load_jsonl_rows(POLICY_HANDOFF_PATH)
+        handoff_rows = await to_thread.run_sync(load_jsonl_rows, POLICY_HANDOFF_PATH)
         if not handoff_rows:
             raise FileNotFoundError(
                 f"핸드오프 JSONL 없음: {POLICY_HANDOFF_PATH}. transform을 먼저 실행하세요.",

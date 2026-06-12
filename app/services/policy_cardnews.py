@@ -250,8 +250,7 @@ async def generate_cardnews_s3_images(
                 ),
             )
 
-    if not settings.policy_cardnews_keep_local_files:
-        _maybe_cleanup_local_cardnews(content_id)
+    _maybe_cleanup_local_cardnews(content_id)
     return uploaded
 
 

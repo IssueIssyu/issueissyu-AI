@@ -17,6 +17,7 @@ from app.schemas.PolicyAdminDTO import (
     PolicySyncResult,
     PolicyTransformBatchResult,
 )
+from app.utils.policy_news_parse import validate_yyyymmdd
 
 router = APIRouter(prefix="/policy-admin", tags=["policy-admin"])
 
@@ -38,6 +39,27 @@ def _clamp_batch(value: int | None) -> int:
     return min(max(value, 1), _MAX_BATCH)
 
 
+def _validate_optional_date_range(
+    start_date: str | None,
+    end_date: str | None,
+) -> tuple[str | None, str | None]:
+    if start_date is None and end_date is None:
+        return None, None
+    if start_date is None or end_date is None:
+        raise HTTPException(
+            status_code=ErrorCode.BAD_REQUEST.http_status,
+            detail="start_date와 end_date는 함께 지정해야 합니다.",
+        )
+    parsed_start = validate_yyyymmdd(start_date, label="start_date")
+    parsed_end = validate_yyyymmdd(end_date, label="end_date")
+    if parsed_start > parsed_end:
+        raise HTTPException(
+            status_code=ErrorCode.BAD_REQUEST.http_status,
+            detail="start_date는 end_date보다 이후일 수 없습니다.",
+        )
+    return parsed_start, parsed_end
+
+
 @router.post(
     "/sync",
     response_model=SuccessEnvelope[PolicySyncResult],
@@ -56,15 +78,18 @@ async def sync_policy_pins(
     transform_limit: int | None = Query(default=None, ge=1, le=100, description="가공 최대 건수"),
     batch_size: int | None = Query(default=None, ge=1, le=25, description="배치 크기"),
 ) -> SuccessEnvelope[PolicySyncResult]:
+    validated_start, validated_end = _validate_optional_date_range(start_date, end_date)
     try:
         body = await service.sync_pipeline(
             ingest_service=ingest_service,
             s3_util=s3_util,
-            start_date=start_date,
-            end_date=end_date,
+            start_date=validated_start,
+            end_date=validated_end,
             transform_limit=transform_limit,
             batch_size=_clamp_batch(batch_size),
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=ErrorCode.BAD_REQUEST.http_status, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=ErrorCode.NOT_FOUND.http_status, detail=str(exc)) from exc
     except RuntimeError as exc:

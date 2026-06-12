@@ -40,6 +40,7 @@ class EventPin(BaseEntity):
     policy_api_id: Mapped[int | None] = mapped_column(
         "policy_api_id",
         BigInteger,
+        unique=True,
         nullable=True,
     )
     event_start_time: Mapped[datetime] = mapped_column("event_start_time", DateTime, nullable=False)

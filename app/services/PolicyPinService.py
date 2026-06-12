@@ -201,6 +201,15 @@ class PolicyPinService:
             error_count=0,
         )
 
+        def _accumulate_import(import_batch: PolicyImportBatchResult) -> None:
+            nonlocal total_imported, total_skipped_import, last_import
+            total_imported += import_batch.inserted_count
+            total_skipped_import += import_batch.skipped_duplicate_count
+            import_errors.extend(import_batch.errors)
+            import_items.extend(import_batch.items)
+            import_pin_ids.extend(import_batch.pin_ids)
+            last_import = import_batch
+
         while True:
             if transform_limit is not None and total_processed >= transform_limit:
                 break
@@ -229,14 +238,21 @@ class PolicyPinService:
                 import_all=False,
                 limit=effective_batch,
             )
-            total_imported += import_batch.inserted_count
-            total_skipped_import += import_batch.skipped_duplicate_count
-            import_errors.extend(import_batch.errors)
-            import_items.extend(import_batch.items)
-            import_pin_ids.extend(import_batch.pin_ids)
-            last_import = import_batch
+            _accumulate_import(import_batch)
 
             if transform_batch.processed_count < batch_limit:
+                break
+
+        while True:
+            prev_pending = last_import.pending_import_count
+            import_batch = await ingest_service.import_handoff_batch(
+                import_all=False,
+                limit=effective_batch,
+            )
+            _accumulate_import(import_batch)
+            if import_batch.pending_import_count == 0:
+                break
+            if import_batch.inserted_count == 0 and import_batch.pending_import_count >= prev_pending:
                 break
 
         aggregated_transform = PolicyTransformBatchResult(

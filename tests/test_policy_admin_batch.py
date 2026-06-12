@@ -223,6 +223,15 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
                 items=[PolicyBatchItemResult(policy_api_id=3, action=PolicyBatchAction.CREATED)],
                 pin_ids=[13],
             ),
+            PolicyImportBatchResult(
+                inserted_count=0,
+                skipped_duplicate_count=0,
+                pending_import_count=0,
+                error_count=0,
+                errors=[],
+                items=[],
+                pin_ids=[],
+            ),
         ]
 
         with (
@@ -262,6 +271,86 @@ class PolicySyncPipelineAccumulationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(import_result.items), 3)
         self.assertEqual(import_result.pin_ids, [11, 12, 13])
         self.assertEqual(import_result.errors, [{"policy_api_id": 1, "error": "e1"}])
+
+    async def test_import_drains_backlog_when_transform_produces_zero(self) -> None:
+        service = PolicyPinService()
+        ingest = _make_ingest_service()
+        ingest._event_pin_repo.list_policy_api_ids = AsyncMock(return_value=set())
+
+        import_batches = [
+            PolicyImportBatchResult(
+                inserted_count=2,
+                skipped_duplicate_count=0,
+                pending_import_count=1,
+                error_count=0,
+                errors=[],
+                items=[
+                    PolicyBatchItemResult(policy_api_id=1, action=PolicyBatchAction.CREATED),
+                    PolicyBatchItemResult(policy_api_id=2, action=PolicyBatchAction.CREATED),
+                ],
+                pin_ids=[11, 12],
+            ),
+            PolicyImportBatchResult(
+                inserted_count=1,
+                skipped_duplicate_count=0,
+                pending_import_count=0,
+                error_count=0,
+                errors=[],
+                items=[PolicyBatchItemResult(policy_api_id=3, action=PolicyBatchAction.CREATED)],
+                pin_ids=[13],
+            ),
+        ]
+        import_mock = AsyncMock(side_effect=import_batches)
+
+        with (
+            patch(
+                "app.services.PolicyPinService.settings.policy_prune_pipeline_after_import",
+                False,
+            ),
+            patch.object(
+                service,
+                "search_and_save",
+                AsyncMock(
+                    return_value=PolicyPinSearchResult(
+                        query_start_date="20260610",
+                        query_end_date="20260612",
+                        count=0,
+                        pins=[],
+                        saved_documents_path="docs.jsonl",
+                        stats={},
+                    ),
+                ),
+            ),
+            patch.object(
+                service,
+                "transform_and_save",
+                AsyncMock(
+                    return_value=PolicyPinTransformResult(
+                        input_path="in.jsonl",
+                        output_path="out.jsonl",
+                        processed_count=0,
+                        error_count=0,
+                        pins=[],
+                        pending_count=0,
+                    ),
+                ),
+            ),
+            patch.object(ingest, "import_handoff_batch", import_mock),
+            patch.object(PolicyEventIngestService, "write_sync_meta"),
+        ):
+            result = await service.sync_pipeline(
+                ingest_service=ingest,
+                s3_util=MagicMock(),
+                start_date="20260610",
+                end_date="20260612",
+                batch_size=2,
+            )
+
+        self.assertEqual(import_mock.await_count, 2)
+        import_result = result.import_result
+        self.assertEqual(import_result.inserted_count, 3)
+        self.assertEqual(import_result.pending_import_count, 0)
+        self.assertEqual(import_result.pin_ids, [11, 12, 13])
 
 
 if __name__ == "__main__":
