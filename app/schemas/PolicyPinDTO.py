@@ -88,6 +88,12 @@ class PolicyPinTransformResult(BaseModel):
         description="output_path JSONL에 저장된 행과 동일 (DB 전달 4필드)",
     )
     hint: str | None = None
+    skipped_duplicate_count: int = 0
+    pending_count: int = 0
+    remaining_pending_count: int = Field(
+        default=0,
+        description="가공 후에도 handoff·DB에 없는 원문 건수",
+    )
 
 
 class PolicyPinHandoffResult(BaseModel):
