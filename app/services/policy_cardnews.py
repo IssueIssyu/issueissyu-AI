@@ -74,8 +74,9 @@ async def _upload_local_handoff_path(
     content_id: str,
     handoff_path: str,
 ) -> CardnewsS3Image:
-    rel = handoff_path.strip().lstrip("/")
-    local_path = _REPO_ROOT / rel
+    local_path = Path(handoff_path)
+    if not local_path.is_absolute():
+        local_path = (_REPO_ROOT / handoff_path.strip().lstrip("/")).resolve()
     if not local_path.is_file():
         raise FileNotFoundError(f"카드뉴스 로컬 파일 없음: {local_path}")
     slide_name = local_path.stem

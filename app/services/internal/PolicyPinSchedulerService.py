@@ -106,7 +106,8 @@ class PolicyPinSchedulerService:
             if last_run.tzinfo is None:
                 last_run = last_run.replace(tzinfo=_KST)
             elapsed = datetime.now(_KST) - last_run.astimezone(_KST)
-            return elapsed >= timedelta(days=settings.policy_sync_interval_days)
+            # 스케줄 시각 오차로 하루 밀리는 것 방지
+            return elapsed >= timedelta(days=settings.policy_sync_interval_days) - timedelta(hours=1)
         except (json.JSONDecodeError, ValueError):
             return True
 

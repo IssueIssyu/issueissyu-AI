@@ -274,11 +274,6 @@ class PolicyEventIngestService:
         await self._community_repo.save(community, flush_immediately=True)
 
         cardnews_images = row.get("cardnews_images") or []
-        if not cardnews_images:
-            for url in row.get("cardnews_image_urls") or []:
-                url_text = str(url).strip()
-                if url_text:
-                    cardnews_images.append({"key": "", "url": url_text})
 
         for image in cardnews_images:
             if not isinstance(image, dict):

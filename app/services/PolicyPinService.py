@@ -8,7 +8,12 @@ from typing import Any
 
 from app.clients.PolicyNewsClient import PolicyNewsClient
 from app.core.config import settings
-from app.schemas.PolicyAdminDTO import PolicyImportBatchResult, PolicySyncResult, PolicyTransformBatchResult
+from app.schemas.PolicyAdminDTO import (
+    PolicyBatchItemResult,
+    PolicyImportBatchResult,
+    PolicySyncResult,
+    PolicyTransformBatchResult,
+)
 from app.schemas.PolicyPinDTO import (
     PolicyPinHandoffDTO,
     PolicyPinHandoffResult,
@@ -184,6 +189,9 @@ class PolicyPinService:
         total_skipped_transform = 0
         transform_errors: list[dict] = []
         transform_pins: list = []
+        import_errors: list[dict] = []
+        import_items: list[PolicyBatchItemResult] = []
+        import_pin_ids: list[int] = []
         batches_run = 0
         last_transform_pending = 0
         last_import = PolicyImportBatchResult(
@@ -223,6 +231,9 @@ class PolicyPinService:
             )
             total_imported += import_batch.inserted_count
             total_skipped_import += import_batch.skipped_duplicate_count
+            import_errors.extend(import_batch.errors)
+            import_items.extend(import_batch.items)
+            import_pin_ids.extend(import_batch.pin_ids)
             last_import = import_batch
 
             if transform_batch.processed_count < batch_limit:
@@ -248,10 +259,10 @@ class PolicyPinService:
             inserted_count=total_imported,
             skipped_duplicate_count=total_skipped_import,
             pending_import_count=last_import.pending_import_count,
-            error_count=last_import.error_count,
-            errors=last_import.errors,
-            items=last_import.items,
-            pin_ids=last_import.pin_ids,
+            error_count=len(import_errors),
+            errors=import_errors,
+            items=import_items,
+            pin_ids=import_pin_ids,
             requested_batch_size=effective_batch,
         )
 
