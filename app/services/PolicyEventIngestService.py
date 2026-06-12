@@ -219,7 +219,7 @@ class PolicyEventIngestService:
         }
         _IMPORT_REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        effective_batch = limit if not import_all else limit
+        effective_batch = None if import_all else limit
         return PolicyImportBatchResult(
             inserted_count=inserted_count,
             skipped_duplicate_count=skipped_duplicate_count,
