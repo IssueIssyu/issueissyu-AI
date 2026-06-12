@@ -15,11 +15,11 @@ class Community(BaseEntity):
         Identity(),
         primary_key=True,
     )
-    pin_id: Mapped[int] = mapped_column(
+    pin_id: Mapped[int | None] = mapped_column(
         "pin_id",
         BigInteger,
         ForeignKey("pin.pin_id"),
-        nullable=False,
+        nullable=True,
     )
     community_type: Mapped[str] = mapped_column(
         "community_type",

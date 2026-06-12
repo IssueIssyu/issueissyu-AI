@@ -80,8 +80,8 @@ async def sync_policy_pins(
     transform_limit: int | None = Query(default=None, ge=1, le=100, description="가공 최대 건수"),
     batch_size: int | None = Query(default=None, ge=1, le=25, description="배치 크기"),
 ) -> SuccessEnvelope[PolicySyncResult]:
-    validated_start, validated_end = _validate_optional_date_range(start_date, end_date)
     try:
+        validated_start, validated_end = _validate_optional_date_range(start_date, end_date)
         body = await service.sync_pipeline(
             ingest_service=ingest_service,
             s3_util=s3_util,

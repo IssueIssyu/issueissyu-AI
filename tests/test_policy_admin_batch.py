@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import app.models  # noqa: F401 — SQLAlchemy mapper registry
+from fastapi import HTTPException
 
+from app.routes.PolicyAdminRoute import sync_policy_pins
 from app.schemas.PolicyAdminDTO import (
     PolicyBatchAction,
     PolicyBatchItemResult,
@@ -48,6 +50,25 @@ def _make_ingest_service() -> PolicyEventIngestService:
         cardnews_image_s3_repo=cardnews_repo,
         user_repo=user_repo,
     )
+
+
+class PolicyAdminRouteValidationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_invalid_date_returns_bad_request(self) -> None:
+        service = MagicMock()
+        service.sync_pipeline = AsyncMock()
+
+        with self.assertRaises(HTTPException) as ctx:
+            await sync_policy_pins(
+                service=service,
+                ingest_service=MagicMock(),
+                s3_util=MagicMock(),
+                _admin_uid="admin-uid",
+                start_date="20261301",
+                end_date="20261302",
+            )
+
+        self.assertEqual(ctx.exception.status_code, 400)
+        service.sync_pipeline.assert_not_awaited()
 
 
 class PolicyPinSchedulerShouldRunSyncTest(unittest.TestCase):
