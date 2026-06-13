@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import ValidationError
 
 from app.core.codes import ErrorCode, SuccessCode
-from app.core.deps import ContestPinServiceDep
+from app.core.deps import ContestEventIngestServiceDep, ContestPinServiceDep, S3UtilDep
 from app.core.responses import SuccessEnvelope, success_response
 from app.schemas.ContestPinDTO import (
     ContestCrawlResult,
@@ -29,7 +29,8 @@ router = APIRouter(prefix="/contest-pins", tags=["contest-pins"])
 )
 async def crawl_contests_from_linkareer(
     service: ContestPinServiceDep,
-    max_pages: int = Query(default=5, ge=1, le=50, description="목록 최대 페이지"),
+    start_page: int = Query(default=1, ge=1, le=50, description="목록 시작 페이지 번호"),
+    max_pages: int = Query(default=1, ge=1, le=50, description="시작 페이지부터 순회할 페이지 수"),
     limit: int | None = Query(
         default=None,
         ge=1,
@@ -42,6 +43,7 @@ async def crawl_contests_from_linkareer(
     try:
         body = await service.crawl_and_save(
             max_pages=max_pages,
+            start_page=start_page,
             limit=limit,
             delay=delay,
             force=force,
@@ -163,6 +165,8 @@ def _runtime_error_response(exc: RuntimeError) -> HTTPException:
 )
 async def generate_contest_cardnews(
     service: ContestPinServiceDep,
+    ingest_service: ContestEventIngestServiceDep,
+    s3_util: S3UtilDep,
     limit: int | None = Query(
         default=None,
         ge=1,
@@ -177,12 +181,21 @@ async def generate_contest_cardnews(
         default=True,
         description="인스타용 캡션을 pin_content에 사용",
     ),
+    skip_db_duplicates: bool = Query(
+        default=True,
+        description="DB에 이미 있는 contest_api_id는 LLM 가공 스킵",
+    ),
 ) -> SuccessEnvelope[ContestPinTransformResult]:
     try:
+        db_ids: set[int] | None = None
+        if skip_db_duplicates:
+            db_ids = await ingest_service.get_imported_contest_api_ids()
         body = await service.cardnews_and_save(
             limit=limit,
             with_caption=with_caption,
             contentid=contentid,
+            s3_util=s3_util,
+            db_contest_api_ids=db_ids,
         )
     except FileNotFoundError as exc:
         raise HTTPException(

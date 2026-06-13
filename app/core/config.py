@@ -328,6 +328,54 @@ class Settings(BaseSettings):
         alias="POLICY_CARDNEWS_MASCOT_DIR",
         description="핀 캐릭터 PNG 폴더 (app/policy_cardnews 기준 상대 경로). mascots.json files 목록에 있는 PNG만 사용",
     )
+    contest_sync_schedule_hour_kst: int = Field(
+        default=12,
+        ge=0,
+        le=23,
+        alias="CONTEST_SYNC_SCHEDULE_HOUR_KST",
+        description="공모전 핀 sync 스케줄 시각 (KST)",
+    )
+    contest_crawl_max_pages: int = Field(
+        default=1,
+        ge=1,
+        le=50,
+        alias="CONTEST_CRAWL_MAX_PAGES",
+        description="sync/crawl 기본 목록 페이지 수",
+    )
+    contest_sync_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=25,
+        alias="CONTEST_SYNC_BATCH_SIZE",
+        description="sync/transform/import 1회 배치 건수",
+    )
+    contest_transform_concurrency: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        alias="CONTEST_TRANSFORM_CONCURRENCY",
+        description="공모전 pin_content·카드뉴스 Gemini 가공 동시 호출 수",
+    )
+    contest_admin_user_name: str = Field(
+        default="admin",
+        validation_alias=AliasChoices("CONTEST_ADMIN_USER_NAME", "CONTEST_ADMIN_NICKNAME"),
+        description="공모전 핀 등록에 사용할 user.user_name",
+    )
+    contest_prune_pipeline_after_import: bool = Field(
+        default=True,
+        alias="CONTEST_PRUNE_PIPELINE_AFTER_IMPORT",
+        description="DB INSERT 성공 후 JSONL·로컬 카드뉴스 캐시 제거",
+    )
+    contest_cardnews_keep_local_files: bool = Field(
+        default=False,
+        alias="CONTEST_CARDNEWS_KEEP_LOCAL_FILES",
+        description="True면 S3 업로드 후에도 rag/output/contest_cardnews 유지",
+    )
+    contest_cardnews_s3_prefix: str = Field(
+        default="contest-cardnews",
+        alias="CONTEST_CARDNEWS_S3_PREFIX",
+        description="공모전 카드뉴스 S3 object key prefix",
+    )
 
     @field_validator("policy_cardnews_font_dir", mode="before")
     @classmethod

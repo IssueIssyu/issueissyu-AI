@@ -18,6 +18,7 @@ from app.core.config import settings
 from app.routes import enabled_routers
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
 from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPetitionSchedulerService
+from app.services.internal.ContestPinSchedulerService import ContestPinSchedulerService
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
 from app.services.internal.complaint_wiring import build_complaint_email_service
 from app.services.VectorStoreService import VectorStoreService
@@ -173,6 +174,15 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("Policy pin scheduler initialization failed: %s", exc)
 
+    contest_pin_scheduler = None
+    if gemini_api_key_secret is not None:
+        try:
+            contest_pin_scheduler = ContestPinSchedulerService(s3_util=app.state.s3_util)
+            contest_pin_scheduler.start()
+            app.state.contest_pin_scheduler = contest_pin_scheduler
+        except Exception as exc:
+            logger.warning("Contest pin scheduler initialization failed: %s", exc)
+
     try:
         yield
     finally:
@@ -188,6 +198,12 @@ async def lifespan(app: FastAPI):
                 await policy_pin_scheduler.stop()
             except Exception as exc:
                 logger.warning("Policy pin scheduler stop failed: %s", exc)
+        contest_pin_scheduler = getattr(app.state, "contest_pin_scheduler", None)
+        if contest_pin_scheduler is not None:
+            try:
+                await contest_pin_scheduler.stop()
+            except Exception as exc:
+                logger.warning("Contest pin scheduler stop failed: %s", exc)
         try:
             await ComplaintEmailPdfService.stop_playwright_browser()
         except Exception as exc:

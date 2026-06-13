@@ -30,9 +30,11 @@ from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRun
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.ContestPinService import ContestPinService
+from app.services.ContestEventIngestService import ContestEventIngestService
 from app.services.FestivalPinService import FestivalPinService
 from app.services.PolicyEventIngestService import PolicyEventIngestService
 from app.services.PolicyPinService import PolicyPinService
+from app.services.internal.ContestPinSchedulerService import ContestPinSchedulerService
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
 from app.services.FestivalEventIngestService import FestivalEventIngestService
@@ -486,4 +488,43 @@ def get_policy_pin_scheduler(request: Request) -> PolicyPinSchedulerService | No
 PolicyPinSchedulerDep = Annotated[
     PolicyPinSchedulerService | None,
     Depends(get_policy_pin_scheduler),
+]
+
+
+def get_contest_event_ingest_service(
+    pin_repo: PinRepoDep,
+    event_pin_repo: EventPinRepoDep,
+    community_repo: CommunityRepoDep,
+    cardnews_image_s3_repo: CardnewsImageS3RepoDep,
+    pin_image_repo: PinImageRepoDep,
+    user_repo: UserRepoDep,
+) -> ContestEventIngestService:
+    return ContestEventIngestService(
+        pin_repo=pin_repo,
+        event_pin_repo=event_pin_repo,
+        community_repo=community_repo,
+        cardnews_image_s3_repo=cardnews_image_s3_repo,
+        pin_image_repo=pin_image_repo,
+        user_repo=user_repo,
+    )
+
+
+ContestEventIngestServiceDep = Annotated[
+    ContestEventIngestService,
+    Depends(get_contest_event_ingest_service),
+]
+
+
+def get_contest_pin_scheduler(request: Request) -> ContestPinSchedulerService | None:
+    scheduler = getattr(request.app.state, "contest_pin_scheduler", None)
+    if scheduler is None:
+        return None
+    if not isinstance(scheduler, ContestPinSchedulerService):
+        raise RuntimeError("contest_pin_scheduler is not initialized correctly.")
+    return scheduler
+
+
+ContestPinSchedulerDep = Annotated[
+    ContestPinSchedulerService | None,
+    Depends(get_contest_pin_scheduler),
 ]

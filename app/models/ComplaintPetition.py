@@ -26,6 +26,12 @@ class ComplaintPetition(BaseEntity):
         Identity(),
         primary_key=True,
     )
+    complaint_petition_id: Mapped[int] = mapped_column(
+        "complaint_petition_id",
+        BigInteger,
+        Identity(),
+        nullable=False,
+    )
     location_department_id: Mapped[int] = mapped_column(
         "location_department_id",
         BigInteger,
@@ -47,7 +53,7 @@ class ComplaintPetition(BaseEntity):
     reliability_basis: Mapped[str] = mapped_column("reliability_basis", Text, nullable=False)
     status: Mapped[str] = mapped_column(
         "status",
-        String(32),
+        String(255),
         nullable=False,
         default=ComplaintPetitionStatus.CREATED.value,
     )
@@ -64,4 +70,3 @@ class ComplaintPetition(BaseEntity):
         foreign_keys=[issue_pin_id],
         lazy="selectin",
     )
-
