@@ -1,0 +1,51 @@
+{
+  "palettes": {
+    "issueissyu_blue": {
+      "outer": [29, 135, 255],
+      "offset": [255, 230, 90],
+      "accent": [29, 135, 255]
+    },
+
+    "fresh_mint": {
+      "outer": [52, 199, 153],
+      "offset": [214, 255, 236],
+      "accent": [36, 148, 108]
+    },
+
+    "soft_purple": {
+      "outer": [132, 94, 247],
+      "offset": [229, 219, 255],
+      "accent": [96, 64, 201]
+    },
+
+    "sunset_orange": {
+      "outer": [255, 126, 95],
+      "offset": [255, 225, 180],
+      "accent": [220, 88, 52]
+    },
+
+    "modern_slate": {
+      "outer": [58, 72, 95],
+      "offset": [210, 220, 235],
+      "accent": [35, 45, 65]
+    },
+
+    "rose_pink": {
+      "outer": [238, 108, 133],
+      "offset": [255, 220, 228],
+      "accent": [198, 72, 98]
+    },
+
+    "deep_ocean": {
+      "outer": [0, 119, 182],
+      "offset": [202, 240, 248],
+      "accent": [2, 62, 138]
+    },
+
+    "lime_energy": {
+      "outer": [140, 198, 62],
+      "offset": [240, 255, 204],
+      "accent": [92, 148, 32]
+    }
+  }
+}

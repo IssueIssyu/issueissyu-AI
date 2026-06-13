@@ -11,6 +11,7 @@ from app.core.database import get_async_db_session
 from app.core.exceptions import raise_business_exception
 from app.login.http_auth import get_current_user_id, get_optional_user_id
 from app.models.User import User
+from app.repositories.CardnewsImageS3Repo import CardnewsImageS3Repo
 from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.ComplaintPetitionRepo import ComplaintPetitionRepo
 from app.repositories.DepartmentRepo import DepartmentRepo
@@ -28,8 +29,11 @@ from app.services.internal.IssuePinDailyRateLimitService import IssuePinDailyRat
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
-from app.services.ComplaintPetitionService import ComplaintPetitionService
 from app.services.FestivalPinService import FestivalPinService
+from app.services.PolicyEventIngestService import PolicyEventIngestService
+from app.services.PolicyPinService import PolicyPinService
+from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
+from app.services.ComplaintPetitionService import ComplaintPetitionService
 from app.services.FestivalEventIngestService import FestivalEventIngestService
 from app.services.RagRerankService import RagRerankService
 from app.services.RagRetrievalService import RagRetrievalService
@@ -507,4 +511,58 @@ def get_festival_event_ingest_service(
 FestivalEventIngestServiceDep = Annotated[
     FestivalEventIngestService,
     Depends(get_festival_event_ingest_service),
+]
+
+
+def get_policy_pin_service() -> PolicyPinService:
+    return PolicyPinService()
+
+
+PolicyPinServiceDep = Annotated[
+    PolicyPinService,
+    Depends(get_policy_pin_service),
+]
+
+
+def get_cardnews_image_s3_repo(session: DbSessionDep) -> CardnewsImageS3Repo:
+    return CardnewsImageS3Repo(session)
+
+
+CardnewsImageS3RepoDep = Annotated[CardnewsImageS3Repo, Depends(get_cardnews_image_s3_repo)]
+
+
+def get_policy_event_ingest_service(
+    pin_repo: PinRepoDep,
+    event_pin_repo: EventPinRepoDep,
+    community_repo: CommunityRepoDep,
+    cardnews_image_s3_repo: CardnewsImageS3RepoDep,
+    user_repo: UserRepoDep,
+) -> PolicyEventIngestService:
+    return PolicyEventIngestService(
+        pin_repo=pin_repo,
+        event_pin_repo=event_pin_repo,
+        community_repo=community_repo,
+        cardnews_image_s3_repo=cardnews_image_s3_repo,
+        user_repo=user_repo,
+    )
+
+
+PolicyEventIngestServiceDep = Annotated[
+    PolicyEventIngestService,
+    Depends(get_policy_event_ingest_service),
+]
+
+
+def get_policy_pin_scheduler(request: Request) -> PolicyPinSchedulerService | None:
+    scheduler = getattr(request.app.state, "policy_pin_scheduler", None)
+    if scheduler is None:
+        return None
+    if not isinstance(scheduler, PolicyPinSchedulerService):
+        raise RuntimeError("policy_pin_scheduler is not initialized correctly.")
+    return scheduler
+
+
+PolicyPinSchedulerDep = Annotated[
+    PolicyPinSchedulerService | None,
+    Depends(get_policy_pin_scheduler),
 ]

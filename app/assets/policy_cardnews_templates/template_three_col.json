@@ -1,0 +1,29 @@
+{
+  "name": "template_three_col",
+  "canvas": { "width": 1080, "height": 1350 },
+  "frame": { "card_inset": 36, "content_pad": 36, "offset_px": 12 },
+  "defaults": {
+    "headline": "핵심만 정리",
+    "speech": "핵심포인트!",
+    "speech_max_len": 18,
+    "label_prefix": "항목"
+  },
+  "layout": {
+    "max_items": 3,
+    "col_gap": 20,
+    "panel_radius": 14,
+    "panel_inset": 22,
+    "badge_min": 44,
+    "badge_max": 56,
+    "badge_ratio": 0.13,
+    "label_h_ratio": 0.18,
+    "label_h_min": 36
+  },
+  "fonts": {
+    "badge_num_start": 22,
+    "label_start": 32,
+    "label_min": 24,
+    "body_start": 30,
+    "body_min": 22
+  }
+}
