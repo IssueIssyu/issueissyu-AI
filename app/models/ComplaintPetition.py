@@ -26,12 +26,6 @@ class ComplaintPetition(BaseEntity):
         Identity(),
         primary_key=True,
     )
-    complaint_petition_id: Mapped[int] = mapped_column(
-        "complaint_petition_id",
-        BigInteger,
-        Identity(),
-        nullable=False,
-    )
     location_department_id: Mapped[int] = mapped_column(
         "location_department_id",
         BigInteger,
