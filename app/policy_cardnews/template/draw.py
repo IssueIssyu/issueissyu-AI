@@ -97,30 +97,30 @@ def wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont
     if not value:
         return []
 
-    if " " in value:
-        words = value.split()
-        lines: list[str] = []
-        cur = words[0]
-        for word in words[1:]:
-            trial = f"{cur} {word}"
+    words = value.split()
+    lines: list[str] = []
+    cur = ""
+    for word in words:
+        if draw.textlength(word, font=font) > max_w:
+            if cur:
+                lines.append(cur)
+                cur = ""
+            for char in word:
+                trial = cur + char
+                if draw.textlength(trial, font=font) <= max_w:
+                    cur = trial
+                else:
+                    if cur:
+                        lines.append(cur)
+                    cur = char
+        else:
+            trial = f"{cur} {word}".strip() if cur else word
             if draw.textlength(trial, font=font) <= max_w:
                 cur = trial
             else:
-                lines.append(cur)
+                if cur:
+                    lines.append(cur)
                 cur = word
-        lines.append(cur)
-        return lines
-
-    lines: list[str] = []
-    cur = ""
-    for char in value:
-        trial = cur + char
-        if draw.textlength(trial, font=font) <= max_w:
-            cur = trial
-        else:
-            if cur:
-                lines.append(cur)
-            cur = char
     if cur:
         lines.append(cur)
     return lines

@@ -21,5 +21,23 @@ class UserRepo(BaseRepo[User]):
         result = await self.session.execute(select(User).where(User.email == email))
         return result.scalar_one_or_none()
 
+    async def get_by_nickname(self, nickname: str) -> User | None:
+        normalized = (nickname or "").strip()
+        if not normalized:
+            return None
+        result = await self.session.execute(
+            select(User).where(User.nickname == normalized).limit(1),
+        )
+        return result.scalar_one_or_none()
+
+    async def get_by_user_name(self, user_name: str) -> User | None:
+        normalized = (user_name or "").strip()
+        if not normalized:
+            return None
+        result = await self.session.execute(
+            select(User).where(User.user_name == normalized).limit(1),
+        )
+        return result.scalar_one_or_none()
+
     async def get_all_users(self) -> list[User]:
         return await self.get_all()

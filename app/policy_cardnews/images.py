@@ -45,14 +45,22 @@ async def download_cardnews_images(
     timeout: float = 20.0,
     referer: str = "",
 ) -> list[Image.Image]:
-    images: list[Image.Image] = []
+    import asyncio
+
+    unique_urls: list[str] = []
     seen: set[str] = set()
     for url in urls:
         url = (url or "").strip()
         if not url or url in seen:
             continue
         seen.add(url)
-        img = await download_cardnews_image(url, timeout=timeout, referer=referer)
-        if img is not None:
-            images.append(img)
-    return images
+        unique_urls.append(url)
+
+    if not unique_urls:
+        return []
+
+    tasks = [
+        download_cardnews_image(url, timeout=timeout, referer=referer) for url in unique_urls
+    ]
+    results = await asyncio.gather(*tasks)
+    return [img for img in results if img is not None]

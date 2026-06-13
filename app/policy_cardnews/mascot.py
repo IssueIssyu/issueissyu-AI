@@ -123,8 +123,7 @@ def load_mascots() -> tuple[tuple[str, Image.Image], ...]:
 
 def pick_mascot(rng: random.Random) -> tuple[str, Image.Image] | None:
     # manifest 등록 파일만 무작위 선택
-    allowed = allowed_mascot_names()
-    mascots = [(name, img) for name, img in load_mascots() if name in allowed]
+    mascots = load_mascots()
     if not mascots:
         return None
     name, image = mascots[rng.randrange(len(mascots))]
@@ -136,8 +135,7 @@ def pick_pin_mascot(
     rng: random.Random,
 ) -> tuple[str, Image.Image] | None:
     # 마무리 등 — app/assets/mascots (mascots.json) 핀 캐릭터만 사용
-    allowed = allowed_mascot_names()
-    mascots = [(name, img) for name, img in load_mascots() if name in allowed]
+    mascots = load_mascots()
     if not mascots:
         logger.warning("mascots.json 핀 캐릭터 없음 — 마무리 캐릭터 생략")
         return None

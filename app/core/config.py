@@ -159,6 +159,120 @@ class Settings(BaseSettings):
         alias="VECTOR_TEXT_SEARCH_CONFIG",
     )
 
+    # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
+    policy_news_service_key: SecretStr | None = Field(
+        default=None,
+        alias="POLICY_NEWS_SERVICE_KEY",
+        description="정책뉴스 전용 API 키 (서비스별 독립 키, 필수)",
+    )
+    policy_news_api_base_url: str = Field(
+        default="http://apis.data.go.kr/1371000/policyNewsService",
+        alias="POLICY_NEWS_API_BASE_URL",
+    )
+    policy_news_request_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        alias="POLICY_NEWS_REQUEST_TIMEOUT_SECONDS",
+    )
+    policy_news_request_interval_seconds: float = Field(
+        default=0.15,
+        ge=0,
+        alias="POLICY_NEWS_REQUEST_INTERVAL_SECONDS",
+    )
+    policy_sync_lookback_days: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        alias="POLICY_SYNC_LOOKBACK_DAYS",
+        description="배치 수집 시 오늘 포함 N일 (API 3일 제한 고려)",
+    )
+    policy_sync_interval_days: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        alias="POLICY_SYNC_INTERVAL_DAYS",
+        description="자동 sync 최소 간격(일)",
+    )
+    policy_sync_schedule_hour_kst: int = Field(
+        default=1,
+        ge=0,
+        le=23,
+        alias="POLICY_SYNC_SCHEDULE_HOUR_KST",
+        description="정책 핀 sync 스케줄 확인 시각 (KST)",
+    )
+    policy_admin_user_name: str = Field(
+        default="admin",
+        validation_alias=AliasChoices("POLICY_ADMIN_USER_NAME", "POLICY_ADMIN_NICKNAME"),
+        description="정책 핀 등록에 사용할 user.user_name",
+    )
+    policy_sync_batch_size: int = Field(
+        default=5,
+        ge=1,
+        le=25,
+        alias="POLICY_SYNC_BATCH_SIZE",
+        description="sync/transform/import 1회 배치 건수",
+    )
+    policy_transform_concurrency: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        alias="POLICY_TRANSFORM_CONCURRENCY",
+        description="정책 pin_content·카드뉴스 Gemini 가공 동시 호출 수",
+    )
+    policy_prune_pipeline_after_import: bool = Field(
+        default=True,
+        alias="POLICY_PRUNE_PIPELINE_AFTER_IMPORT",
+        description="DB INSERT 성공 후 JSONL·로컬 카드뉴스 캐시 제거",
+    )
+    policy_cardnews_keep_local_files: bool = Field(
+        default=False,
+        alias="POLICY_CARDNEWS_KEEP_LOCAL_FILES",
+        description="True면 S3 업로드 후에도 rag/output/policy_cardnews 유지",
+    )
+    policy_sync_merge_documents: bool = Field(
+        default=False,
+        alias="POLICY_SYNC_MERGE_DOCUMENTS",
+        description="False면 sync 수집 시 policy_documents.jsonl을 이번 구간으로 덮어씀",
+    )
+    policy_cardnews_s3_prefix: str = Field(
+        default="policy-cardnews",
+        alias="POLICY_CARDNEWS_S3_PREFIX",
+        description="정책 카드뉴스 S3 object key prefix",
+    )
+    gemini_cardnews_image_model: str = Field(
+        default="gemini-2.5-flash-image",
+        alias="GEMINI_CARDNEWS_IMAGE_MODEL",
+        description="정책 카드뉴스 슬라이드 이미지 생성 모델",
+    )
+    gemini_cardnews_image_fallback_models: str = Field(
+        default="gemini-3-pro-image-preview,imagen-3.0-generate-002",
+        alias="GEMINI_CARDNEWS_IMAGE_FALLBACK_MODELS",
+    )
+    policy_cardnews_pillow_fallback: bool = Field(
+        default=True,
+        alias="POLICY_CARDNEWS_PILLOW_FALLBACK",
+        description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
+    )
+    policy_cardnews_use_template: bool = Field(
+        default=True,
+        alias="POLICY_CARDNEWS_USE_TEMPLATE",
+        description="고정 카드뉴스 템플릿(레퍼런스 형식) 사용",
+    )
+    policy_cardnews_use_image_model: bool = Field(
+        default=False,
+        alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
+        description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
+    )
+    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
+    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
+    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
+    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
+    policy_cardnews_font_dir: str = Field(
+        default="../assets/fonts",
+        alias="POLICY_CARDNEWS_FONT_DIR",
+        description="Pretendard 등 폰트 폴더 (app/policy_cardnews 기준 상대 경로)",
+    )
+
     # 한국관광공사 TourAPI (공공데이터포털 활용신청 키)
     visitkorea_service_key: SecretStr | None = Field(
         default=None,
@@ -206,74 +320,6 @@ class Settings(BaseSettings):
         alias="FESTIVAL_TRANSFORM_CONCURRENCY",
         description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
     )
-    festival_batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        alias="FESTIVAL_BATCH_SIZE",
-        description="admin fetch/transform/import 기본 배치 크기",
-    )
-
-    # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
-    policy_news_service_key: SecretStr | None = Field(
-        default=None,
-        alias="POLICY_NEWS_SERVICE_KEY",
-        description="정책뉴스 전용 API 키 (서비스별 독립 키, 필수)",
-    )
-    policy_news_api_base_url: str = Field(
-        default="http://apis.data.go.kr/1371000/policyNewsService",
-        alias="POLICY_NEWS_API_BASE_URL",
-    )
-    policy_news_request_timeout_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        alias="POLICY_NEWS_REQUEST_TIMEOUT_SECONDS",
-    )
-    policy_news_request_interval_seconds: float = Field(
-        default=0.15,
-        ge=0,
-        alias="POLICY_NEWS_REQUEST_INTERVAL_SECONDS",
-    )
-    policy_sync_lookback_days: int = Field(
-        default=3,
-        ge=1,
-        le=30,
-        alias="POLICY_SYNC_LOOKBACK_DAYS",
-        description="배치 수집 시 오늘 포함 N일 (API 3일 제한 고려)",
-    )
-    gemini_cardnews_image_model: str = Field(
-        default="gemini-2.5-flash-image",
-        alias="GEMINI_CARDNEWS_IMAGE_MODEL",
-        description="정책 카드뉴스 슬라이드 이미지 생성 모델",
-    )
-    gemini_cardnews_image_fallback_models: str = Field(
-        default="gemini-3-pro-image-preview,imagen-3.0-generate-002",
-        alias="GEMINI_CARDNEWS_IMAGE_FALLBACK_MODELS",
-    )
-    policy_cardnews_pillow_fallback: bool = Field(
-        default=True,
-        alias="POLICY_CARDNEWS_PILLOW_FALLBACK",
-        description="이미지 모델 실패 시 Pillow 템플릿 합성으로 폴백",
-    )
-    policy_cardnews_use_template: bool = Field(
-        default=True,
-        alias="POLICY_CARDNEWS_USE_TEMPLATE",
-        description="고정 카드뉴스 템플릿(레퍼런스 형식) 사용",
-    )
-    policy_cardnews_use_image_model: bool = Field(
-        default=False,
-        alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
-        description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
-    )
-    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
-    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
-    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
-    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
-    policy_cardnews_font_dir: str | None = Field(
-        default=None,
-        alias="POLICY_CARDNEWS_FONT_DIR",
-        description="Pretendard 등 TTF 폴더 (기본 app/assets/fonts)",
-    )
     policy_cardnews_mascot_dir: str | None = Field(
         default="app/assets/mascots",
         alias="POLICY_CARDNEWS_MASCOT_DIR",
@@ -284,7 +330,7 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_string_policy_cardnews_font_dir(cls, value: object) -> object:
         if value == "":
-            return None
+            return "../assets/fonts"
         return value
 
     @field_validator("policy_cardnews_mascot_dir", mode="before")
@@ -293,6 +339,13 @@ class Settings(BaseSettings):
         if value == "":
             return None
         return value
+    festival_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_BATCH_SIZE",
+        description="admin fetch/transform/import 기본 배치 크기",
+    )
 
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod
