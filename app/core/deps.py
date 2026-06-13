@@ -36,15 +36,17 @@ from app.services.PolicyPinService import PolicyPinService
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
 from app.services.ComplaintPetitionService import ComplaintPetitionService
 from app.services.FestivalEventIngestService import FestivalEventIngestService
-from app.services.RagRerankService import RagRerankService
-from app.services.RagRetrievalService import RagRetrievalService
-from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
 from app.services.VectorStoreService import VectorStoreService
-from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
-from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.ai.gemini_factory import (
+    build_issue_pin_llm_service,
+    build_issue_rag_planner_service,
+    build_vlm_service,
+    require_gemini_api_key,
+)
+from app.services.internal.complaint_wiring import build_complaint_email_service
 from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
@@ -108,43 +110,24 @@ ImageExifLocationResolveServiceDep = Annotated[
 
 
 def get_vlm_service() -> VLMService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
-        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return VLMService(
-        api_key=api_key_secret.get_secret_value(),
-        model_name=settings.gemini_vlm_model,
-        fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
-    )
+    return build_vlm_service()
 
 
 VLMServiceDep = Annotated[VLMService, Depends(get_vlm_service)]
 
 
 def get_issue_pin_llm_service() -> IssuePinLLMService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
+    try:
+        return build_issue_pin_llm_service()
+    except RuntimeError:
         raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    pin_fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
-    return IssuePinLLMService(
-        api_key=api_key_secret.get_secret_value(),
-        model_name=settings.gemini_pin_text_model,
-        fallback_models=pin_fallbacks,
-    )
 
 
 IssuePinLLMServiceDep = Annotated[IssuePinLLMService, Depends(get_issue_pin_llm_service)]
 
 
 def get_issue_rag_planner_service() -> IssueRagPlannerService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
-        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return IssueRagPlannerService(
-        api_key=api_key_secret.get_secret_value(),
-        model_name=settings.gemini_rag_planner_model,
-        fallback_models=parse_gemini_model_list(settings.gemini_rag_planner_fallback_models),
-    )
+    return build_issue_rag_planner_service()
 
 
 IssueRagPlannerServiceDep = Annotated[
@@ -233,81 +216,12 @@ def get_complaint_petition_repo(session: DbSessionDep) -> ComplaintPetitionRepo:
 ComplaintPetitionRepoDep = Annotated[ComplaintPetitionRepo, Depends(get_complaint_petition_repo)]
 
 
-def get_complaint_email_vlm_service() -> ComplaintEmailVlmService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
-        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return ComplaintEmailVlmService(
-        api_key=api_key_secret.get_secret_value(),
-        model=settings.gemini_vlm_model,
-    )
-
-
-ComplaintEmailVlmServiceDep = Annotated[
-    ComplaintEmailVlmService,
-    Depends(get_complaint_email_vlm_service),
-]
-
-
-def get_complaint_email_llm_service() -> ComplaintEmailLLMService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
-        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return ComplaintEmailLLMService(
-        api_key=api_key_secret.get_secret_value(),
-        model_name=settings.gemini_pin_text_model,
-    )
-
-
-ComplaintEmailLLMServiceDep = Annotated[
-    ComplaintEmailLLMService,
-    Depends(get_complaint_email_llm_service),
-]
-
-
-def get_rag_rerank_service() -> RagRerankService:
-    api_key_secret = settings.gemini_api_key
-    if api_key_secret is None:
-        raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return RagRerankService(
-        api_key=api_key_secret.get_secret_value(),
-        embedding_model=settings.gemini_embedding_model,
-        embed_dim=settings.vector_embed_dim,
-        embedding_batch_size=settings.gemini_embedding_batch_size,
-    )
-
-
-RagRerankServiceDep = Annotated[RagRerankService, Depends(get_rag_rerank_service)]
-
-
-def get_rag_retrieval_service(
-    vector_store_service: VectorStoreServiceDep,
-    rag_rerank_service: RagRerankServiceDep,
-) -> RagRetrievalService:
-    return RagRetrievalService(
-        vector_store_service=vector_store_service,
-        rerank_service=rag_rerank_service,
-        retrieve_top_k=settings.rag_retrieve_top_k,
-        rerank_top_k=settings.rag_rerank_top_k,
-        enable_rerank=settings.rag_enable_rerank,
-        vector_query_mode=settings.rag_vector_query_mode,
-    )
-
-
-RagRetrievalServiceDep = Annotated[RagRetrievalService, Depends(get_rag_retrieval_service)]
-
-
 def get_complaint_email_service(
-    complaint_vlm_service: ComplaintEmailVlmServiceDep,
-    pin_validation_vlm_service: VLMServiceDep,
-    complaint_llm_service: ComplaintEmailLLMServiceDep,
-    rag_retrieval_service: RagRetrievalServiceDep,
+    vector_store_service: VectorStoreServiceDep,
 ) -> ComplaintEmailService:
-    return ComplaintEmailService(
-        complaint_vlm_service=complaint_vlm_service,
-        pin_validation_vlm_service=pin_validation_vlm_service,
-        complaint_llm_service=complaint_llm_service,
-        rag_retrieval_service=rag_retrieval_service,
+    return build_complaint_email_service(
+        api_key=require_gemini_api_key(),
+        vector_store_service=vector_store_service,
     )
 
 
@@ -383,10 +297,6 @@ IssuePinDailyRateLimitServiceDep = Annotated[
     IssuePinDailyRateLimitService,
     Depends(get_issue_pin_daily_rate_limit_service),
 ]
-
-
-# backward-compatible alias
-AiPinGenerationRateLimitServiceDep = IssuePinDailyRateLimitServiceDep
 
 
 def get_issue_service(

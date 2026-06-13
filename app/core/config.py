@@ -106,7 +106,7 @@ class Settings(BaseSettings):
         alias="GEMINI_PIN_TEXT_MODEL",
     )
     rag_enable_rerank: bool = Field(
-        default=True,
+        default=False,
         alias="RAG_ENABLE_RERANK",
     )
     rag_vector_query_mode: str = Field(
@@ -114,15 +114,15 @@ class Settings(BaseSettings):
         alias="RAG_VECTOR_QUERY_MODE",
     )
     rag_retrieve_top_k: int = Field(
-        default=8,
+        default=10,
         ge=1,
-        le=50,
+        le=100,
         alias="RAG_RETRIEVE_TOP_K",
     )
     rag_rerank_top_k: int = Field(
         default=5,
         ge=1,
-        le=20,
+        le=100,
         alias="RAG_RERANK_TOP_K",
     )
     gemini_pin_text_fallback_models: str = Field(
@@ -263,10 +263,6 @@ class Settings(BaseSettings):
         alias="POLICY_CARDNEWS_USE_IMAGE_MODEL",
         description="True면 Gemini 이미지 모델, False면 Pillow SNS 템플릿",
     )
-    rag_retrieve_top_k: int = Field(default=10, ge=1, le=100, alias="RAG_RETRIEVE_TOP_K")
-    rag_rerank_top_k: int = Field(default=5, ge=1, le=100, alias="RAG_RERANK_TOP_K")
-    rag_enable_rerank: bool = Field(default=False, alias="RAG_ENABLE_RERANK")
-    rag_vector_query_mode: str = Field(default="hybrid", alias="RAG_VECTOR_QUERY_MODE")
     policy_cardnews_font_dir: str = Field(
         default="../assets/fonts",
         alias="POLICY_CARDNEWS_FONT_DIR",
@@ -320,10 +316,17 @@ class Settings(BaseSettings):
         alias="FESTIVAL_TRANSFORM_CONCURRENCY",
         description="축제 pin_content Gemini 가공 동시 호출 수 (Cron/API 공통)",
     )
+    festival_batch_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        alias="FESTIVAL_BATCH_SIZE",
+        description="admin fetch/transform/import 기본 배치 크기",
+    )
     policy_cardnews_mascot_dir: str | None = Field(
-        default="app/assets/mascots",
+        default="../assets/mascots",
         alias="POLICY_CARDNEWS_MASCOT_DIR",
-        description="핀 캐릭터 PNG 폴더. mascots.json files 목록에 있는 PNG만 사용",
+        description="핀 캐릭터 PNG 폴더 (app/policy_cardnews 기준 상대 경로). mascots.json files 목록에 있는 PNG만 사용",
     )
 
     @field_validator("policy_cardnews_font_dir", mode="before")
@@ -337,15 +340,8 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_string_policy_cardnews_mascot_dir(cls, value: object) -> object:
         if value == "":
-            return None
+            return "../assets/mascots"
         return value
-    festival_batch_size: int = Field(
-        default=10,
-        ge=1,
-        le=50,
-        alias="FESTIVAL_BATCH_SIZE",
-        description="admin fetch/transform/import 기본 배치 크기",
-    )
 
     @field_validator("gemini_embedding_batch_size", mode="before")
     @classmethod

@@ -56,17 +56,11 @@ LAYOUT_CTA = "template_cta"
 MASCOT_LAYOUTS = {LAYOUT_COVER, LAYOUT_CTA, LAYOUT_THREE_COL, LAYOUT_NUMBERED}
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-# JS import처럼 app/policy_cardnews 패키지 기준 상대 경로 해석
-_POLICY_CARDNEWS_DIR = Path(__file__).resolve().parents[1]
+from app.policy_cardnews.paths import cardnews_font_dir
 
 
 def _font_dir() -> Path:
-    from app.core.config import settings
-
-    raw = Path(settings.policy_cardnews_font_dir)
-    if raw.is_absolute():
-        return raw
-    return (_POLICY_CARDNEWS_DIR / raw).resolve()
+    return cardnews_font_dir()
 
 
 @dataclass(frozen=True)

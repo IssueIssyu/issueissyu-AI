@@ -3,31 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from app.core.config import settings
 from app.schemas.ContestPinDTO import ContestPinHandoffDTO, ContestPinTransformResult
 from app.services.contest_cardnews import generate_contest_cardnews_paths
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
-from app.services.internal.ai.gemini_retry import parse_gemini_model_list
-from app.services.policy_pin_transform import append_source_link_to_pin_content
+from app.services.internal.ai.gemini_factory import build_issue_pin_llm_service
+from app.utils.pin_content import append_source_link_to_pin_content
 from rag.scripts.chunk_module import iter_jsonl, write_jsonl
 from rag.scripts.fetch_linkareer_contests import CONTEST_DOCUMENTS_PATH, clean_contest_body
 
 CONTEST_HANDOFF_PATH = (
     Path(__file__).resolve().parents[2] / "rag" / "output" / "contest_pins_for_db.jsonl"
 )
-
-
-def build_llm_service(*, model: str | None = None) -> IssuePinLLMService:
-    secret = settings.gemini_api_key
-    if secret is None:
-        raise RuntimeError("GEMINI_API_KEY가 설정되어 있지 않습니다.")
-    model_name = (model or settings.gemini_pin_text_model).strip()
-    fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
-    return IssuePinLLMService(
-        api_key=secret.get_secret_value(),
-        model_name=model_name,
-        fallback_models=fallbacks,
-    )
 
 
 def build_handoff_row(
@@ -93,7 +79,7 @@ async def transform_documents_jsonl(
             f"원문 JSONL 없음: {src}. POST /contest-pins/crawl 을 먼저 실행하세요.",
         )
 
-    llm = build_llm_service(model=model)
+    llm = build_issue_pin_llm_service(model=model)
     results: list[dict] = []
     errors: list[dict] = []
     cid_filter = (contentid or "").strip()
