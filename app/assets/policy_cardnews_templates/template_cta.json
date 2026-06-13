@@ -1,0 +1,53 @@
+{
+  "name": "template_cta",
+  "canvas": { "width": 1080, "height": 1350 },
+  "frame": { "card_inset": 36, "content_pad": 36, "offset_px": 12 },
+  "defaults": {
+    "eyebrow": "마무리",
+    "headline": "자세한 내용은 원문에서",
+    "cta": "원문 뉴스 보기",
+    "speech": "궁금하면 원문 봐!",
+    "speech_max_len": 18
+  },
+  "layout": {
+    "gap_above_mascot": 36,
+    "panel_inset": 22,
+    "content_scale_base": 180,
+    "content_scale_min": 1.08,
+    "content_scale_max": 1.48,
+    "separator_width": 2
+  },
+  "fonts": {
+    "url_start": 20,
+    "url_min": 18,
+    "body_start": 24,
+    "body_min": 20,
+    "term_title": 22,
+    "term_body": 20
+  },
+  "cta_panel": {
+    "height_start": 96,
+    "height_min": 76,
+    "height_max": 108,
+    "radius": 14,
+    "label_start": 40,
+    "label_min": 28,
+    "inset_panel": 22
+  },
+  "url": {
+    "display_max": 34,
+    "prefix": "앱에서 링크 · "
+  },
+  "term_guide": {
+    "title": "쉬운 말로",
+    "panel_radius": 12,
+    "max_guides": 2,
+    "max_body_lines": 3
+  },
+  "header": {
+    "eyebrow_start": 32,
+    "eyebrow_min": 24,
+    "headline_start": 52,
+    "headline_min": 36
+  }
+}

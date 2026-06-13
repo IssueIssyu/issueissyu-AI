@@ -1,0 +1,35 @@
+{
+  "name": "template_cover",
+  "canvas": { "width": 1080, "height": 1350 },
+  "frame": { "card_inset": 36, "content_pad": 36, "offset_px": 12 },
+  "layout": {
+    "text_bottom_ratio_with_hero": 0.44,
+    "mascot_zone_ratio": 0.52,
+    "mascot_min_h": 420
+  },
+  "fonts": {
+    "eyebrow_start": 34,
+    "eyebrow_min": 26,
+    "eyebrow_max_lines": 2,
+    "headline_start": 72,
+    "headline_min": 48,
+    "headline_max_lines": 3,
+    "highlight_start": 68,
+    "highlight_min": 44,
+    "highlight_max_lines": 2
+  },
+  "highlight": {
+    "type": "accent_badge",
+    "radius": 8,
+    "pad_x": 18,
+    "pad_y": 5,
+    "tape_extra_h": 14,
+    "text_fill": [20, 24, 32]
+  },
+  "hero": {
+    "enabled": true,
+    "box_inset": 22,
+    "corner_radius": 28,
+    "fill_mode": "contain"
+  }
+}
