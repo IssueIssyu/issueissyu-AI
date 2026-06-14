@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from fastapi import FastAPI, Request, status
@@ -7,8 +8,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.codes import ErrorCode
+from app.core.config import settings
 from app.core.exceptions import CustomException, create_http_exception
 from app.core.responses import failure_response
+
+logger = logging.getLogger(__name__)
 
 
 def _error_response(http_status: int, code: ErrorCode, result: Any = None, message: str | None = None) -> JSONResponse:
@@ -58,8 +62,17 @@ async def validation_exception_handler(
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
     ec = ErrorCode.INTERNAL_SERVER_ERROR
-    return _error_response(http_status=status.HTTP_500_INTERNAL_SERVER_ERROR, code=ec)
+    message = ec.message
+    if settings.env in ("local", "dev"):
+        detail = str(exc).strip() or repr(exc)
+        message = f"{ec.message}: {detail}"
+    return _error_response(
+        http_status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        code=ec,
+        message=message,
+    )
 
 
 def register_exception_handlers(app: FastAPI) -> None:

@@ -7,14 +7,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app.policy_cardnews.paths import cardnews_mascot_dir
+
 logger = logging.getLogger(__name__)
 
 CANVAS_WIDTH = 1080
 CANVAS_HEIGHT = 1350
 MANIFEST_NAME = "mascots.json"
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_DEFAULT_MASCOT_DIR = _REPO_ROOT / "app" / "assets" / "mascots"
 
 BRAND_BLUE = (29, 135, 255)
 BRAND_ACCENT = (255, 255, 255)
@@ -27,12 +26,7 @@ _ALLOWED_NAMES: frozenset[str] | None = None
 
 
 def mascot_dir() -> Path:
-    from app.core.config import settings
-
-    configured = (settings.policy_cardnews_mascot_dir or "").strip()
-    if configured:
-        return Path(configured)
-    return _DEFAULT_MASCOT_DIR
+    return cardnews_mascot_dir()
 
 
 def _manifest_mtime(directory: Path) -> float:

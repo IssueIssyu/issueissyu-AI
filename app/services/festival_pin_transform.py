@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.utils.visitkorea_area import infer_area_code_from_addr, resolve_row_area_code, row_matches_area_filter
 from app.schemas.FestivalPinDTO import FestivalPinDTO, FestivalPinTransformResult
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
-from app.services.internal.ai.gemini_retry import parse_gemini_model_list
+from app.services.internal.ai.gemini_factory import build_issue_pin_llm_service
 from app.services.prompts.festival_pin import build_festival_instagram_prompt
 from rag.scripts.chunk_module import iter_jsonl, write_jsonl
 
@@ -156,19 +156,6 @@ def build_handoff_row(
         "image_urls": list(source.get("image_urls") or []),
         "tel": (source.get("tel") or "").strip(),
     }
-
-
-def build_llm_service(*, model: str | None = None) -> IssuePinLLMService:
-    secret = settings.gemini_api_key
-    if secret is None:
-        raise RuntimeError("GEMINI_API_KEY가 설정되어 있지 않습니다.")
-    model_name = (model or settings.gemini_pin_text_model).strip()
-    fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
-    return IssuePinLLMService(
-        api_key=secret.get_secret_value(),
-        model_name=model_name,
-        fallback_models=fallbacks,
-    )
 
 
 async def transform_one_row(llm: IssuePinLLMService, row: dict[str, Any]) -> dict[str, Any]:
@@ -322,7 +309,7 @@ async def transform_documents_batch(
     llm_rows = llm_pending[:effective_batch]
 
     if llm_rows:
-        llm = build_llm_service(model=model)
+        llm = build_issue_pin_llm_service(model=model)
         concurrency = min(settings.festival_transform_concurrency, len(llm_rows))
         semaphore = asyncio.Semaphore(max(1, concurrency))
 
