@@ -43,6 +43,12 @@ class EventPin(BaseEntity):
         unique=True,
         nullable=True,
     )
+    contest_api_id: Mapped[int | None] = mapped_column(
+        "contest_api_id",
+        BigInteger,
+        unique=True,
+        nullable=True,
+    )
     event_start_time: Mapped[datetime] = mapped_column("event_start_time", DateTime, nullable=False)
     event_end_time: Mapped[datetime] = mapped_column("event_end_time", DateTime, nullable=False)
     discount: Mapped[str | None] = mapped_column("discount", String(255), nullable=True)

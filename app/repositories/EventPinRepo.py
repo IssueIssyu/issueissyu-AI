@@ -61,3 +61,25 @@ class EventPinRepo(BaseRepo[EventPin]):
             ),
         )
         return result.scalar_one()
+
+    async def get_by_contest_api_id(self, contest_api_id: int) -> EventPin | None:
+        result = await self.session.execute(
+            select(EventPin)
+            .where(EventPin.contest_api_id == contest_api_id)
+            .options(*_EVENT_PIN_LOAD_OPTIONS),
+        )
+        return result.scalar_one_or_none()
+
+    async def list_contest_api_ids(self) -> set[int]:
+        result = await self.session.execute(
+            select(EventPin.contest_api_id).where(EventPin.contest_api_id.is_not(None)),
+        )
+        return {int(row) for row in result.scalars().all() if row is not None}
+
+    async def count_contest_pins(self) -> int:
+        result = await self.session.execute(
+            select(func.count(EventPin.event_pin_id)).where(
+                EventPin.contest_api_id.is_not(None),
+            ),
+        )
+        return result.scalar_one()

@@ -7,7 +7,7 @@ from typing import Any
 from app.core.config import settings
 from app.schemas.PolicyPinDTO import PolicyPinHandoffDTO, PolicyPinTransformResult
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
-from app.services.internal.ai.gemini_retry import parse_gemini_model_list
+from app.services.internal.ai.gemini_factory import build_issue_pin_llm_service
 from app.services.policy_cardnews import CardnewsS3Image, generate_cardnews_s3_images
 from app.services.prompts.policy_pin import build_policy_easy_read_prompt
 from app.utils.S3Util import S3Util
@@ -107,19 +107,6 @@ def build_handoff_row(
     }
 
 
-def build_llm_service(*, model: str | None = None) -> IssuePinLLMService:
-    secret = settings.gemini_api_key
-    if secret is None:
-        raise RuntimeError("GEMINI_API_KEY가 설정되어 있지 않습니다.")
-    model_name = (model or settings.gemini_pin_text_model).strip()
-    fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
-    return IssuePinLLMService(
-        api_key=secret.get_secret_value(),
-        model_name=model_name,
-        fallback_models=fallbacks,
-    )
-
-
 async def transform_one_row(
     llm: IssuePinLLMService,
     row: dict[str, Any],
@@ -214,7 +201,7 @@ async def transform_documents_jsonl(
         db_policy_api_ids=db_ids,
     )
 
-    llm = build_llm_service(model=model)
+    llm = build_issue_pin_llm_service(model=model)
     s3 = s3_util or S3Util()
     processed_rows: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []

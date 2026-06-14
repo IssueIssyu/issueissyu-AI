@@ -47,7 +47,7 @@ class ComplaintPetition(BaseEntity):
     reliability_basis: Mapped[str] = mapped_column("reliability_basis", Text, nullable=False)
     status: Mapped[str] = mapped_column(
         "status",
-        String(32),
+        String(255),
         nullable=False,
         default=ComplaintPetitionStatus.CREATED.value,
     )
@@ -64,4 +64,3 @@ class ComplaintPetition(BaseEntity):
         foreign_keys=[issue_pin_id],
         lazy="selectin",
     )
-
