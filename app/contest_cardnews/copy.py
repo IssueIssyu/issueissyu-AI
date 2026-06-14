@@ -137,10 +137,14 @@ def is_contest_slide_empty(slide: dict[str, Any]) -> bool:
             or bool(str(slide.get("headline") or "").strip())
         )
     if slide.get("items"):
-        return len([i for i in slide["items"] if str(i.get("text") or "").strip()]) == 0
+        return len([
+            i for i in slide["items"]
+            if (str(i.get("text") or "").strip() if isinstance(i, dict) else str(i).strip())
+        ]) == 0
     return not bool(str(slide.get("body") or slide.get("headline") or "").strip())
 
 
 def prepare_contest_slides(slides: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows = compact_contest_deck(slides)
-    return [normalize_contest_slide_copy(s) for s in rows if not is_contest_slide_empty(s)]
+    normalized = [normalize_contest_slide_copy(s) for s in rows]
+    return [s for s in normalized if not is_contest_slide_empty(s)]
