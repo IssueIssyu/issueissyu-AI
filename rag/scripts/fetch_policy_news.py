@@ -21,6 +21,7 @@ if str(_REPO_ROOT) not in sys.path:
 from app.clients.PolicyNewsClient import PolicyNewsClient
 from app.utils.policy_news_parse import (
     build_policy_document_row,
+    is_embargo_active,
     iter_date_chunks,
     validate_yyyymmdd,
 )
@@ -45,6 +46,7 @@ async def fetch_policy_documents(
         "documents": 0,
         "skipped_duplicate": 0,
         "skipped_invalid": 0,
+        "skipped_embargo": 0,
         "api_errors": 0,
     }
     seen_ids: set[str] = set()
@@ -82,6 +84,10 @@ async def fetch_policy_documents(
                 stats["skipped_duplicate"] += 1
                 continue
             seen_ids.add(news_id)
+
+            if is_embargo_active(item.get("EmbargoDate")):
+                stats["skipped_embargo"] += 1
+                continue
 
             row = build_policy_document_row(item)
             if row is None:

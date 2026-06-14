@@ -17,17 +17,11 @@ from app.core.responses import success_response
 from app.core.config import settings
 from app.routes import enabled_routers
 from app.services.internal.ComplaintEmailPdfService import ComplaintEmailPdfService
-from app.services.ComplaintEmailService import ComplaintEmailService
-from app.services.ComplaintEmailVlmService import ComplaintEmailVlmService
-from app.services.RagRerankService import RagRerankService
-from app.services.RagRetrievalService import RagRetrievalService
-from app.services.VectorStoreService import VectorStoreService
 from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPetitionSchedulerService
-from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMService
-from app.services.internal.ai.VLMService import VLMService
-from app.services.internal.ai.gemini_retry import parse_gemini_model_list
-from app.services.vector_domains import DomainVectorConfig, VectorDomain
-from app.services.vector_domains import build_vector_domain_configs
+from app.services.internal.ContestPinSchedulerService import ContestPinSchedulerService
+from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
+from app.services.internal.complaint_wiring import build_complaint_email_service
+from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import build_vector_domain_configs
 from app.schemas.IssueDTO import (
     CreateIssuePinMultipartRequest,
@@ -152,63 +146,64 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
-    scheduler = None
+    complaint_scheduler = None
     if (
         gemini_api_key_secret is not None
         and getattr(app.state, "vector_store_service", None) is not None
     ):
         try:
-            complaint_vlm_service = ComplaintEmailVlmService(
+            complaint_email_service = build_complaint_email_service(
                 api_key=gemini_api_key_secret.get_secret_value(),
-                model=settings.gemini_vlm_model,
-            )
-            validation_vlm_service = VLMService(
-                api_key=gemini_api_key_secret.get_secret_value(),
-                model_name=settings.gemini_vlm_model,
-                fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
-            )
-            complaint_llm_service = ComplaintEmailLLMService(
-                api_key=gemini_api_key_secret.get_secret_value(),
-                model_name=settings.gemini_pin_text_model,
-            )
-            rag_rerank_service = RagRerankService(
-                api_key=gemini_api_key_secret.get_secret_value(),
-                embedding_model=settings.gemini_embedding_model,
-                embed_dim=settings.vector_embed_dim,
-                embedding_batch_size=settings.gemini_embedding_batch_size,
-            )
-            rag_retrieval_service = RagRetrievalService(
                 vector_store_service=app.state.vector_store_service,
-                rerank_service=rag_rerank_service,
-                retrieve_top_k=settings.rag_retrieve_top_k,
-                rerank_top_k=settings.rag_rerank_top_k,
-                enable_rerank=settings.rag_enable_rerank,
-                vector_query_mode=settings.rag_vector_query_mode,
             )
-            complaint_email_service = ComplaintEmailService(
-                complaint_vlm_service=complaint_vlm_service,
-                pin_validation_vlm_service=validation_vlm_service,
-                complaint_llm_service=complaint_llm_service,
-                rag_retrieval_service=rag_retrieval_service,
-            )
-            scheduler = ComplaintPetitionSchedulerService(
+            complaint_scheduler = ComplaintPetitionSchedulerService(
                 complaint_email_service=complaint_email_service,
                 s3_util=app.state.s3_util,
             )
-            scheduler.start()
-            app.state.complaint_scheduler = scheduler
+            complaint_scheduler.start()
+            app.state.complaint_scheduler = complaint_scheduler
         except Exception as exc:
             logger.warning("Complaint scheduler initialization failed: %s", exc)
+
+    policy_pin_scheduler = None
+    if settings.policy_news_service_key is not None and gemini_api_key_secret is not None:
+        try:
+            policy_pin_scheduler = PolicyPinSchedulerService(s3_util=app.state.s3_util)
+            policy_pin_scheduler.start()
+            app.state.policy_pin_scheduler = policy_pin_scheduler
+        except Exception as exc:
+            logger.warning("Policy pin scheduler initialization failed: %s", exc)
+
+    contest_pin_scheduler = None
+    if gemini_api_key_secret is not None:
+        try:
+            contest_pin_scheduler = ContestPinSchedulerService(s3_util=app.state.s3_util)
+            contest_pin_scheduler.start()
+            app.state.contest_pin_scheduler = contest_pin_scheduler
+        except Exception as exc:
+            logger.warning("Contest pin scheduler initialization failed: %s", exc)
 
     try:
         yield
     finally:
-        scheduler = getattr(app.state, "complaint_scheduler", None)
-        if scheduler is not None:
+        complaint_scheduler = getattr(app.state, "complaint_scheduler", None)
+        if complaint_scheduler is not None:
             try:
-                await scheduler.stop()
+                await complaint_scheduler.stop()
             except Exception as exc:
                 logger.warning("Complaint scheduler stop failed: %s", exc)
+        policy_pin_scheduler = getattr(app.state, "policy_pin_scheduler", None)
+        if policy_pin_scheduler is not None:
+            try:
+                await policy_pin_scheduler.stop()
+            except Exception as exc:
+                logger.warning("Policy pin scheduler stop failed: %s", exc)
+        contest_pin_scheduler = getattr(app.state, "contest_pin_scheduler", None)
+        if contest_pin_scheduler is not None:
+            try:
+                await contest_pin_scheduler.stop()
+            except Exception as exc:
+                logger.warning("Contest pin scheduler stop failed: %s", exc)
         try:
             await ComplaintEmailPdfService.stop_playwright_browser()
         except Exception as exc:

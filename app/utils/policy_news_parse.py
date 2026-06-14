@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from html import unescape
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -13,6 +14,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+_KST = ZoneInfo("Asia/Seoul")
 _POLICY_DATE_FMT = "%m/%d/%Y %H:%M:%S"
 _POLICY_DATE_FMT_SHORT = "%m/%d/%Y"
 _IMG_SRC_RE = re.compile(
@@ -52,6 +54,10 @@ def validate_yyyymmdd(value: str, *, label: str) -> str:
     text = (value or "").strip()
     if len(text) != 8 or not text.isdigit():
         raise ValueError(f"{label}는 YYYYMMDD 8자리여야 합니다 (받음: {value!r})")
+    try:
+        datetime.strptime(text, "%Y%m%d")
+    except ValueError:
+        raise ValueError(f"{label}는 유효한 날짜여야 합니다 (받음: {value!r})")
     return text
 
 
@@ -239,27 +245,27 @@ async def fetch_cover_image_urls_from_source(
     headers["Referer"] = url
 
     last_exc: Exception | None = None
-    for attempt in range(1, 4):
-        try:
-            async with httpx.AsyncClient(
-                timeout=timeout,
-                follow_redirects=True,
-                headers=headers,
-            ) as client:
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        for attempt in range(1, 4):
+            try:
                 response = await client.get(url)
                 response.raise_for_status()
                 html = response.text
-            base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
-            return extract_cover_image_urls_from_html(html, base_url=base or url)
-        except httpx.HTTPError as exc:
-            last_exc = exc
-            logger.warning(
-                "원문 페이지 이미지 URL 수집 실패 (attempt %d/3): %s (%s)",
-                attempt,
-                url,
-                exc,
-            )
-            await asyncio.sleep(min(2.0, attempt * 0.7))
+                base = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+                return extract_cover_image_urls_from_html(html, base_url=base or url)
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                logger.warning(
+                    "원문 페이지 이미지 URL 수집 실패 (attempt %d/3): %s (%s)",
+                    attempt,
+                    url,
+                    exc,
+                )
+                await asyncio.sleep(min(2.0, attempt * 0.7))
 
     logger.warning("원문 페이지 이미지 URL 수집 최종 실패: %s (%s)", url, last_exc)
     return []
@@ -323,6 +329,22 @@ def approve_date_to_yyyymmdd(raw: str | None) -> str | None:
     if parsed is None:
         return None
     return parsed.strftime("%Y%m%d")
+
+
+def policy_date_kst(raw: str | None) -> date | None:
+    parsed = parse_policy_datetime(raw)
+    if parsed is None:
+        return None
+    return parsed.date()
+
+
+def is_embargo_active(embargo_raw: str | None, *, as_of: date | None = None) -> bool:
+    """EmbargoDate가 as_of(KST, 기본 오늘)보다 미래이면 아직 엠바고 → True."""
+    embargo_date = policy_date_kst(embargo_raw)
+    if embargo_date is None:
+        return False
+    today = as_of if as_of is not None else datetime.now(_KST).date()
+    return embargo_date > today
 
 
 def local_name(tag: str) -> str:
@@ -430,6 +452,7 @@ def build_policy_document_row(item: dict[str, str]) -> dict[str, Any] | None:
         "source_url": source_url,
         "subtitles": merge_subtitles(item),
         "contents_status": (item.get("ContentsStatus") or "").strip(),
+        "embargo_date": (item.get("EmbargoDate") or "").strip(),
     }
 
 

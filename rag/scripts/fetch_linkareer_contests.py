@@ -26,6 +26,7 @@ import sys
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 _SCRIPT_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _SCRIPT_DIR.parent.parent
 if str(_REPO_ROOT) not in sys.path:
@@ -33,6 +34,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from rag.scripts.chunk_module import iter_jsonl, write_jsonl
 from rag.scripts.preprocess_module import OUTPUT_DIR, clean_text, normalize_unicode_whitespace
+
+from app.utils.contest_images import collect_contest_pin_image_specs
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +186,10 @@ def resolve_event_period(
     return _dates_from_text_blob(body_text[:4000])
 
 
+def contest_today_kst() -> date:
+    return datetime.now(ZoneInfo("Asia/Seoul")).date()
+
+
 def is_expired(end_yyyymmdd: str | None, *, today: date) -> bool:
     if not end_yyyymmdd or len(end_yyyymmdd) != 8:
         return False
@@ -191,6 +198,10 @@ def is_expired(end_yyyymmdd: str | None, *, today: date) -> bool:
     except ValueError:
         return False
     return end < today
+
+
+def is_contest_row_expired(row: dict[str, Any]) -> bool:
+    return is_expired(row.get("event_end_time"), today=contest_today_kst())
 
 
 def load_existing_documents(path: Path) -> dict[str, dict[str, Any]]:
@@ -236,13 +247,16 @@ def build_document(
     event_end_time: str | None,
     host_org: str,
     crawled_at: str,
+    pin_images: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    specs = pin_images if pin_images is not None else collect_contest_pin_image_specs(image_urls)
     return {
         "contentid": contentid,
         "pin_title": pin_title,
         "pin_content_raw": pin_content_raw,
         "source_url": source_url,
         "image_urls": image_urls,
+        "pin_images": specs,
         "event_start_time": event_start_time,
         "event_end_time": event_end_time,
         "host_org": host_org,
@@ -321,6 +335,7 @@ async def run_crawl(
     *,
     output_path: Path | None = None,
     max_pages: int = 5,
+    start_page: int = 1,
     limit: int | None = None,
     delay: float = 1.0,
     force: bool = False,
@@ -330,6 +345,7 @@ async def run_crawl(
     args = argparse.Namespace(
         output=output_path or DEFAULT_OUTPUT,
         max_pages=max_pages,
+        start_page=start_page,
         limit=limit,
         delay=delay,
         headed=headed,
@@ -348,7 +364,7 @@ async def _run_impl(args: argparse.Namespace) -> dict[str, Any]:
     from playwright.async_api import async_playwright
 
     output_path: Path = args.output
-    today = date.today()
+    today = contest_today_kst()
     existing_by_id = load_existing_documents(output_path)
     if existing_by_id and not args.force:
         logger.info("기존 JSONL %d건 — 중복 contentid skip", len(existing_by_id))
@@ -361,7 +377,9 @@ async def _run_impl(args: argparse.Namespace) -> dict[str, Any]:
         context = await browser.new_context(user_agent=USER_AGENT, locale="ko-KR")
         page = await context.new_page()
 
-        for page_num in range(1, args.max_pages + 1):
+        start_page = max(1, int(getattr(args, "start_page", 1) or 1))
+        end_page = start_page + max(0, args.max_pages - 1)
+        for page_num in range(start_page, end_page + 1):
             try:
                 page_ids = await collect_list_contentids(page, page_num=page_num)
             except Exception as exc:
@@ -467,10 +485,16 @@ def parse_args() -> argparse.Namespace:
         help=f"출력 JSONL (기본: {DEFAULT_OUTPUT})",
     )
     parser.add_argument(
+        "--start-page",
+        type=int,
+        default=1,
+        help="목록 시작 페이지 번호 (기본 1)",
+    )
+    parser.add_argument(
         "--max-pages",
         type=int,
         default=5,
-        help="목록 최대 페이지 수 (신규 ID 없으면 조기 종료)",
+        help="시작 페이지부터 순회할 페이지 수 (신규 ID 없으면 조기 종료)",
     )
     parser.add_argument(
         "--limit",

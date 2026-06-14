@@ -31,8 +31,20 @@ class EventPin(BaseEntity):
         back_populates="event_pin",
         lazy="selectin",
     )
-    festival_api_id: Mapped[int] = mapped_column(
+    festival_api_id: Mapped[int | None] = mapped_column(
         "festival_api_id",
+        BigInteger,
+        unique=True,
+        nullable=True,
+    )
+    policy_api_id: Mapped[int | None] = mapped_column(
+        "policy_api_id",
+        BigInteger,
+        unique=True,
+        nullable=True,
+    )
+    contest_api_id: Mapped[int | None] = mapped_column(
+        "contest_api_id",
         BigInteger,
         unique=True,
         nullable=True,

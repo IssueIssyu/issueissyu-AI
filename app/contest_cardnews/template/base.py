@@ -38,18 +38,10 @@ from app.policy_cardnews.template.draw import (
     wrap_text,
 )
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+from app.policy_cardnews.paths import contest_cardnews_font_dir
 
 
-def _get_font_dir() -> Path:
-    from app.core.config import settings
-
-    if settings.policy_cardnews_font_dir:
-        return Path(settings.policy_cardnews_font_dir)
-    return _REPO_ROOT / "app" / "assets" / "fonts"
-
-
-_FONT_DIR = _get_font_dir()
+_FONT_DIR = contest_cardnews_font_dir()
 _CONTEST_FONT_REGULAR = "Hakgyoansim Dunggeunmiso TTF R.ttf"
 _CONTEST_FONT_BOLD = "Hakgyoansim Dunggeunmiso TTF B.ttf"
 

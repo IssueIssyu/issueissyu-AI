@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Query
 
 from app.core.codes import ErrorCode, SuccessCode
-from app.core.deps import PolicyPinServiceDep
+from app.core.deps import PolicyPinServiceDep, S3UtilDep
 from app.core.responses import SuccessEnvelope, success_response
 from app.schemas.PolicyPinDTO import (
     PolicyPinHandoffResult,
@@ -76,6 +76,7 @@ async def search_policy_news(
 )
 async def transform_policy_documents(
     service: PolicyPinServiceDep,
+    s3_util: S3UtilDep,
     limit: int | None = Query(
         default=None,
         ge=1,
@@ -84,7 +85,7 @@ async def transform_policy_documents(
     ),
 ) -> SuccessEnvelope[PolicyPinTransformResult]:
     try:
-        body = await service.transform_and_save(limit=limit)
+        body = await service.transform_and_save(limit=limit, s3_util=s3_util)
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=ErrorCode.NOT_FOUND.http_status,

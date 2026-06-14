@@ -56,17 +56,11 @@ LAYOUT_CTA = "template_cta"
 MASCOT_LAYOUTS = {LAYOUT_COVER, LAYOUT_CTA, LAYOUT_THREE_COL, LAYOUT_NUMBERED}
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+from app.policy_cardnews.paths import cardnews_font_dir
 
 
-def _get_font_dir() -> Path:
-    from app.core.config import settings
-
-    if settings.policy_cardnews_font_dir:
-        return Path(settings.policy_cardnews_font_dir)
-    return _REPO_ROOT / "app" / "assets" / "fonts"
-
-
-_FONT_DIR = _get_font_dir()
+def _font_dir() -> Path:
+    return cardnews_font_dir()
 
 
 @dataclass(frozen=True)
@@ -235,6 +229,7 @@ def apply_deck_template_theme(
     return out
 
 
+@lru_cache(maxsize=128)
 def _load_font(size: int, *, bold: bool = False, extra_bold: bool = False) -> ImageFont.FreeTypeFont:
     size = max(18, int(size))
     if extra_bold:
@@ -243,10 +238,15 @@ def _load_font(size: int, *, bold: bool = False, extra_bold: bool = False) -> Im
         names = ["Pretendard-Bold.otf", "Pretendard-Bold.ttf", "Pretendard-SemiBold.otf"]
     else:
         names = ["Pretendard-Medium.otf", "Pretendard-Regular.otf"]
+    base_dir = _font_dir()
     for name in names:
-        path = _FONT_DIR / name
+        path = base_dir / name
         if path.is_file():
             return ImageFont.truetype(str(path), size=size)
+    logger.warning(
+        "Pretendard 폰트를 찾지 못해 기본 폰트로 렌더합니다 (font_dir=%s)",
+        base_dir,
+    )
     return ImageFont.load_default()
 
 

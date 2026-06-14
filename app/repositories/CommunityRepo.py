@@ -19,3 +19,9 @@ class CommunityRepo(BaseRepo[Community]):
         )
         value = result.scalar_one_or_none()
         return int(value) if value is not None else None
+
+    async def get_by_pin_id(self, pin_id: int) -> Community | None:
+        result = await self.session.execute(
+            select(Community).where(Community.pin_id == pin_id).limit(1),
+        )
+        return result.scalar_one_or_none()

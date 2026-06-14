@@ -63,6 +63,8 @@ class ContestCrawlResult(BaseModel):
     skipped_duplicate: int
     errors: int
     total_count: int
+    start_page: int = Field(default=1, description="크롤 시작 목록 페이지")
+    max_pages: int = Field(default=1, description="시작 페이지부터 순회한 페이지 수")
     hint: str | None = None
 
 
@@ -111,6 +113,13 @@ class ContestPinTransformResult(BaseModel):
     errors: list[dict] = Field(default_factory=list)
     pins: list[ContestPinHandoffDTO] = Field(default_factory=list)
     hint: str | None = None
+    skipped_duplicate_count: int = 0
+    skipped_expired_count: int = 0
+    pending_count: int = 0
+    remaining_pending_count: int = Field(
+        default=0,
+        description="가공 후에도 handoff·DB에 없는 원문 건수",
+    )
 
 
 class ContestPinHandoffResult(BaseModel):
