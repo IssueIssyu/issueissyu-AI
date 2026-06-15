@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     aws_secret_key: SecretStr | None = Field(default=None, alias="AWS_SECRET_KEY")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
+    cdn_enabled: bool = Field(default=False, alias="CDN_ENABLED")
+    cdn_base_url: str | None = Field(default=None, alias="CDN_BASE_URL")
 
     # SMTP (민원 이메일 실제 송신)
     smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
@@ -395,6 +397,13 @@ class Settings(BaseSettings):
     @classmethod
     def _empty_string_gemini_embed_batch(cls, value: object) -> object:
         if value == "":
+            return None
+        return value
+
+    @field_validator("cdn_base_url", mode="before")
+    @classmethod
+    def _empty_cdn_base_url_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and value.strip() == "":
             return None
         return value
 
