@@ -16,17 +16,17 @@ from app.core.config import settings
 ROUTER_REGISTRY = (
     {"router": user_router, "disabled_envs": set()},
     {"router": issue_router, "disabled_envs": set()},
-    {"router": complaint_email_router, "disabled_envs": set()},
+    {"router": complaint_email_router, "disabled_envs": {"prod"}},
     {"router": complaint_apply_router, "disabled_envs": set()},
-    {"router": image_geo_router, "disabled_envs": set()},
+    {"router": image_geo_router, "disabled_envs": {"prod"}},
     {"router": test_router, "disabled_envs": {"dev", "prod"}},
     {"router": vector_test_router, "disabled_envs": {"dev", "prod"}},
     {"router": festival_pin_router, "disabled_envs": {"prod"}},
     {"router": festival_admin_router, "disabled_envs": set()},
     {"router": contest_pin_router, "disabled_envs": {"prod"}},
-    {"router": contest_admin_router, "disabled_envs": {"prod"}},
+    {"router": contest_admin_router, "disabled_envs": set()},
     {"router": policy_pin_router, "disabled_envs": {"prod"}},
-    {"router": policy_admin_router, "disabled_envs": {"prod"}},
+    {"router": policy_admin_router, "disabled_envs": set()},
 )
 
 
