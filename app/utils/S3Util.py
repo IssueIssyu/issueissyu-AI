@@ -105,6 +105,9 @@ class S3Util:
         bucket_name = self._ensure_bucket_name()
         resolved_region = self.region_name or "us-east-1"
         encoded_key = quote(object_key.lstrip("/"), safe="/")
+        cdn_base_url = (settings.cdn_base_url or "").strip()
+        if settings.cdn_enabled and cdn_base_url:
+            return f"{cdn_base_url.rstrip('/')}/{encoded_key}"
         if resolved_region == "us-east-1":
             return f"https://{bucket_name}.s3.amazonaws.com/{encoded_key}"
         return f"https://{bucket_name}.s3.{resolved_region}.amazonaws.com/{encoded_key}"

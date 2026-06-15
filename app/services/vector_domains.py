@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any
 
 from app.core.config import Settings
 
@@ -50,4 +51,13 @@ def build_vector_domain_configs(settings: Settings) -> dict[VectorDomain, Domain
             embed_dim=embed_dim,
             standalone_table=False,
         ),
+    }
+
+
+def build_hnsw_kwargs(settings: Settings) -> dict[str, Any]:
+    return {
+        "hnsw_m": settings.vector_hnsw_m,
+        "hnsw_ef_construction": settings.vector_hnsw_ef_construction,
+        "hnsw_ef_search": settings.vector_hnsw_ef_search,
+        "hnsw_dist_method": settings.vector_hnsw_dist_method,
     }
