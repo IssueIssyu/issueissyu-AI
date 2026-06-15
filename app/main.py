@@ -22,7 +22,7 @@ from app.services.internal.ContestPinSchedulerService import ContestPinScheduler
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
 from app.services.internal.complaint_wiring import build_complaint_email_service
 from app.services.VectorStoreService import VectorStoreService
-from app.services.vector_domains import build_vector_domain_configs
+from app.services.vector_domains import build_hnsw_kwargs, build_vector_domain_configs
 from app.schemas.IssueDTO import (
     CreateIssuePinMultipartRequest,
     PinImageIsMainItem,
@@ -104,6 +104,7 @@ async def lifespan(app: FastAPI):
                 hybrid_search=settings.vector_hybrid_search,
                 text_search_config=settings.vector_text_search_config,
                 embedding_batch_size_override=settings.gemini_embedding_batch_size,
+                hnsw_kwargs=build_hnsw_kwargs(settings),
             )
             if settings.vector_dim_check:
                 dimension_checks = (

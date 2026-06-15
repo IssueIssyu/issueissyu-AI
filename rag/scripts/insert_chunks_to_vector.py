@@ -11,7 +11,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 # python -m rag.scripts.insert_chunks_to_vector 형태 실행 기준
 from app.core.config import settings
 from app.services.VectorStoreService import VectorStoreService
-from app.services.vector_domains import DomainVectorConfig, VectorDomain
+from app.services.vector_domains import DomainVectorConfig, VectorDomain, build_hnsw_kwargs
 from app.utils.chunk_node_metadata import build_chunk_metadata
 from app.utils.chunk_text_normalize import load_skip_line_prefixes, normalize_chunk
 from rag.scripts.chunk_module import iter_jsonl
@@ -44,6 +44,7 @@ def build_service() -> VectorStoreService:
         hybrid_search=settings.vector_hybrid_search,
         text_search_config=settings.vector_text_search_config,
         embedding_batch_size_override=settings.gemini_embedding_batch_size,
+        hnsw_kwargs=build_hnsw_kwargs(settings),
     )
 
 

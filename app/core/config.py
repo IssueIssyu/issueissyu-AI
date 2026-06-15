@@ -160,6 +160,17 @@ class Settings(BaseSettings):
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
     )
+    vector_hnsw_m: int = Field(default=16, ge=1, alias="VECTOR_HNSW_M")
+    vector_hnsw_ef_construction: int = Field(
+        default=64,
+        ge=1,
+        alias="VECTOR_HNSW_EF_CONSTRUCTION",
+    )
+    vector_hnsw_ef_search: int = Field(default=40, ge=1, alias="VECTOR_HNSW_EF_SEARCH")
+    vector_hnsw_dist_method: str = Field(
+        default="vector_cosine_ops",
+        alias="VECTOR_HNSW_DIST_METHOD",
+    )
 
     # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
     policy_news_service_key: SecretStr | None = Field(
@@ -405,6 +416,13 @@ class Settings(BaseSettings):
     def _empty_cdn_base_url_to_none(cls, value: object) -> object | None:
         if isinstance(value, str) and value.strip() == "":
             return None
+        return value
+
+    @field_validator("vector_hnsw_dist_method", mode="before")
+    @classmethod
+    def _empty_vector_hnsw_dist_method(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return "vector_cosine_ops"
         return value
 
     @field_validator(
