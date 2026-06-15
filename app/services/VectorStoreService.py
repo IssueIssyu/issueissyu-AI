@@ -19,6 +19,13 @@ from app.services.vector_domains import DomainVectorConfig, VectorDomain
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HNSW_KWARGS: dict[str, Any] = {
+    "hnsw_m": 16,
+    "hnsw_ef_construction": 64,
+    "hnsw_ef_search": 40,
+    "hnsw_dist_method": "vector_cosine_ops",
+}
+
 @dataclass(slots=True)
 class _VectorIndexBundle:
     table_name: str
@@ -39,6 +46,7 @@ class VectorStoreService:
         hybrid_search: bool = True,
         text_search_config: str = "simple",
         embedding_batch_size_override: int | None = None,
+        hnsw_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self._sync_database_url = sync_database_url
         self._async_database_url = async_database_url
@@ -52,6 +60,8 @@ class VectorStoreService:
         self._domain_configs = domain_configs or {}
         self._embed_models: dict[tuple[str, int], BaseEmbedding] = {}
         self._embedding_batch_size_override = embedding_batch_size_override
+        self._hnsw_kwargs = hnsw_kwargs or dict(DEFAULT_HNSW_KWARGS)
+        logger.info("Vector HNSW config: %s", self._hnsw_kwargs)
 
     @staticmethod
     def _normalize_domain(domain: str) -> str:
@@ -123,12 +133,7 @@ class VectorStoreService:
             embed_dim=embed_dim,
             hybrid_search=self._hybrid_search,
             text_search_config=self._text_search_config,
-            hnsw_kwargs={
-                "hnsw_m": 16,
-                "hnsw_ef_construction": 64,
-                "hnsw_ef_search": 40,
-                "hnsw_dist_method": "vector_cosine_ops",
-            },
+            hnsw_kwargs=self._hnsw_kwargs,
         )
         bundle = _VectorIndexBundle(
             table_name=resolved_table_name,

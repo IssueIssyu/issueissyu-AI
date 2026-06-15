@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     aws_secret_key: SecretStr | None = Field(default=None, alias="AWS_SECRET_KEY")
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")
     aws_bucket_name: str | None = Field(default=None, alias="AWS_BUCKET")
+    cdn_enabled: bool = Field(default=False, alias="CDN_ENABLED")
+    cdn_base_url: str | None = Field(default=None, alias="CDN_BASE_URL")
 
     # SMTP (민원 이메일 실제 송신)
     smtp_host: str | None = Field(default=None, alias="SMTP_HOST")
@@ -157,6 +159,17 @@ class Settings(BaseSettings):
     vector_text_search_config: str = Field(
         default="simple",
         alias="VECTOR_TEXT_SEARCH_CONFIG",
+    )
+    vector_hnsw_m: int = Field(default=16, ge=1, alias="VECTOR_HNSW_M")
+    vector_hnsw_ef_construction: int = Field(
+        default=64,
+        ge=1,
+        alias="VECTOR_HNSW_EF_CONSTRUCTION",
+    )
+    vector_hnsw_ef_search: int = Field(default=40, ge=1, alias="VECTOR_HNSW_EF_SEARCH")
+    vector_hnsw_dist_method: str = Field(
+        default="vector_cosine_ops",
+        alias="VECTOR_HNSW_DIST_METHOD",
     )
 
     # 문화체육관광부 정책브리핑 정책뉴스 OpenAPI (공공데이터포털)
@@ -396,6 +409,20 @@ class Settings(BaseSettings):
     def _empty_string_gemini_embed_batch(cls, value: object) -> object:
         if value == "":
             return None
+        return value
+
+    @field_validator("cdn_base_url", mode="before")
+    @classmethod
+    def _empty_cdn_base_url_to_none(cls, value: object) -> object | None:
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
+
+    @field_validator("vector_hnsw_dist_method", mode="before")
+    @classmethod
+    def _empty_vector_hnsw_dist_method(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip() == "":
+            return "vector_cosine_ops"
         return value
 
     @field_validator(
