@@ -201,6 +201,16 @@ class SuccessCode(Enum):
         "COMPLAINT_2003",
         "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
     )
+    COMPLAINT_PETITION_LIST_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2004",
+        "민원 신청 이력 목록 조회에 성공했습니다.",
+    )
+    COMPLAINT_PETITION_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2005",
+        "민원 신청 이력 조회에 성공했습니다.",
+    )
     FESTIVAL_FETCH_SUCCESS = (
         status.HTTP_200_OK,
         "FESTIVAL_2001",

@@ -36,6 +36,8 @@ from app.schemas.ComplaintEmailDTO import (
     ComplaintPetitionApplyResponse,
     ComplaintPetitionBulkSendItem,
     ComplaintPetitionBulkSendResponse,
+    ComplaintPetitionReviewItem,
+    ComplaintPetitionReviewListResponse,
 )
 from app.schemas.IssueDTO import ImageWithLocation
 from app.services.ComplaintEmailService import ComplaintEmailService
@@ -240,22 +242,35 @@ class ComplaintPetitionService:
         )
         await self.complaint_petition_repo.save(petition, flush_immediately=True)
 
-        return ComplaintPetitionApplyResponse(
-            petition_id=petition.petition_id,
-            issue_pin_id=issue_pin.issue_pin_id,
-            location_department_id=location_department.location_department_id,
-            location_id=location_id,
-            department_name=location_department.department.department_name,
-            location_department_email=location_department.location_department_email,
-            generated_on=target_generated_on.isoformat(),
-            pdf_s3_key=petition.pdf_s3_key,
-            pdf_s3_url=petition.pdf_s3_url,
-            email_subject=petition.email_subject,
-            email_body=petition.email_body,
-            reliability_score=petition.reliability_score,
-            reliability_basis=petition.reliability_basis,
-            status=petition.status,
+        petition.location_department = location_department
+        petition.issue_pin = issue_pin
+        review = self._to_review_item(petition)
+        return ComplaintPetitionApplyResponse.model_validate(review.model_dump())
+
+    async def list_for_review(
+        self,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ComplaintPetitionReviewListResponse:
+        rows, total = await self.complaint_petition_repo.list_for_admin(
+            status=status,
+            limit=limit,
+            offset=offset,
         )
+        return ComplaintPetitionReviewListResponse(
+            items=[self._to_review_item(row) for row in rows],
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def get_for_review(self, petition_id: int) -> ComplaintPetitionReviewItem:
+        petition = await self.complaint_petition_repo.get_by_petition_id_for_review(petition_id)
+        if petition is None:
+            raise_business_exception(ErrorCode.NOT_FOUND, "민원 신청 이력을 찾지 못했습니다.")
+        return self._to_review_item(petition)
 
     async def create_scheduled_petitions(self, *, default_threshold: int = _DEFAULT_TARGET_PETITION) -> dict[str, int]:
         generated_on = self._today_kst()
@@ -537,6 +552,45 @@ class ComplaintPetitionService:
         category = re.sub(r"\s+", "", category)
         category = re.sub(r'[\\/:*?"<>|]+', "-", category).strip("-") or "category"
         return f"민원의견서_{date_text}_{category}_issue{petition.issue_pin_id}.pdf"
+
+    @staticmethod
+    def _to_review_item(petition: ComplaintPetition) -> ComplaintPetitionReviewItem:
+        location_department = petition.location_department
+        location_id = location_department.location_id if location_department is not None else 0
+        department_name = ""
+        location_department_email = ""
+        location_region: str | None = None
+        if location_department is not None:
+            location_department_email = location_department.location_department_email
+            if location_department.department is not None:
+                department_name = location_department.department.department_name
+            if location_department.location is not None:
+                location_region = location_department.location.region
+
+        pin_title: str | None = None
+        if petition.issue_pin is not None and petition.issue_pin.pin is not None:
+            pin_title = petition.issue_pin.pin.pin_title
+
+        return ComplaintPetitionReviewItem(
+            petition_id=petition.petition_id,
+            issue_pin_id=petition.issue_pin_id,
+            location_department_id=petition.location_department_id,
+            location_id=location_id,
+            department_name=department_name,
+            location_department_email=location_department_email,
+            generated_on=petition.generated_on.isoformat(),
+            pdf_s3_key=petition.pdf_s3_key,
+            pdf_s3_url=petition.pdf_s3_url,
+            email_subject=petition.email_subject,
+            email_body=petition.email_body,
+            reliability_score=petition.reliability_score,
+            reliability_basis=petition.reliability_basis,
+            status=petition.status,
+            created_at=petition.created_at,
+            updated_at=petition.updated_at,
+            location_region=location_region,
+            pin_title=pin_title,
+        )
 
     async def _target_petition_for_location(self, *, location_id: int) -> int:
         if location_id <= 0:
