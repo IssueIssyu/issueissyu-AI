@@ -273,7 +273,7 @@ def custom_openapi() -> dict[str, Any]:
         request_model=CreateIssuePinMultipartRequest,
         description=(
             "JSON part (Content-Type: application/json). "
-            "photos와 pinImages 길이·순서 1:1, 이미지 1장 이상이면 isMain true 정확히 1개."
+            "photos와 pinImages 각 1장 이상 필수, 길이·순서 1:1, isMain true 정확히 1개."
         ),
         example={
             "lat": 37.566535,
@@ -289,7 +289,9 @@ def custom_openapi() -> dict[str, Any]:
         request_model=UpdateIssuePinMultipartRequest,
         description=(
             "JSON part (Content-Type: application/json). "
-            "pinImageUrls 생략+photos 없음=기존 이미지 유지, photos 있을 때 pinImages 필수."
+            "수정 후 최종 이미지 1장 이상 필요. "
+            "pinImageUrls 생략+photos 없음=기존 이미지 유지(기존 0장이면 거부), "
+            "pinImageUrls: []로 전부 삭제 불가, photos 있을 때 pinImages 필수."
         ),
         example={
             "pinTitle": "수정된 제목",

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from app.core.codes import ErrorCode
 from app.core.codes import SuccessCode
 from app.core.exceptions import raise_business_exception
 from app.core.deps import AdminUserIdDep, ComplaintPetitionServiceDep
 from app.core.responses import success_response
+from app.models.enum.ComplaintPetitionStatus import ComplaintPetitionStatus
 from app.schemas.ComplaintEmailDTO import ComplaintPetitionBulkSendRequest
 from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPetitionSchedulerService
 
@@ -85,5 +86,40 @@ async def run_complaint_scheduler_once(
     return success_response(
         result=result,
         success_code=SuccessCode.COMPLAINT_SCHEDULER_RUN_SUCCESS,
+    )
+
+
+@router.get("/complaint-admin/petitions")
+async def list_complaint_petitions_for_review(
+    _admin_uid: AdminUserIdDep,
+    complaint_petition_service: ComplaintPetitionServiceDep,
+    status: ComplaintPetitionStatus | None = Query(
+        default=None,
+        description="민원 상태 필터 (미지정 시 전체)",
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    result = await complaint_petition_service.list_for_review(
+        status=status.value if status is not None else None,
+        limit=limit,
+        offset=offset,
+    )
+    return success_response(
+        result=result.model_dump(),
+        success_code=SuccessCode.COMPLAINT_PETITION_LIST_SUCCESS,
+    )
+
+
+@router.get("/complaint-admin/petitions/{petition_id}")
+async def get_complaint_petition_for_review(
+    petition_id: int,
+    _admin_uid: AdminUserIdDep,
+    complaint_petition_service: ComplaintPetitionServiceDep,
+):
+    result = await complaint_petition_service.get_for_review(petition_id)
+    return success_response(
+        result=result.model_dump(),
+        success_code=SuccessCode.COMPLAINT_PETITION_GET_SUCCESS,
     )
 

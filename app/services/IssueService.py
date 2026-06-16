@@ -487,6 +487,8 @@ class IssueService:
             ]
 
         total_count = len(kept_specs) + len(new_specs)
+        if total_count < 1:
+            raise_business_exception(ErrorCode.PIN_IMAGE_REQUIRED)
         if total_count > settings.issue_pin_max_images:
             raise_business_exception(ErrorCode.PIN_IMAGE_COUNT_EXCEEDED)
 
@@ -662,6 +664,8 @@ class IssueService:
             pin_content=request.pin_content,
             validation_error=ErrorCode.ISSUE_PIN_IMPORT_VALIDATION,
         )
+        if len(uploads) < 1 or len(request.pin_images) < 1:
+            raise_business_exception(ErrorCode.PIN_IMAGE_REQUIRED)
         if len(uploads) > settings.issue_pin_max_images:
             raise_business_exception(ErrorCode.PIN_IMAGE_COUNT_EXCEEDED)
         if len(uploads) != len(request.pin_images):
@@ -831,6 +835,8 @@ class IssueService:
             request=request,
             photos=uploads,
         )
+        if image_plan.images_unchanged and not existing_images:
+            raise_business_exception(ErrorCode.PIN_IMAGE_REQUIRED)
 
         uploaded_keys: list[str] = []
         saved_images: list[PinImage]

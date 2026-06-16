@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 class ComplaintEmailVlmImageSlot(BaseModel):
@@ -199,6 +201,20 @@ class ComplaintPetitionApplyResponse(BaseModel):
     reliability_score: float = Field(ge=0.0, le=1.0)
     reliability_basis: str
     status: str
+
+
+class ComplaintPetitionReviewItem(ComplaintPetitionApplyResponse):
+    created_at: datetime
+    updated_at: datetime | None = None
+    location_region: str | None = None
+    pin_title: str | None = None
+
+
+class ComplaintPetitionReviewListResponse(BaseModel):
+    items: list[ComplaintPetitionReviewItem] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
 
 
 class ComplaintPetitionBulkSendRequest(BaseModel):

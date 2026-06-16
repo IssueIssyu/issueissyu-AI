@@ -100,6 +100,11 @@ class ErrorCode(Enum):
         "PIN_IMAGE_400_3",
         "최대 사진 첨부 갯수를 초과했습니다.",
     )
+    PIN_IMAGE_REQUIRED = (
+        status.HTTP_400_BAD_REQUEST,
+        "PIN_IMAGE_400_4",
+        "최소 1장의 사진이 필요합니다.",
+    )
 
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
@@ -195,6 +200,16 @@ class SuccessCode(Enum):
         status.HTTP_200_OK,
         "COMPLAINT_2003",
         "민원 자동 생성 스케줄러 테스트 실행에 성공했습니다.",
+    )
+    COMPLAINT_PETITION_LIST_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2004",
+        "민원 신청 이력 목록 조회에 성공했습니다.",
+    )
+    COMPLAINT_PETITION_GET_SUCCESS = (
+        status.HTTP_200_OK,
+        "COMPLAINT_2005",
+        "민원 신청 이력 조회에 성공했습니다.",
     )
     FESTIVAL_FETCH_SUCCESS = (
         status.HTTP_200_OK,

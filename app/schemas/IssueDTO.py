@@ -52,7 +52,7 @@ class CreateIssuePinMultipartRequest(BaseModel):
     lng: float = Field(ge=-180, le=180)
     pin_title: str = Field(alias="pinTitle")
     pin_content: str = Field(alias="pinContent")
-    pin_images: list[PinImageIsMainItem] = Field(alias="pinImages")
+    pin_images: list[PinImageIsMainItem] = Field(alias="pinImages", min_length=1)
 
 
 class UpdateIssuePinMultipartRequest(BaseModel):
