@@ -155,3 +155,21 @@ class RotatingEmbeddingFailoverTest(unittest.TestCase):
             embedder._get_text_embedding("hello")
         model_a.get_text_embedding.assert_called_once_with("hello")
         mock_embedding_cls.assert_called_once()
+
+    @patch("app.services.internal.ai.rotating_gemini_embedding.GoogleGenAIEmbedding")
+    def test_query_embedding_uses_get_query_embedding(self, mock_embedding_cls: MagicMock) -> None:
+        pool = GeminiKeyPool(("key-a",))
+        model = MagicMock()
+        model.get_query_embedding.return_value = [0.3, 0.4]
+        mock_embedding_cls.return_value = model
+
+        embedder = RotatingGoogleGenAIEmbedding(
+            key_pool=pool,
+            model_name="text-embedding-004",
+            embed_dim=768,
+            embed_batch_size=10,
+        )
+        result = embedder._get_query_embedding("search query")
+        self.assertEqual(result, [0.3, 0.4])
+        model.get_query_embedding.assert_called_once_with("search query")
+        model.get_text_embedding.assert_not_called()

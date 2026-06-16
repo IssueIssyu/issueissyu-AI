@@ -95,10 +95,10 @@ class RotatingGoogleGenAIEmbedding(BaseEmbedding):
         return await self._aexecute_with_failover("aget_text_embedding_batch", texts)
 
     def _get_query_embedding(self, query: str) -> list[float]:
-        return self._get_text_embedding(query)
+        return self._execute_with_failover("get_query_embedding", query)
 
     async def _aget_query_embedding(self, query: str) -> list[float]:
-        return await self._aget_text_embedding(query)
+        return await self._aexecute_with_failover("aget_query_embedding", query)
 
     @classmethod
     def class_name(cls) -> str:
