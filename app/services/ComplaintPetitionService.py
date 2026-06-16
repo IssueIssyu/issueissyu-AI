@@ -247,7 +247,7 @@ class ComplaintPetitionService:
             issue_pin_id=issue_pin.issue_pin_id,
             location_department_id=location_department.location_department_id,
             location_id=location_id,
-            department_name=location_department.department.department_name if location_department.department else "",
+            department_name=department_name,
             location_department_email=location_department.location_department_email,
             generated_on=target_generated_on.isoformat(),
             pdf_s3_key=petition.pdf_s3_key,
