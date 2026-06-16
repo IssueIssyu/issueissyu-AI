@@ -100,6 +100,11 @@ class ErrorCode(Enum):
         "PIN_IMAGE_400_3",
         "최대 사진 첨부 갯수를 초과했습니다.",
     )
+    PIN_IMAGE_REQUIRED = (
+        status.HTTP_400_BAD_REQUEST,
+        "PIN_IMAGE_400_4",
+        "최소 1장의 사진이 필요합니다.",
+    )
 
     # File / Upload
     FILE_NOT_FOUND = (status.HTTP_404_NOT_FOUND, "FILE_4041", "파일을 찾을 수 없습니다.")
