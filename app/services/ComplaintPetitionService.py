@@ -242,10 +242,22 @@ class ComplaintPetitionService:
         )
         await self.complaint_petition_repo.save(petition, flush_immediately=True)
 
-        petition.location_department = location_department
-        petition.issue_pin = issue_pin
-        review = self._to_review_item(petition)
-        return ComplaintPetitionApplyResponse.model_validate(review.model_dump())
+        return ComplaintPetitionApplyResponse(
+            petition_id=petition.petition_id,
+            issue_pin_id=issue_pin.issue_pin_id,
+            location_department_id=location_department.location_department_id,
+            location_id=location_id,
+            department_name=department_name,
+            location_department_email=location_department.location_department_email,
+            generated_on=target_generated_on.isoformat(),
+            pdf_s3_key=petition.pdf_s3_key,
+            pdf_s3_url=petition.pdf_s3_url,
+            email_subject=petition.email_subject,
+            email_body=petition.email_body,
+            reliability_score=petition.reliability_score,
+            reliability_basis=petition.reliability_basis,
+            status=petition.status,
+        )
 
     async def list_for_review(
         self,
@@ -578,7 +590,7 @@ class ComplaintPetitionService:
             location_id=location_id,
             department_name=department_name,
             location_department_email=location_department_email,
-            generated_on=petition.generated_on.isoformat(),
+            generated_on=petition.generated_on.isoformat() if petition.generated_on is not None else "",
             pdf_s3_key=petition.pdf_s3_key,
             pdf_s3_url=petition.pdf_s3_url,
             email_subject=petition.email_subject,
