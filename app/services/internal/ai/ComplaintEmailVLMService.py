@@ -17,6 +17,7 @@ from app.schemas.ComplaintEmailDTO import (
     ComplaintEmailVlmInput,
 )
 from app.schemas.IssueDTO import ImageWithLocation
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
 from app.services.internal.ai.VLMService import resolve_upload_image_mime
 from app.services.prompts.complaint_email_vlm import (
@@ -111,12 +112,14 @@ class ComplaintEmailVlmService:
         catalog: type[ComplaintEmailVlmCatalog] = ComplaintEmailVlmCatalog,
         prompt_builder: ComplaintEmailVlmPromptBuilder | None = None,
         result_processor: ComplaintEmailVlmResultProcessor | None = None,
+        key_pool: GeminiKeyPool | None = None,
     ) -> None:
         self._api_key = api_key
         self._model = model
         self._catalog = catalog
         self._prompt_builder = prompt_builder or ComplaintEmailVlmPromptBuilder(catalog)
         self._processor = result_processor or ComplaintEmailVlmResultProcessor(catalog)
+        self._key_pool = key_pool
         self._client: genai.Client | None = None
         if api_key:
             self._client = genai.Client(api_key=api_key)
@@ -199,6 +202,7 @@ class ComplaintEmailVlmService:
                 contents=parts,
                 config=config,
                 log_prefix="ComplaintEmailVLM",
+                key_pool=self._key_pool,
             )
         except genai_errors.APIError as exc:
             raise BusinessException(

@@ -15,6 +15,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.database import async_database_url as default_async_database_url
 from app.core.database import sync_database_url as default_sync_database_url
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
+from app.services.internal.ai.rotating_gemini_embedding import RotatingGoogleGenAIEmbedding
 from app.services.vector_domains import DomainVectorConfig, VectorDomain
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ class VectorStoreService:
         text_search_config: str = "simple",
         embedding_batch_size_override: int | None = None,
         hnsw_kwargs: dict[str, Any] | None = None,
+        key_pool: GeminiKeyPool | None = None,
     ) -> None:
         self._sync_database_url = sync_database_url
         self._async_database_url = async_database_url
@@ -56,6 +59,7 @@ class VectorStoreService:
         self._hybrid_search = hybrid_search
         self._text_search_config = text_search_config
         self._api_key = api_key
+        self._key_pool = key_pool
         self._bundles: dict[str, _VectorIndexBundle] = {}
         self._domain_configs = domain_configs or {}
         self._embed_models: dict[tuple[str, int], BaseEmbedding] = {}
@@ -106,12 +110,20 @@ class VectorStoreService:
             embed_batch_size = max(1, int(self._embedding_batch_size_override))
         else:
             embed_batch_size = 1 if model_name.strip().endswith("embedding-2") else 10
-        embed_model = GoogleGenAIEmbedding(
-            model_name=model_name,
-            api_key=self._api_key,
-            embedding_config={"output_dimensionality": embed_dim},
-            embed_batch_size=embed_batch_size,
-        )
+        if self._key_pool is not None and self._key_pool.enabled:
+            embed_model = RotatingGoogleGenAIEmbedding(
+                key_pool=self._key_pool,
+                model_name=model_name,
+                embed_dim=embed_dim,
+                embed_batch_size=embed_batch_size,
+            )
+        else:
+            embed_model = GoogleGenAIEmbedding(
+                model_name=model_name,
+                api_key=self._api_key,
+                embedding_config={"output_dimensionality": embed_dim},
+                embed_batch_size=embed_batch_size,
+            )
         self._embed_models[model_key] = embed_model
         return embed_model
 

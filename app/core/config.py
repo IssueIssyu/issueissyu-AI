@@ -94,6 +94,11 @@ class Settings(BaseSettings):
 
     # Gemini/Vector DB
     gemini_api_key: SecretStr | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_api_keys: str = Field(
+        default="",
+        alias="GEMINI_API_KEYS",
+        description="콤마 구분 다중 키 (설정 시 GEMINI_API_KEY보다 우선)",
+    )
     # 이슈 핀 신뢰도 VLM. 3.1-pro는 503·지연이 잦아 기본은 flash 계열.
     gemini_vlm_model: str = Field(
         default="gemini-2.5-flash",
@@ -668,6 +673,17 @@ class Settings(BaseSettings):
             db_user=conn.user,
             db_password=conn.password,
         )
+
+    def resolved_gemini_api_keys(self) -> tuple[str, ...]:
+        from app.services.internal.ai.gemini_retry import parse_gemini_model_list
+
+        if self.gemini_api_keys.strip():
+            raw = list(parse_gemini_model_list(self.gemini_api_keys))
+        elif self.gemini_api_key is not None:
+            raw = [self.gemini_api_key.get_secret_value()]
+        else:
+            raw = []
+        return tuple(dict.fromkeys(k for k in raw if k))
 
 
 @lru_cache

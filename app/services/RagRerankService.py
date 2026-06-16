@@ -8,6 +8,9 @@ from typing import Any
 import numpy as np
 from llama_index.embeddings.google_genai import GoogleGenAIEmbedding
 
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
+from app.services.internal.ai.rotating_gemini_embedding import RotatingGoogleGenAIEmbedding
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,16 +29,26 @@ class RagRerankService:
         embedding_model: str,
         embed_dim: int,
         embedding_batch_size: int | None = None,
+        key_pool: GeminiKeyPool | None = None,
     ) -> None:
         batch_size = embedding_batch_size
         if batch_size is None:
             batch_size = 1 if embedding_model.strip().endswith("embedding-2") else 10
-        self._embed_model = GoogleGenAIEmbedding(
-            model_name=embedding_model,
-            api_key=api_key,
-            embedding_config={"output_dimensionality": embed_dim},
-            embed_batch_size=max(1, batch_size),
-        )
+        resolved_batch_size = max(1, batch_size)
+        if key_pool is not None and key_pool.enabled:
+            self._embed_model = RotatingGoogleGenAIEmbedding(
+                key_pool=key_pool,
+                model_name=embedding_model,
+                embed_dim=embed_dim,
+                embed_batch_size=resolved_batch_size,
+            )
+        else:
+            self._embed_model = GoogleGenAIEmbedding(
+                model_name=embedding_model,
+                api_key=api_key,
+                embedding_config={"output_dimensionality": embed_dim},
+                embed_batch_size=resolved_batch_size,
+            )
 
     async def rerank(
         self,
