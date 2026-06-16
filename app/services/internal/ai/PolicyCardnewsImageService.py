@@ -5,9 +5,11 @@ import logging
 from dataclasses import dataclass, field
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.core.config import settings
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool, get_gemini_key_pool
 from app.services.internal.ai.gemini_retry import (
     is_retryable_gemini_error,
     parse_gemini_model_list,
@@ -25,6 +27,7 @@ class PolicyCardnewsImageService:
     # 정책 카드뉴스 슬라이드 이미지 생성 (텍스트 모델과 분리)
     api_key: str
     model_name: str = "gemini-2.5-flash-image"
+    key_pool: GeminiKeyPool | None = None
     client: genai.Client = field(init=False, repr=False)
     fallback_models: tuple[str, ...] = ("gemini-3-pro-image-preview",)
 
@@ -33,14 +36,15 @@ class PolicyCardnewsImageService:
 
     @classmethod
     def from_settings(cls) -> PolicyCardnewsImageService:
-        secret = settings.gemini_api_key
-        if secret is None:
+        keys = settings.resolved_gemini_api_keys()
+        if not keys:
             raise RuntimeError("GEMINI_API_KEY가 설정되어 있지 않습니다.")
         fallbacks = parse_gemini_model_list(settings.gemini_cardnews_image_fallback_models)
         return cls(
-            api_key=secret.get_secret_value(),
+            api_key=keys[0],
             model_name=settings.gemini_cardnews_image_model.strip(),
             fallback_models=fallbacks,
+            key_pool=get_gemini_key_pool(),
         )
 
     async def generate_slide_image_bytes(self, *, prompt: str) -> bytes:
@@ -93,36 +97,86 @@ class PolicyCardnewsImageService:
         ) from last_error
 
     async def _generate_with_gemini_image(self, *, model: str, prompt: str) -> bytes:
-        response = await self.client.aio.models.generate_content(
-            model=model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_modalities=[types.Modality.IMAGE],
-            ),
+        pool = self.key_pool
+        config = types.GenerateContentConfig(
+            response_modalities=[types.Modality.IMAGE],
         )
-        return self._extract_image_bytes(response)
+
+        async def invoke(client: genai.Client) -> bytes:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=config,
+            )
+            return self._extract_image_bytes(response)
+
+        if pool is not None and pool.enabled:
+            key_index, _, client = await pool.acquire()
+            try:
+                return await invoke(client)
+            except (genai_errors.ServerError, genai_errors.APIError) as exc:
+                if not is_retryable_gemini_error(exc):
+                    raise
+                last_error: Exception | None = exc
+                for failover_idx in pool.failover_indices(key_index):
+                    try:
+                        return await invoke(pool.client_at(failover_idx))
+                    except (genai_errors.ServerError, genai_errors.APIError) as failover_exc:
+                        last_error = failover_exc
+                        if not is_retryable_gemini_error(failover_exc):
+                            raise
+                if last_error is not None:
+                    raise last_error
+                raise
+
+        return await invoke(self.client)
 
     async def _generate_with_imagen(self, *, model: str, prompt: str) -> bytes:
-        response = await self.client.aio.models.generate_images(
-            model=model,
-            prompt=prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio="3:4",
-                output_mime_type="image/png",
-            ),
+        pool = self.key_pool
+        image_config = types.GenerateImagesConfig(
+            number_of_images=1,
+            aspect_ratio="3:4",
+            output_mime_type="image/png",
         )
-        generated = response.generated_images or []
-        if not generated:
-            raise RuntimeError("Imagen 응답에 generated_images가 없음")
-        data = generated[0].image.image_bytes
-        if not data:
-            raise RuntimeError("Imagen image_bytes가 비어 있음")
-        if isinstance(data, str):
-            import base64
 
-            return base64.b64decode(data)
-        return bytes(data)
+        async def invoke(client: genai.Client) -> bytes:
+            response = await client.aio.models.generate_images(
+                model=model,
+                prompt=prompt,
+                config=image_config,
+            )
+            generated = response.generated_images or []
+            if not generated:
+                raise RuntimeError("Imagen 응답에 generated_images가 없음")
+            data = generated[0].image.image_bytes
+            if not data:
+                raise RuntimeError("Imagen image_bytes가 비어 있음")
+            if isinstance(data, str):
+                import base64
+
+                return base64.b64decode(data)
+            return bytes(data)
+
+        if pool is not None and pool.enabled:
+            key_index, _, client = await pool.acquire()
+            try:
+                return await invoke(client)
+            except (genai_errors.ServerError, genai_errors.APIError) as exc:
+                if not is_retryable_gemini_error(exc):
+                    raise
+                last_error: Exception | None = exc
+                for failover_idx in pool.failover_indices(key_index):
+                    try:
+                        return await invoke(pool.client_at(failover_idx))
+                    except (genai_errors.ServerError, genai_errors.APIError) as failover_exc:
+                        last_error = failover_exc
+                        if not is_retryable_gemini_error(failover_exc):
+                            raise
+                if last_error is not None:
+                    raise last_error
+                raise
+
+        return await invoke(self.client)
 
     @staticmethod
     def _extract_image_bytes(response: object) -> bytes:

@@ -48,6 +48,7 @@ from app.services.internal.ai.gemini_factory import (
     build_vlm_service,
     require_gemini_api_key,
 )
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool, get_gemini_key_pool
 from app.services.internal.complaint_wiring import build_complaint_email_service
 from app.services.internal.geo.ImageExifLocationResolveService import ImageExifLocationResolveService
 from app.services.internal.geo.ImageMultipartGeoService import ImageMultipartGeoService
@@ -146,6 +147,14 @@ def get_vector_store_service(request: Request) -> VectorStoreService:
 
 
 VectorStoreServiceDep = Annotated[VectorStoreService, Depends(get_vector_store_service)]
+
+
+def get_gemini_key_pool_dep(request: Request) -> GeminiKeyPool | None:
+    pool = getattr(request.app.state, "gemini_key_pool", None)
+    return pool or get_gemini_key_pool()
+
+
+GeminiKeyPoolDep = Annotated[GeminiKeyPool | None, Depends(get_gemini_key_pool_dep)]
 
 
 def get_pin_repo(session: DbSessionDep) -> PinRepo:

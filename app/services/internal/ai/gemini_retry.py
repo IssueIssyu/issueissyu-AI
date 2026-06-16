@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from google.genai import errors as genai_errors
+
+if TYPE_CHECKING:
+    from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +19,18 @@ def parse_gemini_model_list(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def is_retryable_gemini_error(exc: Exception) -> bool:
+def _gemini_error_status(exc: Exception) -> int | None:
     status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    return None
+
+
+def is_retryable_gemini_error(exc: Exception) -> bool:
+    status_code = _gemini_error_status(exc)
     if status_code in {429, 500, 502, 503, 504}:
         return True
     text = str(exc).lower()
@@ -34,7 +47,7 @@ def is_retryable_gemini_error(exc: Exception) -> bool:
 
 
 def should_skip_gemini_model(exc: Exception) -> bool:
-    status_code = getattr(exc, "status_code", None)
+    status_code = _gemini_error_status(exc)
     if status_code in {400, 404}:
         return True
     text = str(exc).lower()
@@ -45,6 +58,77 @@ def _format_log_context(log_context: str | None) -> str:
     if not log_context:
         return ""
     return f" [{log_context}]"
+
+
+async def _generate_once(
+    client: Any,
+    *,
+    model: str,
+    contents: Any,
+    config: Any | None,
+) -> Any:
+    kwargs: dict[str, Any] = {"model": model, "contents": contents}
+    if config is not None:
+        kwargs["config"] = config
+    return await client.aio.models.generate_content(**kwargs)
+
+
+async def _generate_with_key_failover(
+    *,
+    key_pool: GeminiKeyPool,
+    start_index: int,
+    start_client: Any,
+    model: str,
+    contents: Any,
+    config: Any | None,
+    log_prefix: str,
+    ctx: str,
+    attempt_no: int,
+    max_attempts_per_model: int,
+) -> Any:
+    clients_to_try: list[tuple[int, Any]] = [(start_index, start_client)]
+    for failover_idx in key_pool.failover_indices(start_index):
+        clients_to_try.append((failover_idx, key_pool.client_at(failover_idx)))
+
+    last_error: Exception | None = None
+    for key_idx, try_client in clients_to_try:
+        try:
+            result = await _generate_once(
+                try_client,
+                model=model,
+                contents=contents,
+                config=config,
+            )
+            if key_idx != start_index:
+                logger.warning(
+                    "%s key failover success%s: model=%s key_index=%d/%d attempt=%d/%d",
+                    log_prefix,
+                    ctx,
+                    model,
+                    key_idx + 1,
+                    key_pool.size,
+                    attempt_no,
+                    max_attempts_per_model,
+                )
+            return result
+        except (genai_errors.ServerError, genai_errors.APIError) as exc:
+            last_error = exc
+            if not is_retryable_gemini_error(exc):
+                raise
+            if key_idx != clients_to_try[-1][0]:
+                logger.warning(
+                    "%s key failover retry%s: model=%s key_index=%d/%d status=%s err=%s",
+                    log_prefix,
+                    ctx,
+                    model,
+                    key_idx + 1,
+                    key_pool.size,
+                    getattr(exc, "status_code", None) or _gemini_error_status(exc),
+                    exc,
+                )
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"{log_prefix} generate_content 호출에 실패했습니다.")
 
 
 async def generate_content_with_retry(
@@ -58,20 +142,23 @@ async def generate_content_with_retry(
     base_delay_seconds: float = DEFAULT_BASE_DELAY_SECONDS,
     log_prefix: str = "Gemini",
     log_context: str | None = None,
+    key_pool: GeminiKeyPool | None = None,
 ) -> Any:
     model_candidates = [model_name]
     model_candidates.extend(m for m in fallback_models if m != model_name)
     last_error: Exception | None = None
     ctx = _format_log_context(log_context)
+    pool_active = key_pool is not None and key_pool.enabled
 
     logger.info(
-        "%s call start%s: primary=%s fallbacks=%s chain=%s max_attempts_per_model=%d",
+        "%s call start%s: primary=%s fallbacks=%s chain=%s max_attempts_per_model=%d key_pool=%s",
         log_prefix,
         ctx,
         model_name,
         list(fallback_models),
         model_candidates,
         max_attempts_per_model,
+        f"{key_pool.size}keys" if pool_active else "off",
     )
 
     for model_index, model in enumerate(model_candidates):
@@ -88,26 +175,58 @@ async def generate_content_with_retry(
 
         for attempt in range(max_attempts_per_model):
             attempt_no = attempt + 1
-            logger.info(
-                "%s attempt start%s: model=%s attempt=%d/%d",
-                log_prefix,
-                ctx,
-                model,
-                attempt_no,
-                max_attempts_per_model,
-            )
-            try:
-                kwargs: dict[str, Any] = {"model": model, "contents": contents}
-                if config is not None:
-                    kwargs["config"] = config
-                result = await client.aio.models.generate_content(**kwargs)
+            active_client = client
+            key_index: int | None = None
+            if pool_active and key_pool is not None:
+                key_index, _, active_client = await key_pool.acquire()
                 logger.info(
-                    "%s success%s: model=%s attempt=%d/%d",
+                    "%s attempt start%s: model=%s attempt=%d/%d key_index=%d/%d",
                     log_prefix,
                     ctx,
                     model,
                     attempt_no,
                     max_attempts_per_model,
+                    key_index + 1,
+                    key_pool.size,
+                )
+            else:
+                logger.info(
+                    "%s attempt start%s: model=%s attempt=%d/%d",
+                    log_prefix,
+                    ctx,
+                    model,
+                    attempt_no,
+                    max_attempts_per_model,
+                )
+            try:
+                if pool_active and key_pool is not None and key_index is not None:
+                    result = await _generate_with_key_failover(
+                        key_pool=key_pool,
+                        start_index=key_index,
+                        start_client=active_client,
+                        model=model,
+                        contents=contents,
+                        config=config,
+                        log_prefix=log_prefix,
+                        ctx=ctx,
+                        attempt_no=attempt_no,
+                        max_attempts_per_model=max_attempts_per_model,
+                    )
+                else:
+                    result = await _generate_once(
+                        active_client,
+                        model=model,
+                        contents=contents,
+                        config=config,
+                    )
+                logger.info(
+                    "%s success%s: model=%s attempt=%d/%d%s",
+                    log_prefix,
+                    ctx,
+                    model,
+                    attempt_no,
+                    max_attempts_per_model,
+                    f" key_index={key_index + 1}/{key_pool.size}" if pool_active and key_index is not None and key_pool else "",
                 )
                 return result
             except (genai_errors.ServerError, genai_errors.APIError) as exc:

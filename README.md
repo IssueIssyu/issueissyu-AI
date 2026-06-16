@@ -77,7 +77,8 @@ pip install -r requirements.txt
 # LOCAL_DB_HOST, LOCAL_DB_PORT, LOCAL_DB_NAME, LOCAL_DB_USER, LOCAL_DB_PASSWORD
 # REDIS_LOCAL_HOST, REDIS_LOCAL_PORT
 # JWT_SECRET, JWT_ALGORITHM
-# GEMINI_API_KEY
+# GEMINI_API_KEY          (단일 키, 하위 호환)
+# GEMINI_API_KEYS=key1,key2,key3   (다중 키 round-robin, 설정 시 KEYS 우선)
 # REDIS_LOCAL_HOST, REDIS_LOCAL_PORT  (일일 사용 제한; local)
 # AI_PIN_GENERATION_* / ISSUE_PIN_CREATE_* / ISSUE_PIN_EDIT_*  (rate limit, docs/issue-pin-create-and-reliability.md §9)
 # AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_BUCKET (이미지 업로드 시)

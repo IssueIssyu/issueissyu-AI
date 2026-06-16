@@ -15,6 +15,7 @@ from app.services.internal.ComplaintEmailOpinionRenderer import (
     ComplaintEmailOpinionRenderer,
     OpinionAttachmentImage,
 )
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
 from app.services.prompts.complaint_email_opinion import complaint_opinion_prompt
 
@@ -25,6 +26,7 @@ _JSON_FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE | re.MULT
 class ComplaintEmailLLMService:
     api_key: str
     model_name: str = "gemini-2.5-flash"
+    key_pool: GeminiKeyPool | None = None
     client: genai.Client = field(init=False, repr=False)
     _opinion_renderer: ComplaintEmailOpinionRenderer = field(
         default_factory=ComplaintEmailOpinionRenderer,
@@ -75,6 +77,7 @@ class ComplaintEmailLLMService:
                 contents=text,
                 config=config,
                 log_prefix="ComplaintEmailLLM",
+                key_pool=self.key_pool,
             )
         except genai_errors.APIError as exc:
             raise BusinessException(

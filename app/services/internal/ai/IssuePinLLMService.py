@@ -11,6 +11,7 @@ from google.genai import types
 
 from app.core.codes import ErrorCode
 from app.core.exceptions import BusinessException, raise_business_exception
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
 from app.services.prompts.issue_pin import ISSUE_PIN_OUTPUT_SCHEMA
 
@@ -23,6 +24,7 @@ class IssuePinLLMService:
 
     api_key: str
     model_name: str = "gemini-2.5-flash"
+    key_pool: GeminiKeyPool | None = None
     client: genai.Client = field(init=False, repr=False)
     fallback_models: tuple[str, ...] = ("gemini-2.5-flash-lite", "gemini-2.5-flash")
 
@@ -42,6 +44,7 @@ class IssuePinLLMService:
             contents=contents,
             config=config,
             log_prefix="Pin",
+            key_pool=self.key_pool,
         )
 
     async def generate_pin_copy(self, *, prompt: str) -> dict[str, str]:
