@@ -21,6 +21,7 @@ from app.services.prompts import (
     VLM_PRIVACY_NOTES,
     build_vlm_prompt,
 )
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
 from app.services.prompts.confidence_basis import CONFIDENCE_BASIS_ARRAY_SCHEMA
 from app.services.prompts.issue_reliability_text import (
@@ -257,6 +258,7 @@ class VLMService:
     api_key: str
     model_name: str = "gemini-3.1-pro-preview"
     fallback_models: tuple[str, ...] = ("gemini-2.5-flash", "gemini-2.5-pro")
+    key_pool: GeminiKeyPool | None = None
     client: genai.Client = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -280,6 +282,7 @@ class VLMService:
             max_attempts_per_model=max_attempts_per_model or 5,
             log_prefix="VLM",
             log_context=log_context,
+            key_pool=self.key_pool,
         )
 
     async def analyze_image(

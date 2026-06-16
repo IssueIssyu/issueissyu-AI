@@ -21,6 +21,7 @@ from app.services.internal.ComplaintPetitionSchedulerService import ComplaintPet
 from app.services.internal.ContestPinSchedulerService import ContestPinSchedulerService
 from app.services.internal.PolicyPinSchedulerService import PolicyPinSchedulerService
 from app.services.internal.complaint_wiring import build_complaint_email_service
+from app.services.internal.ai.gemini_key_pool import init_gemini_key_pool
 from app.services.VectorStoreService import VectorStoreService
 from app.services.vector_domains import build_hnsw_kwargs, build_vector_domain_configs
 from app.schemas.IssueDTO import (
@@ -89,14 +90,23 @@ async def lifespan(app: FastAPI):
                 exc,
             )
 
-    gemini_api_key_secret = settings.gemini_api_key
-    if gemini_api_key_secret is None:
-        logger.warning("GEMINI_API_KEY is not configured. VectorStoreService initialization skipped.")
+    gemini_api_keys = settings.resolved_gemini_api_keys()
+    gemini_key_pool = init_gemini_key_pool()
+    if gemini_key_pool is not None:
+        app.state.gemini_key_pool = gemini_key_pool
+        logger.info(
+            "Gemini key pool initialized: %d key(s), rotation=%s",
+            gemini_key_pool.size,
+            "on" if gemini_key_pool.enabled else "off",
+        )
     else:
+        logger.warning("GEMINI_API_KEY is not configured. VectorStoreService initialization skipped.")
+
+    if gemini_api_keys:
         try:
             domain_configs = build_vector_domain_configs(settings)
             app.state.vector_store_service = VectorStoreService(
-                api_key=gemini_api_key_secret.get_secret_value(),
+                api_key=gemini_api_keys[0],
                 table_name=settings.vector_table_name,
                 default_embedding_model=settings.gemini_embedding_model,
                 default_embed_dim=settings.vector_embed_dim,
@@ -105,6 +115,7 @@ async def lifespan(app: FastAPI):
                 text_search_config=settings.vector_text_search_config,
                 embedding_batch_size_override=settings.gemini_embedding_batch_size,
                 hnsw_kwargs=build_hnsw_kwargs(settings),
+                key_pool=gemini_key_pool,
             )
             if settings.vector_dim_check:
                 dimension_checks = (
@@ -149,12 +160,12 @@ async def lifespan(app: FastAPI):
 
     complaint_scheduler = None
     if (
-        gemini_api_key_secret is not None
+        gemini_api_keys
         and getattr(app.state, "vector_store_service", None) is not None
     ):
         try:
             complaint_email_service = build_complaint_email_service(
-                api_key=gemini_api_key_secret.get_secret_value(),
+                api_key=gemini_api_keys[0],
                 vector_store_service=app.state.vector_store_service,
             )
             complaint_scheduler = ComplaintPetitionSchedulerService(
@@ -167,7 +178,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Complaint scheduler initialization failed: %s", exc)
 
     policy_pin_scheduler = None
-    if settings.policy_news_service_key is not None and gemini_api_key_secret is not None:
+    if settings.policy_news_service_key is not None and gemini_api_keys:
         try:
             policy_pin_scheduler = PolicyPinSchedulerService(s3_util=app.state.s3_util)
             policy_pin_scheduler.start()
@@ -176,7 +187,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Policy pin scheduler initialization failed: %s", exc)
 
     contest_pin_scheduler = None
-    if gemini_api_key_secret is not None:
+    if gemini_api_keys:
         try:
             contest_pin_scheduler = ContestPinSchedulerService(s3_util=app.state.s3_util)
             contest_pin_scheduler.start()

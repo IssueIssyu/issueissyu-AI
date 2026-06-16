@@ -9,21 +9,23 @@ from app.services.internal.ai.ComplaintEmailLLMService import ComplaintEmailLLMS
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.ai.VLMService import VLMService
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool, get_gemini_key_pool
 from app.services.internal.ai.gemini_retry import parse_gemini_model_list
 
 
-def _gemini_api_key_or_none() -> str | None:
-    secret = settings.gemini_api_key
-    if secret is None:
-        return None
-    return secret.get_secret_value()
+def _resolved_keys() -> tuple[str, ...]:
+    return settings.resolved_gemini_api_keys()
 
 
 def require_gemini_api_key() -> str:
-    api_key = _gemini_api_key_or_none()
-    if api_key is None:
+    keys = _resolved_keys()
+    if not keys:
         raise_business_exception(ErrorCode.VLM_NOT_CONFIGURED)
-    return api_key
+    return keys[0]
+
+
+def _key_pool() -> GeminiKeyPool | None:
+    return get_gemini_key_pool()
 
 
 def build_vlm_service(*, api_key: str | None = None) -> VLMService:
@@ -32,19 +34,21 @@ def build_vlm_service(*, api_key: str | None = None) -> VLMService:
         api_key=key,
         model_name=settings.gemini_vlm_model,
         fallback_models=parse_gemini_model_list(settings.gemini_vlm_fallback_models),
+        key_pool=_key_pool(),
     )
 
 
 def build_issue_pin_llm_service(*, model: str | None = None) -> IssuePinLLMService:
-    api_key = _gemini_api_key_or_none()
-    if api_key is None:
+    keys = _resolved_keys()
+    if not keys:
         raise RuntimeError("GEMINI_API_KEY가 설정되어 있지 않습니다.")
     model_name = (model or settings.gemini_pin_text_model).strip()
     fallbacks = parse_gemini_model_list(settings.gemini_pin_text_fallback_models)
     return IssuePinLLMService(
-        api_key=api_key,
+        api_key=keys[0],
         model_name=model_name,
         fallback_models=fallbacks,
+        key_pool=_key_pool(),
     )
 
 
@@ -54,6 +58,7 @@ def build_issue_rag_planner_service(*, api_key: str | None = None) -> IssueRagPl
         api_key=key,
         model_name=settings.gemini_rag_planner_model,
         fallback_models=parse_gemini_model_list(settings.gemini_rag_planner_fallback_models),
+        key_pool=_key_pool(),
     )
 
 
@@ -62,6 +67,7 @@ def build_complaint_email_vlm_service(*, api_key: str | None = None) -> Complain
     return ComplaintEmailVlmService(
         api_key=key,
         model=settings.gemini_vlm_model,
+        key_pool=_key_pool(),
     )
 
 
@@ -70,6 +76,7 @@ def build_complaint_email_llm_service(*, api_key: str | None = None) -> Complain
     return ComplaintEmailLLMService(
         api_key=key,
         model_name=settings.gemini_pin_text_model,
+        key_pool=_key_pool(),
     )
 
 
@@ -80,4 +87,5 @@ def build_rag_rerank_service(*, api_key: str | None = None) -> RagRerankService:
         embedding_model=settings.gemini_embedding_model,
         embed_dim=settings.vector_embed_dim,
         embedding_batch_size=settings.gemini_embedding_batch_size,
+        key_pool=_key_pool(),
     )

@@ -9,6 +9,7 @@ from typing import Any
 from google import genai
 from google.genai import types
 
+from app.services.internal.ai.gemini_key_pool import GeminiKeyPool
 from app.services.internal.ai.gemini_retry import generate_content_with_retry
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,7 @@ def _normalize_string_list(value: object) -> list[str]:
 class IssueRagPlannerService:
     api_key: str
     model_name: str = "gemini-2.5-flash-lite"
+    key_pool: GeminiKeyPool | None = None
     client: genai.Client = field(init=False, repr=False)
     fallback_models: tuple[str, ...] = ("gemini-2.5-flash",)
 
@@ -95,6 +97,7 @@ class IssueRagPlannerService:
             config=config,
             log_prefix="Planner",
             log_context=log_context,
+            key_pool=self.key_pool,
         )
 
     async def rewrite_queries(
