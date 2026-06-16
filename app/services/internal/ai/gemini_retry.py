@@ -19,8 +19,18 @@ def parse_gemini_model_list(raw: str) -> tuple[str, ...]:
     return tuple(part.strip() for part in raw.split(",") if part.strip())
 
 
-def is_retryable_gemini_error(exc: Exception) -> bool:
+def _gemini_error_status(exc: Exception) -> int | None:
     status_code = getattr(exc, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    return None
+
+
+def is_retryable_gemini_error(exc: Exception) -> bool:
+    status_code = _gemini_error_status(exc)
     if status_code in {429, 500, 502, 503, 504}:
         return True
     text = str(exc).lower()
@@ -37,7 +47,7 @@ def is_retryable_gemini_error(exc: Exception) -> bool:
 
 
 def should_skip_gemini_model(exc: Exception) -> bool:
-    status_code = getattr(exc, "status_code", None)
+    status_code = _gemini_error_status(exc)
     if status_code in {400, 404}:
         return True
     text = str(exc).lower()
@@ -103,6 +113,8 @@ async def _generate_with_key_failover(
             return result
         except (genai_errors.ServerError, genai_errors.APIError) as exc:
             last_error = exc
+            if not is_retryable_gemini_error(exc):
+                raise
             if key_idx != clients_to_try[-1][0]:
                 logger.warning(
                     "%s key failover retry%s: model=%s key_index=%d/%d status=%s err=%s",
@@ -111,7 +123,7 @@ async def _generate_with_key_failover(
                     model,
                     key_idx + 1,
                     key_pool.size,
-                    getattr(exc, "status_code", None),
+                    getattr(exc, "status_code", None) or _gemini_error_status(exc),
                     exc,
                 )
     if last_error is not None:

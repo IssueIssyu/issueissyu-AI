@@ -61,11 +61,12 @@ class GeminiKeyPool:
     def client_at(self, index: int) -> genai.Client:
         if index < 0 or index >= self.size:
             raise IndexError(f"Gemini key index out of range: {index}")
-        client = self._clients.get(index)
-        if client is None:
-            client = genai.Client(api_key=self._api_keys[index])
-            self._clients[index] = client
-        return client
+        with self._lock:
+            client = self._clients.get(index)
+            if client is None:
+                client = genai.Client(api_key=self._api_keys[index])
+                self._clients[index] = client
+            return client
 
     async def acquire(self) -> tuple[int, str, genai.Client]:
         idx = self._advance_index()
