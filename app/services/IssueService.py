@@ -132,17 +132,29 @@ class IssueService:
         pin_id: int,
         pin_location: PinLocation,
     ) -> None:
-        lat, lng = wgs84_from_pin_point(pin_location.pin_point)
-        region = await self._location_repo.get_region_by_id(pin_location.location_id) or ""
-        await self._pin_geo_redis_publisher.add_pin(
-            pin_id=pin_id,
-            pin_type=PinType.ISSUE.name,
-            lat=lat,
-            lng=lng,
-            detail_address=pin_location.detail_address or "",
-            region=region,
-            discount=None,
-        )
+        """commit 성공 후 Redis GEO 캐시를 best-effort로 동기화한다.
+
+        DB 커밋 이후에만 호출해야 한다. 실패해도 API 응답은 성공으로 유지하고
+        warning 로그만 남긴다(BE 야간 배치로 캐시 정합성 복구 가능).
+        """
+        try:
+            lat, lng = wgs84_from_pin_point(pin_location.pin_point)
+            region = await self._location_repo.get_region_by_id(pin_location.location_id) or ""
+            await self._pin_geo_redis_publisher.add_pin(
+                pin_id=pin_id,
+                pin_type=PinType.ISSUE.name,
+                lat=lat,
+                lng=lng,
+                detail_address=pin_location.detail_address or "",
+                region=region,
+                discount=None,
+            )
+        except Exception:
+            logger.warning(
+                "issue pin geo cache sync failed pin_id=%s",
+                pin_id,
+                exc_info=True,
+            )
 
     async def _build_rate_limit_quota_dict(
         self,
