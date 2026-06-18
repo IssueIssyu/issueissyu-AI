@@ -18,6 +18,12 @@ class LocationRepo(BaseRepo[Location]):
         )
         return list(result.scalars().all())
 
+    async def get_region_by_id(self, location_id: int) -> str | None:
+        location = await self.get_by_id(location_id)
+        if location is None:
+            return None
+        return location.region
+
     async def get_target_petition_by_location_id(self, *, location_id: int) -> int | None:
         result = await self.session.execute(
             select(PopulationDensity.target_petition)

@@ -30,6 +30,8 @@ def _build_issue_service() -> IssueService:
         s3_util=MagicMock(),
         background_runner=MagicMock(),
         issue_pin_daily_rate_limit_service=MagicMock(),
+        location_repo=MagicMock(),
+        pin_geo_redis_publisher=MagicMock(),
     )
 
 
