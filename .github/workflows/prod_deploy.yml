@@ -1,3 +1,5 @@
+# prod 브랜치로 PR이 머지되었을 때 prod EB 배포 + 수동 실행(workflow_dispatch).
+
 name: Issueissyu Prod CI/CD
 
 on:
@@ -9,56 +11,20 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: issueissyu-ai-prod-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
-    runs-on: ubuntu-latest
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged == true && (github.event.pull_request.base.ref == 'prod' || github.event.pull_request.base.ref == 'test/CICD'))
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Create .env file from secret
-        env:
-          DEV_ENV: ${{ secrets.PROD_ENV }}
-        run: |
-          printf '%s' "$DEV_ENV" > .env
-          chmod 600 .env
-
-      - name: Get current time
-        uses: josStorer/get-current-time@v2
-        id: current-time
-        with:
-          format: YYYY-MM-DDTHH:mm:ss
-          utcOffset: "+09:00"
-
-      - name: Generate deployment package
-        run: |
-          mkdir -p deploy
-          rsync -a \
-            --exclude='.git' \
-            --exclude='deploy' \
-            --exclude='__pycache__' \
-            --exclude='.venv' \
-            --exclude='venv' \
-            --exclude='.idea' \
-            --exclude='.cursor' \
-            --exclude='.github' \
-            --exclude='*.pyc' \
-            ./ deploy/
-          (cd deploy && zip -r deploy.zip .)
-
-      - name: Deploy to Elastic Beanstalk
-        uses: einaregilsson/beanstalk-deploy@v22
-        with:
-          aws_access_key: ${{ secrets.AWS_PROD_ACCESS_KEY }}
-          aws_secret_key: ${{ secrets.AWS_PROD_SECRET_KEY }}
-          application_name: 'issueissyu-ai-prod'
-          environment_name: 'issueissyu-ai-env'
-          region: 'ap-northeast-2'
-          version_label: github-action-${{ steps.current-time.outputs.formattedTime }}
-          version_description: ${{ github.ref_name }}@${{ github.sha }}
-          deployment_package: deploy/deploy.zip
-          wait_for_deployment: false
+      (github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'prod')
+    uses: ./.github/workflows/_reusable-eb-deploy.yml
+    with:
+      application_name: issueissyu-ai-prod
+      environment_name: issueissyu-ai-env
+      health_url: ${{ vars.PROD_HEALTH_URL }}
+      checkout_ref: prod
+    secrets:
+      DEPLOY_ENV: ${{ secrets.PROD_ENV }}
