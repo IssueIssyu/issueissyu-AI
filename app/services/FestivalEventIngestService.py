@@ -17,6 +17,7 @@ from app.models.PinLocation import PinLocation
 from app.models.enum.PinType import PinType
 from app.models.enum.ToneType import ToneType
 from app.repositories.EventPinRepo import EventPinRepo
+from app.repositories.LocationRepo import LocationRepo
 from app.repositories.PinImageRepo import PinImageRepo
 from app.repositories.PinLocationRepo import PinLocationRepo
 from app.repositories.PinRepo import PinRepo
@@ -47,6 +48,8 @@ from app.services.festival_pin_transform import (
 )
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
 from app.services.internal.geo.location_resolve_fields import resolve_pin_location_fields
+from app.services.internal.map.PinGeoRedisPublisher import PinGeoCacheItem, PinGeoRedisPublisher
+from app.utils.geo import wgs84_from_pin_point
 from app.utils.festival_date_filter import current_year_festival_range, festival_overlaps_range
 from app.utils.visitkorea_area import area_display_name, resolve_row_area_code, row_matches_area_filter
 from rag.scripts.chunk_module import write_jsonl
@@ -85,12 +88,16 @@ class FestivalEventIngestService:
         pin_location_repo: PinLocationRepo,
         pin_image_repo: PinImageRepo,
         location_resolve_client: LocationResolveClient,
+        location_repo: LocationRepo,
+        pin_geo_redis_publisher: PinGeoRedisPublisher,
     ) -> None:
         self._pin_repo = pin_repo
         self._event_pin_repo = event_pin_repo
         self._pin_location_repo = pin_location_repo
         self._pin_image_repo = pin_image_repo
         self._location_resolve_client = location_resolve_client
+        self._location_repo = location_repo
+        self._pin_geo_redis_publisher = pin_geo_redis_publisher
 
     async def commit(self) -> None:
         await self._pin_repo.commit()
@@ -369,6 +376,7 @@ class FestivalEventIngestService:
         errors: list[dict[str, Any]] = []
         items: list[FestivalBatchItemResult] = []
         pin_ids: list[int] = []
+        geo_cache_items: list[PinGeoCacheItem] = []
 
         pending_rows: list[dict[str, Any]] = []
         for row in handoff_rows:
@@ -403,7 +411,7 @@ class FestivalEventIngestService:
             try:
                 async with self._pin_repo.session.begin_nested():
                     if existing is None:
-                        pin_id = await self._insert_festival_pin(
+                        pin_id, cache_item = await self._insert_festival_pin(
                             admin_uid=admin_uid,
                             row=row,
                             festival_api_id=festival_api_id,
@@ -411,6 +419,7 @@ class FestivalEventIngestService:
                         inserted_count += 1
                         db_ids.add(festival_api_id)
                         pin_ids.append(pin_id)
+                        geo_cache_items.append(cache_item)
                         items.append(
                             FestivalBatchItemResult(
                                 festival_api_id=festival_api_id,
@@ -419,9 +428,10 @@ class FestivalEventIngestService:
                             ),
                         )
                     elif allow_update:
-                        pin_id = await self._update_festival_pin(existing=existing, row=row)
+                        pin_id, cache_item = await self._update_festival_pin(existing=existing, row=row)
                         updated_count += 1
                         pin_ids.append(pin_id)
+                        geo_cache_items.append(cache_item)
                         items.append(
                             FestivalBatchItemResult(
                                 festival_api_id=festival_api_id,
@@ -449,6 +459,7 @@ class FestivalEventIngestService:
                 )
 
         await self._pin_repo.commit()
+        await self._pin_geo_redis_publisher.add_pins_batch(geo_cache_items)
 
         pending_import = 0
         for row in handoff_rows:
@@ -561,7 +572,7 @@ class FestivalEventIngestService:
         admin_uid: str,
         row: dict[str, Any],
         festival_api_id: int,
-    ) -> int:
+    ) -> tuple[int, PinGeoCacheItem]:
         location_fields = await self._resolve_location(row)
         if location_fields is None:
             raise ValueError("위치 resolve 실패")
@@ -596,9 +607,17 @@ class FestivalEventIngestService:
         await self._pin_location_repo.save(pin_location, flush_immediately=True)
 
         await self._replace_pin_images(pin_id=pin.pin_id, row=row)
-        return int(pin.pin_id)
+        cache_item = await self._build_festival_geo_cache_item(
+            pin_id=int(pin.pin_id),
+            location_id=location_id,
+            detail_address=detail_address,
+            pin_point=pin_point,
+        )
+        return int(pin.pin_id), cache_item
 
-    async def _update_festival_pin(self, *, existing: EventPin, row: dict[str, Any]) -> int:
+    async def _update_festival_pin(
+        self, *, existing: EventPin, row: dict[str, Any]
+    ) -> tuple[int, PinGeoCacheItem]:
         pin = existing.pin
         if pin is None:
             raise ValueError("연결된 pin 없음")
@@ -633,7 +652,33 @@ class FestivalEventIngestService:
 
         await self._pin_image_repo.delete_by_pin_id(pin.pin_id)
         await self._replace_pin_images(pin_id=pin.pin_id, row=row)
-        return int(pin.pin_id)
+        cache_item = await self._build_festival_geo_cache_item(
+            pin_id=int(pin.pin_id),
+            location_id=location_id,
+            detail_address=detail_address,
+            pin_point=pin_point,
+        )
+        return int(pin.pin_id), cache_item
+
+    async def _build_festival_geo_cache_item(
+        self,
+        *,
+        pin_id: int,
+        location_id: int,
+        detail_address: str,
+        pin_point,
+    ) -> PinGeoCacheItem:
+        lat, lng = wgs84_from_pin_point(pin_point)
+        region = await self._location_repo.get_region_by_id(location_id) or ""
+        return PinGeoCacheItem(
+            pin_id=pin_id,
+            pin_type=PinType.FESTIVAL.name,
+            lat=lat,
+            lng=lng,
+            detail_address=detail_address,
+            region=region,
+            discount=None,
+        )
 
     async def _replace_pin_images(self, *, pin_id: int, row: dict[str, Any]) -> None:
         for spec in pin_images_for_db_row(row):
