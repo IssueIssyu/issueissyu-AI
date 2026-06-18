@@ -221,6 +221,8 @@ class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
             pin_location_repo=MagicMock(),
             pin_image_repo=MagicMock(),
             location_resolve_client=MagicMock(),
+            location_repo=MagicMock(),
+            pin_geo_redis_publisher=MagicMock(add_pins_batch=AsyncMock()),
         )
         service._event_pin_repo.list_festival_api_ids = AsyncMock(return_value={100})
         service._event_pin_repo.get_by_festival_api_id = AsyncMock()
@@ -260,6 +262,8 @@ class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
             pin_location_repo=MagicMock(),
             pin_image_repo=MagicMock(),
             location_resolve_client=MagicMock(),
+            location_repo=MagicMock(),
+            pin_geo_redis_publisher=MagicMock(add_pins_batch=AsyncMock()),
         )
         service._event_pin_repo.list_festival_api_ids = AsyncMock(return_value=set())
         service._event_pin_repo.get_by_festival_api_id = AsyncMock(return_value=None)
@@ -302,6 +306,8 @@ class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
             pin_location_repo=MagicMock(),
             pin_image_repo=MagicMock(),
             location_resolve_client=MagicMock(),
+            location_repo=MagicMock(),
+            pin_geo_redis_publisher=MagicMock(add_pins_batch=AsyncMock()),
         )
         service._event_pin_repo.list_festival_api_ids = AsyncMock(return_value=set())
         service._event_pin_repo.get_by_festival_api_id = AsyncMock(return_value=None)
@@ -329,6 +335,8 @@ class FestivalImportBatchTest(unittest.IsolatedAsyncioTestCase):
             pin_location_repo=MagicMock(),
             pin_image_repo=MagicMock(),
             location_resolve_client=MagicMock(),
+            location_repo=MagicMock(),
+            pin_geo_redis_publisher=MagicMock(add_pins_batch=AsyncMock()),
         )
         expected = FestivalImportBatchResult(
             import_all=True,

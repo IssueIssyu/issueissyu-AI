@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Annotated
 
 import httpx
@@ -27,6 +29,7 @@ from app.repositories.UserRepo import UserRepo
 from app.services.IssueService import IssueService
 from app.services.internal.IssuePinDailyRateLimitService import IssuePinDailyRateLimitService
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
+from app.services.internal.map.PinGeoRedisPublisher import PinGeoRedisPublisher
 from app.services.UserService import UserService
 from app.services.ComplaintEmailService import ComplaintEmailService
 from app.services.ContestPinService import ContestPinService
@@ -325,6 +328,8 @@ def get_issue_service(
     s3_util: S3UtilDep,
     background_runner: IssuePinBackgroundRunnerDep,
     issue_pin_daily_rate_limit_service: IssuePinDailyRateLimitServiceDep,
+    location_repo: LocationRepoDep,
+    pin_geo_redis_publisher: PinGeoRedisPublisherDep,
 ) -> IssueService:
     return IssueService(
         vector_store_service=vector_store_service,
@@ -341,6 +346,8 @@ def get_issue_service(
         s3_util=s3_util,
         background_runner=background_runner,
         issue_pin_daily_rate_limit_service=issue_pin_daily_rate_limit_service,
+        location_repo=location_repo,
+        pin_geo_redis_publisher=pin_geo_redis_publisher,
     )
 
 
@@ -355,6 +362,18 @@ def get_async_redis_client(request: Request) -> AsyncRedis:
 
 
 AsyncRedisDep = Annotated[AsyncRedis, Depends(get_async_redis_client)]
+
+
+def get_pin_geo_redis_publisher(
+    redis_client: AsyncRedisDep,
+) -> PinGeoRedisPublisher:
+    return PinGeoRedisPublisher(redis_client)
+
+
+PinGeoRedisPublisherDep = Annotated[
+    PinGeoRedisPublisher,
+    Depends(get_pin_geo_redis_publisher),
+]
 
 CurrentUserIdDep = Annotated[str, Depends(get_current_user_id)]
 OptionalUserIdDep = Annotated[str | None, Depends(get_optional_user_id)]
@@ -420,6 +439,8 @@ def get_festival_event_ingest_service(
     pin_location_repo: PinLocationRepoDep,
     pin_image_repo: PinImageRepoDep,
     location_resolve_client: LocationResolveClientDep,
+    location_repo: LocationRepoDep,
+    pin_geo_redis_publisher: PinGeoRedisPublisherDep,
 ) -> FestivalEventIngestService:
     return FestivalEventIngestService(
         pin_repo=pin_repo,
@@ -427,6 +448,8 @@ def get_festival_event_ingest_service(
         pin_location_repo=pin_location_repo,
         pin_image_repo=pin_image_repo,
         location_resolve_client=location_resolve_client,
+        location_repo=location_repo,
+        pin_geo_redis_publisher=pin_geo_redis_publisher,
     )
 
 

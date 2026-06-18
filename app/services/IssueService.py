@@ -27,6 +27,7 @@ from app.models.enum.PinType import PinType
 from app.models.enum.ToneType import ToneType
 from app.repositories.CommunityRepo import CommunityRepo
 from app.repositories.IssuePinRepo import IssuePinRepo
+from app.repositories.LocationRepo import LocationRepo
 from app.repositories.PinLikeRepo import PinLikeRepo
 from app.repositories.PinImageRepo import PinImageRepo
 from app.repositories.PinLocationRepo import PinLocationRepo
@@ -53,6 +54,7 @@ from app.services.internal.IssuePinDailyRateLimitService import (
     RateLimitSnapshot,
 )
 from app.services.internal.IssuePinBackgroundRunner import IssuePinBackgroundRunner
+from app.services.internal.map.PinGeoRedisPublisher import PinGeoRedisPublisher
 from app.services.internal.ai.IssuePinLLMService import IssuePinLLMService
 from app.services.internal.ai.IssueRagPlannerService import IssueRagPlannerService
 from app.services.internal.geo.LocationResolveClient import LocationResolveClient
@@ -104,6 +106,8 @@ class IssueService:
         s3_util: S3Util,
         background_runner: IssuePinBackgroundRunner,
         issue_pin_daily_rate_limit_service: IssuePinDailyRateLimitService,
+        location_repo: LocationRepo,
+        pin_geo_redis_publisher: PinGeoRedisPublisher,
     ) -> None:
         self._vector_store_service = vector_store_service
         self._issue_rag_planner_service = issue_rag_planner_service
@@ -119,6 +123,26 @@ class IssueService:
         self._user_repo = user_repo
         self._background_runner = background_runner
         self._rate_limit = issue_pin_daily_rate_limit_service
+        self._location_repo = location_repo
+        self._pin_geo_redis_publisher = pin_geo_redis_publisher
+
+    async def _sync_issue_pin_geo_cache(
+        self,
+        *,
+        pin_id: int,
+        pin_location: PinLocation,
+    ) -> None:
+        lat, lng = wgs84_from_pin_point(pin_location.pin_point)
+        region = await self._location_repo.get_region_by_id(pin_location.location_id) or ""
+        await self._pin_geo_redis_publisher.add_pin(
+            pin_id=pin_id,
+            pin_type=PinType.ISSUE.name,
+            lat=lat,
+            lng=lng,
+            detail_address=pin_location.detail_address or "",
+            region=region,
+            discount=None,
+        )
 
     async def _build_rate_limit_quota_dict(
         self,
@@ -753,6 +777,11 @@ class IssueService:
             logger.exception("issue pin create commit failed uid=%s", uid)
             raise_business_exception(ErrorCode.ISSUE_PIN_IMPORT_FAILED)
 
+        await self._sync_issue_pin_geo_cache(
+            pin_id=pin.pin_id,
+            pin_location=pin_location,
+        )
+
         snapshot = await self._rate_limit.record_daily_quota_success(
             RateLimitKind.CREATE,
             uid=uid,
@@ -871,6 +900,11 @@ class IssueService:
                 await self._s3_util.delete_objects_best_effort(uploaded_keys)
             logger.exception("issue pin update failed pin_id=%s", pin.pin_id)
             raise_business_exception(ErrorCode.ISSUE_PIN_EDIT_FAILED)
+
+        await self._sync_issue_pin_geo_cache(
+            pin_id=pin.pin_id,
+            pin_location=pin_location,
+        )
 
         snapshot = await self._rate_limit.record_daily_quota_success(
             RateLimitKind.EDIT,
