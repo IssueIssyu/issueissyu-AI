@@ -1,0 +1,186 @@
+name: Reusable EB Deploy
+
+on:
+  workflow_call:
+    inputs:
+      application_name:
+        required: true
+        type: string
+      environment_name:
+        required: true
+        type: string
+      health_url:
+        required: true
+        type: string
+      checkout_ref:
+        required: true
+        type: string
+    secrets:
+      DEPLOY_ENV:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_DEFAULT_REGION: ap-northeast-2
+      HEALTH_URL: ${{ inputs.health_url }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Create .env file from secret
+        run: |
+          if [ -z "${{ secrets.DEPLOY_ENV }}" ]; then
+            echo "DEPLOY_ENV secret is empty"
+            exit 1
+          fi
+          printf '%s' "${{ secrets.DEPLOY_ENV }}" > .env
+          chmod 600 .env
+
+      - name: Get current time
+        uses: josStorer/get-current-time@v2
+        id: current-time
+        with:
+          format: 'YYYYMMDD-HHmmss'
+          utcOffset: '+09:00'
+
+      - name: Generate deployment package
+        run: |
+          mkdir -p deploy
+          rsync -a \
+            --exclude='.git' \
+            --exclude='deploy' \
+            --exclude='__pycache__' \
+            --exclude='.venv' \
+            --exclude='venv' \
+            --exclude='.idea' \
+            --exclude='.cursor' \
+            --exclude='.github' \
+            --exclude='tests' \
+            --exclude='rag/raw' \
+            --exclude='docs' \
+            --exclude='*.pyc' \
+            ./ deploy/
+          (cd deploy && zip -r deploy.zip .)
+
+      - name: Verify deploy zip content
+        run: |
+          unzip -l deploy/deploy.zip | head -n 50
+          unzip -l deploy/deploy.zip | egrep -i "\.git/|\.venv/|__pycache__|tests/" && exit 1 || echo "OK"
+
+      - name: Configure AWS credentials
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-2
+          output-credentials: true
+
+      - name: Save current version
+        run: |
+          CURRENT=$(aws elasticbeanstalk describe-environments \
+            --environment-names "${{ inputs.environment_name }}" \
+            --query 'Environments[0].VersionLabel' \
+            --output text)
+
+          echo "CURRENT_VERSION=$CURRENT"
+
+          if [ "$CURRENT" = "None" ] || [ "$CURRENT" = "null" ]; then
+            CURRENT=""
+          fi
+
+          echo "PREVIOUS_VERSION=$CURRENT" >> $GITHUB_ENV
+
+      - name: Deploy to Elastic Beanstalk
+        id: deploy
+        uses: einaregilsson/beanstalk-deploy@v22
+        with:
+          aws_access_key: ${{ steps.aws-creds.outputs.aws-access-key-id }}
+          aws_secret_key: ${{ steps.aws-creds.outputs.aws-secret-access-key }}
+          aws_session_token: ${{ steps.aws-creds.outputs.aws-session-token }}
+          application_name: ${{ inputs.application_name }}
+          environment_name: ${{ inputs.environment_name }}
+          region: ap-northeast-2
+          version_label: github-action-${{ steps.current-time.outputs.formattedTime }}
+          version_description: ${{ github.ref_name }}@${{ github.sha }}
+          deployment_package: deploy/deploy.zip
+          wait_for_deployment: true
+          wait_for_environment_recovery: 180
+
+      - name: Smoke test with retry
+        id: smoke_test
+        run: |
+          MAX_RETRY=3
+
+          if [ -z "$HEALTH_URL" ]; then
+            echo "health_url input is not set."
+            exit 1
+          fi
+
+          echo "HEALTH_URL=$HEALTH_URL"
+
+          for attempt in $(seq 1 $MAX_RETRY); do
+            echo "=== 스모크 테스트 시도 $attempt / $MAX_RETRY ==="
+
+            for i in {1..30}; do
+              code="$(curl -sS --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)"
+              echo "health check $i: $code"
+
+              if [ "$code" = "200" ]; then
+                echo "health OK (시도 $attempt)"
+                exit 0
+              fi
+
+              sleep 10
+            done
+
+            echo "시도 $attempt 실패"
+
+            if [ "$attempt" -lt "$MAX_RETRY" ]; then
+              echo "30초 후 재시도..."
+              sleep 30
+            fi
+          done
+
+          echo "최대 재시도 횟수($MAX_RETRY) 초과 - 배포 실패"
+          exit 1
+
+      - name: Rollback on failure
+        if: failure() && env.PREVIOUS_VERSION != '' && env.PREVIOUS_VERSION != 'None' && (steps.deploy.outcome == 'failure' || steps.smoke_test.outcome == 'failure')
+        run: |
+          echo "배포 실패 - $PREVIOUS_VERSION 으로 롤백"
+
+          aws elasticbeanstalk update-environment \
+            --environment-name "${{ inputs.environment_name }}" \
+            --version-label "$PREVIOUS_VERSION"
+
+          echo "롤백 배포 완료 대기"
+          aws elasticbeanstalk wait environment-updated \
+            --environment-names "${{ inputs.environment_name }}"
+
+          echo "롤백 후 smoke test 시작"
+          echo "HEALTH_URL=$HEALTH_URL"
+
+          for i in {1..30}; do
+            code="$(curl -sS --connect-timeout 5 --max-time 10 -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)"
+            echo "rollback health check $i: $code"
+
+            if [ "$code" = "200" ]; then
+              echo "rollback health OK"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "롤백 후에도 health check 실패"
+          exit 1
